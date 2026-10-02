@@ -20,6 +20,8 @@ public interface FarmRepository extends JpaRepository<Farm, Long> {
 
     Optional<Farm> findByIdAndTenantId(Long id, Long tenantId);
 
+    boolean existsByIdAndTenantId(Long id, Long tenantId);
+
     boolean existsByTenantIdAndCode(Long tenantId, String code);
 
     boolean existsByTenantIdAndCodeAndIdNot(Long tenantId, String code, Long id);

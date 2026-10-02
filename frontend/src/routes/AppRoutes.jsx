@@ -15,11 +15,19 @@ import { NotificationsPage } from '../pages/NotificationsPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SelectTenantPage } from '../pages/SelectTenantPage';
 
+// Phase 3 Pages
+import { CropsPage } from '../features/crops/CropsPage';
+import { LivestockPage } from '../features/livestock/LivestockPage';
+import { InventoryPage } from '../features/inventory/InventoryPage';
+import { ProductBatchListPage } from '../features/traceability/ProductBatchListPage';
+import { PublicTraceabilityPage } from '../features/traceability/PublicTraceabilityPage';
+
 export const AppRoutes = () => {
   return (
     <Routes>
-      {/* Public Route */}
+      {/* Public Routes - Khách vãng lai quét mã QR tem chống giả VietGAP */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/traceability/:code" element={<PublicTraceabilityPage />} />
 
       {/* Protected Routes */}
       <Route element={<ProtectedRoute />}>
@@ -48,6 +56,12 @@ export const AppRoutes = () => {
             <Route path="/farms/:farmId" element={<FarmDetailPage />} />
             <Route path="/partners" element={<PartnersPage />} />
 
+            {/* Phase 3: Core Production & Inventory & Traceability Routes */}
+            <Route path="/crops" element={<CropsPage />} />
+            <Route path="/livestock" element={<LivestockPage />} />
+            <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/traceability" element={<ProductBatchListPage />} />
+
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
@@ -59,3 +73,4 @@ export const AppRoutes = () => {
     </Routes>
   );
 };
+

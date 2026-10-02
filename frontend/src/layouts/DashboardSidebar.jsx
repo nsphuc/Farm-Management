@@ -12,6 +12,10 @@ import {
   ChevronRight,
   Shield,
   Layers,
+  Wheat,
+  Beef,
+  Package,
+  QrCode,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/useAuthStore';
 
@@ -44,6 +48,34 @@ export const DashboardSidebar = ({
       label: 'Quản lý Trang trại',
       icon: Sprout,
       show: true,
+    },
+    {
+      to: '/crops',
+      label: 'Trồng trọt & Mùa vụ',
+      icon: Wheat,
+      show: true,
+      badge: 'VietGAP',
+    },
+    {
+      to: '/livestock',
+      label: 'Chăn nuôi & RFID',
+      icon: Beef,
+      show: true,
+      badge: 'RFID',
+    },
+    {
+      to: '/inventory',
+      label: 'Kho vật tư & Tồn kho',
+      icon: Package,
+      show: true,
+      badge: 'FIFO',
+    },
+    {
+      to: '/traceability',
+      label: 'Lô thành phẩm & Tem QR',
+      icon: QrCode,
+      show: true,
+      badge: 'QR Code',
     },
     {
       to: '/partners',
