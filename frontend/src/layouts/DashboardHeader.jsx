@@ -3,6 +3,7 @@ import { Menu, LogOut, Shield, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../stores/useAuthStore';
 import { authService } from '../services/authService';
 import { TenantSwitcher } from '../components/common/TenantSwitcher';
+import { FarmSwitcher } from '../components/common/FarmSwitcher';
 import { NotificationPopover } from '../components/common/NotificationPopover';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -52,6 +53,8 @@ export const DashboardHeader = ({ onToggleSidebar }) => {
           </button>
 
           <TenantSwitcher />
+          <div className="hidden sm:block h-6 w-px bg-slate-200 dark:bg-slate-800" />
+          <FarmSwitcher />
         </div>
 
         {/* Right Section: Notifications & User Profile */}

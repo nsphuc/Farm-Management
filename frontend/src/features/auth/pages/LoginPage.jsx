@@ -67,6 +67,7 @@ export const LoginPage = () => {
 
         // Khởi tạo danh sách tenant từ thông tin người dùng
         if (user.tenantId) {
+          useTenantStore.getState().setCurrentTenantId(user.tenantId);
           setTenants([
             {
               id: user.tenantId,

@@ -8,6 +8,9 @@ import { DashboardLayout } from '../layouts/DashboardLayout';
 import { DashboardOverviewPage } from '../pages/DashboardOverviewPage';
 import { UsersManagementPage } from '../pages/UsersManagementPage';
 import { FarmsPage } from '../pages/FarmsPage';
+import { FarmDetailPage } from '../pages/FarmDetailPage';
+import { EnterpriseManagementPage } from '../pages/EnterpriseManagementPage';
+import { PartnersPage } from '../pages/PartnersPage';
 import { NotificationsPage } from '../pages/NotificationsPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { SelectTenantPage } from '../pages/SelectTenantPage';
@@ -39,7 +42,12 @@ export const AppRoutes = () => {
               }
             />
 
+            {/* Phase 2: Core SaaS Module 1 Routes */}
+            <Route path="/enterprise" element={<EnterpriseManagementPage />} />
             <Route path="/farms" element={<FarmsPage />} />
+            <Route path="/farms/:farmId" element={<FarmDetailPage />} />
+            <Route path="/partners" element={<PartnersPage />} />
+
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
