@@ -29,6 +29,14 @@ public class GlobalExceptionHandler {
                 ApiResponse.error(HttpStatus.BAD_REQUEST.value(), "Dữ liệu nhập vào không hợp lệ.", errors));
     }
 
+    // 1b. Bắt lỗi định dạng JSON hoặc mã hóa body yêu cầu (HttpMessageNotReadableException)
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleHttpMessageNotReadable(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        log.warn("Lỗi đọc payload yêu cầu: {}", ex.getMessage());
+        return ResponseEntity.badRequest().body(
+                ApiResponse.error(HttpStatus.BAD_REQUEST.value(), "Dữ liệu yêu cầu không đúng định dạng JSON hoặc mã hóa UTF-8."));
+    }
+
     // 2. Bắt lỗi không tìm thấy tài nguyên (EntityNotFoundException)
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleEntityNotFound(EntityNotFoundException ex) {

@@ -62,6 +62,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         Long tokenTenantId = jwtService.extractTenantId(jwt);
                         if (tokenTenantId != null) {
                             TenantContextHolder.setTenantId(tokenTenantId);
+                        } else if (userDetails instanceof com.farmsaas.security.service.UserPrincipal principal && principal.getTenantId() != null) {
+                            TenantContextHolder.setTenantId(principal.getTenantId());
                         }
                     }
                 }

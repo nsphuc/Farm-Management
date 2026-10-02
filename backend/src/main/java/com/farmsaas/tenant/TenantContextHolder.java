@@ -28,6 +28,22 @@ public final class TenantContextHolder {
         return CURRENT_TENANT.get();
     }
 
+    public static Long getRequiredTenantId() {
+        Long tenantId = getTenantId();
+        if (tenantId == null) {
+            tenantId = com.farmsaas.security.util.SecurityUtils.getCurrentUserPrincipal()
+                    .map(com.farmsaas.security.service.UserPrincipal::getTenantId)
+                    .orElse(null);
+            if (tenantId != null) {
+                setTenantId(tenantId);
+            }
+        }
+        if (tenantId == null) {
+            throw new com.farmsaas.common.exception.BusinessException("Vui lòng chọn tổ chức/trang trại trước khi thao tác.");
+        }
+        return tenantId;
+    }
+
     public static void clear() {
         log.trace("Xóa Tenant ID khỏi ThreadContext");
         CURRENT_TENANT.remove();
