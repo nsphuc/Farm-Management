@@ -23,6 +23,7 @@ import { traceabilityService } from '../../services/traceabilityService';
 import { ThermalLabelModal } from './ThermalLabelModal';
 import { CreateBatchModal } from './CreateBatchModal';
 import { toast } from 'sonner';
+import { PermissionGuard } from '../../components/common/PermissionGuard';
 
 export const ProductBatchListPage = () => {
   const { currentFarm } = useFarmStore();
@@ -164,12 +165,14 @@ export const ProductBatchListPage = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-md shadow-emerald-600/20 hover:shadow-lg transition flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" /> Khởi tạo Lô thành phẩm
-        </button>
+        <PermissionGuard allowedRoles={['FARM_OWNER', 'WAREHOUSE_STAFF']} action="CREATE">
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-md shadow-emerald-600/20 hover:shadow-lg transition flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Khởi tạo Lô thành phẩm
+          </button>
+        </PermissionGuard>
       </div>
 
       {/* KPI Cards */}
@@ -365,9 +368,9 @@ export const ProductBatchListPage = () => {
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* Approval Gate: Phê duyệt / Từ chối */}
+                          {/* Approval Gate: Phê duyệt / Từ chối (CHỈ FARM OWNER) */}
                           {isPending && (
-                            <>
+                            <PermissionGuard allowedRoles={['FARM_OWNER']} action="APPROVE">
                               <button
                                 onClick={() => handleApprove(batch)}
                                 title="Phê duyệt kiểm định an toàn (Sinh QR ZXing)"
@@ -382,19 +385,26 @@ export const ProductBatchListPage = () => {
                               >
                                 Từ chối
                               </button>
-                            </>
+                            </PermissionGuard>
                           )}
 
-                          {/* In tem nhãn nhiệt */}
-                          {(isReady || isPrinted) && (
+                          {/* In tem nhãn nhiệt: CHỈ FARM_OWNER & WAREHOUSE_STAFF.
+                              Nếu Lô ở trạng thái PENDING_APPROVAL hoặc REJECTED: Disabled với tooltip 'Chờ duyệt kiểm định' */}
+                          <PermissionGuard
+                            allowedRoles={['FARM_OWNER', 'WAREHOUSE_STAFF']}
+                            action="PRINT_LABEL"
+                            behavior="disable"
+                            condition={isReady || isPrinted}
+                            tooltip={isReady || isPrinted ? 'In tem nhãn nhiệt (Khổ 50x50 hoặc 35x22)' : 'Chờ duyệt kiểm định'}
+                          >
                             <button
-                              onClick={() => handleOpenPrintModal(batch)}
-                              title="In tem nhãn nhiệt (Khổ 50x50 hoặc 35x22)"
+                              onClick={() => (isReady || isPrinted) && handleOpenPrintModal(batch)}
+                              title={isReady || isPrinted ? 'In tem nhãn nhiệt (Khổ 50x50 hoặc 35x22)' : 'Chờ duyệt kiểm định'}
                               className="min-h-[38px] px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold transition flex items-center gap-1"
                             >
                               <Printer className="w-3.5 h-3.5" /> In tem
                             </button>
-                          )}
+                          </PermissionGuard>
 
                           {/* Link xem Landing Page công khai */}
                           {batch.traceabilityCode && (
@@ -409,15 +419,17 @@ export const ProductBatchListPage = () => {
                             </a>
                           )}
 
-                          {/* Thu hồi khẩn cấp */}
+                          {/* Thu hồi khẩn cấp: CHỈ FARM OWNER */}
                           {(isReady || isPrinted) && !isRecalled && (
-                            <button
-                              onClick={() => handleOpenActionModal('RECALL', batch)}
-                              title="Kích hoạt quy trình Thu hồi khẩn cấp"
-                              className="min-h-[38px] p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                            </button>
+                            <PermissionGuard allowedRoles={['FARM_OWNER']} action="REJECT">
+                              <button
+                                onClick={() => handleOpenActionModal('RECALL', batch)}
+                                title="Kích hoạt quy trình Thu hồi khẩn cấp"
+                                className="min-h-[38px] p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            </PermissionGuard>
                           )}
                         </div>
                       </td>

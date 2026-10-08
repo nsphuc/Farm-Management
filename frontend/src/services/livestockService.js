@@ -34,6 +34,11 @@ export const livestockService = {
     return response.data.data;
   },
 
+  getLivestockGroups: async (farmId, params = {}) => {
+    const response = await apiClient.get(`/farms/${farmId}/livestock/groups`, { params });
+    return response.data.data;
+  },
+
   getGroupById: async (farmId, groupId) => {
     const response = await apiClient.get(`/farms/${farmId}/livestock/groups/${groupId}`);
     return response.data.data;

@@ -23,7 +23,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -85,10 +84,12 @@ public class FarmingLogServiceImpl implements FarmingLogService {
 
         FarmingLog savedLog = farmingLogRepository.save(logEntity);
 
-        // Kích hoạt Inventory Backflushing nếu có vật tư được sử dụng trong nhật ký canh tác
+        // Kích hoạt Inventory Backflushing nếu có vật tư được sử dụng trong nhật ký
+        // canh tác
         if (request.getSuppliesUsed() != null && !request.getSuppliesUsed().isEmpty()) {
             if (request.getWarehouseId() == null) {
-                throw new BusinessException("Vui lòng chọn kho vật tư xuất dùng (warehouseId) để thực hiện trừ kho tự động (Inventory Backflushing).");
+                throw new BusinessException(
+                        "Vui lòng chọn kho vật tư xuất dùng (warehouseId) để thực hiện trừ kho tự động (Inventory Backflushing).");
             }
 
             List<InventoryBackflushRequest> backflushRequests = request.getSuppliesUsed().stream()
@@ -106,13 +107,13 @@ public class FarmingLogServiceImpl implements FarmingLogService {
                     season.getId(),
                     null,
                     savedLog.getId(),
-                    backflushRequests
-            );
+                    backflushRequests);
             log.info("Triggered Inventory Backflushing for FarmingLog ID: {}, Season ID: {}, Warehouse ID: {}",
                     savedLog.getId(), season.getId(), request.getWarehouseId());
         }
 
-        log.info("Recorded farming log ID: {} for Season ID: {}, Farm ID: {}", savedLog.getId(), season.getId(), farmId);
+        log.info("Recorded farming log ID: {} for Season ID: {}, Farm ID: {}", savedLog.getId(), season.getId(),
+                farmId);
         return FarmingLogResponse.fromEntity(savedLog);
     }
 
