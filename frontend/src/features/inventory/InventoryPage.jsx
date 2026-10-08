@@ -25,6 +25,7 @@ import { CreateTransactionModal } from './CreateTransactionModal';
 import { StockCardDrawer } from './StockCardDrawer';
 import { PrintTransactionModal } from './PrintTransactionModal';
 import { toast } from 'sonner';
+import { PermissionGuard } from '../../components/common/PermissionGuard';
 
 export const InventoryPage = () => {
   const { currentFarm } = useFarmStore();
@@ -156,29 +157,31 @@ export const InventoryPage = () => {
           </p>
         </div>
 
-        {/* Action buttons >= 44px ergonomics */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            onClick={() => handleOpenTransaction('RECEIPT')}
-            className="min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 hover:shadow-lg transition flex items-center gap-1.5"
-          >
-            <ArrowDownLeft className="w-4 h-4" /> Nhập Kho (PNK)
-          </button>
+        {/* Action buttons >= 44px ergonomics (Chỉ dành cho Farm Owner và Warehouse Staff) */}
+        <PermissionGuard allowedRoles={['FARM_OWNER', 'WAREHOUSE_STAFF']} action="CREATE">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => handleOpenTransaction('RECEIPT')}
+              className="min-h-[44px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 hover:shadow-lg transition flex items-center gap-1.5"
+            >
+              <ArrowDownLeft className="w-4 h-4" /> Nhập Kho (PNK)
+            </button>
 
-          <button
-            onClick={() => handleOpenTransaction('ISSUE')}
-            className="min-h-[44px] px-4 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 hover:shadow-lg transition flex items-center gap-1.5"
-          >
-            <ArrowUpRight className="w-4 h-4" /> Xuất Kho (PXK)
-          </button>
+            <button
+              onClick={() => handleOpenTransaction('ISSUE')}
+              className="min-h-[44px] px-4 py-2 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 hover:shadow-lg transition flex items-center gap-1.5"
+            >
+              <ArrowUpRight className="w-4 h-4" /> Xuất Kho (PXK)
+            </button>
 
-          <button
-            onClick={() => handleOpenTransaction('TRANSFER')}
-            className="min-h-[44px] px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5"
-          >
-            <ArrowLeftRight className="w-4 h-4" /> Điều Chuyển
-          </button>
-        </div>
+            <button
+              onClick={() => handleOpenTransaction('TRANSFER')}
+              className="min-h-[44px] px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5"
+            >
+              <ArrowLeftRight className="w-4 h-4" /> Điều Chuyển
+            </button>
+          </div>
+        </PermissionGuard>
       </div>
 
       {/* KPI Cards */}
