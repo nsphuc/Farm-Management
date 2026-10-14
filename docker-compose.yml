@@ -1,0 +1,15 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: farm_saas_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: farm_saas_dev
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD before running Docker Compose}"
+    ports:
+      - "3309:3306"
+    volumes:
+      - farm_mysql_data:/var/lib/mysql
+
+volumes:
+  farm_mysql_data:

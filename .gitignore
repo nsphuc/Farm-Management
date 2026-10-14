@@ -1,0 +1,111 @@
+# ===================================================================
+# FARM SAAS — GITIGNORE SECURITY & ARTIFACT RULES
+# ===================================================================
+
+# 1. Environment Variables & Secrets (CRITICAL)
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local overrides & machine-specific configs
+*-local.yml
+*-local.yaml
+*-local.properties
+docker-compose.override.yml
+
+# 2. Private Keys, Certificates & Credentials (CRITICAL)
+*.pem
+*.key
+*.pkcs12
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+*.htpasswd
+
+# Cloud & Service Account Secrets
+*credentials*.json
+*secret*.json
+service-account*.json
+.aws/
+.gcloud/
+
+# 3. AI Assistant & Private Documentation Directories
+.antigravity/
+.doc/
+.agents/
+.gemini/
+
+# 4. Local Database Files, Volumes & Dumps
+*.sql.gz
+*.dump
+*.backup
+*.rdb
+*.sqlite
+*.sqlite3
+*.db
+/data/
+/mysql_data/
+farm_mysql_data/
+
+# 5. Build Artifacts & Compiled Code (Java / Maven)
+target/
+**/target/
+build/
+**/build/
+dist/
+**/dist/
+*.class
+*.jar
+*.war
+*.ear
+
+# 6. Node & Frontend Artifacts
+node_modules/
+**/node_modules/
+.pnp/
+.pnp.js
+.npm/
+.yarn/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 7. IDE, Editors & Tooling
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+*.bak
+
+# 8. Logs & Diagnostic Dumps
+*.log
+logs/
+**/logs/
+*.pid
+*.seed
+*.crash
+
+# 9. Operating System Metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
+.Spotlight-V100
+.Trashes
+$RECYCLE.BIN/
