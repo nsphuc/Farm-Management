@@ -33,6 +33,10 @@ public class AppException extends RuntimeException {
         return new AppException(HttpStatus.FORBIDDEN, "INSUFFICIENT_PERMISSIONS", message);
     }
 
+    public static AppException unauthorized(String message) {
+        return new AppException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", message);
+    }
+
     public static AppException conflict(String message) {
         return new AppException(HttpStatus.CONFLICT, "DATA_CONFLICT", message);
     }
