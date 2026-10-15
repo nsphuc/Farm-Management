@@ -33,7 +33,7 @@ class FarmSaasApplicationTests {
     }
 
     @Test
-    @DisplayName("2. Xac nhan Flyway migrations V1.0 va V1.1 ap dung thanh cong")
+    @DisplayName("2. Xac nhan Flyway migrations V1.0, V1.1 va V1.2 ap dung thanh cong")
     void verifyFlywayMigrationApplied() {
         Integer v10Count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1.0' AND success = 1",
@@ -48,10 +48,17 @@ class FarmSaasApplicationTests {
         );
         assertNotNull(v11Count);
         assertTrue(v11Count >= 1, "Flyway schema history phai ghi nhan migration V1.1 thanh cong");
+
+        Integer v12Count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1.2' AND success = 1",
+                Integer.class
+        );
+        assertNotNull(v12Count);
+        assertTrue(v12Count >= 1, "Flyway schema history phai ghi nhan migration V1.2 thanh cong");
     }
 
     @Test
-    @DisplayName("3. Xac nhan du 71 bang nghiep vu (70 core + notifications)")
+    @DisplayName("3. Xac nhan du 72 bang nghiep vu (70 core + notifications + refresh_tokens)")
     void verifyTotalBusinessTablesCount() {
         Integer tableCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables " +
@@ -61,7 +68,7 @@ class FarmSaasApplicationTests {
                 Integer.class
         );
         assertNotNull(tableCount);
-        assertEquals(71, tableCount, "So luong bang nghiep vu thuc te phai dung bang 71 (70 core + notifications)");
+        assertEquals(72, tableCount, "So luong bang nghiep vu thuc te phai dung bang 72 (70 core + notifications + refresh_tokens)");
     }
 
     @Test

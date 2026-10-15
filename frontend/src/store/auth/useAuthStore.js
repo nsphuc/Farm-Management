@@ -1,14 +1,64 @@
 import { create } from 'zustand';
 
-export const useAuthStore = create((set) => ({
+/**
+ * Zustand Store quản lý trạng thái xác thực và phiên làm việc.
+ * Tuân thủ DEC-05 (D-12): Lưu Access Token HOÀN TOÀN IN-MEMORY để triệt tiêu nguy cơ XSS.
+ */
+export const useAuthStore = create((set, get) => ({
   user: null,
+  accessToken: null,
   isAuthenticated: false,
-  role: null,
-  permissions: [],
-  setUser: (user) => set({ user, isAuthenticated: !!user, role: user?.role, permissions: user?.permissions || [] }),
-  logout: () => {
-    localStorage.removeItem('access_token');
-    set({ user: null, isAuthenticated: false, role: null, permissions: [] });
+  isLoading: false,
+
+  setAuth: (user, accessToken) =>
+    set({
+      user,
+      accessToken,
+      isAuthenticated: !!accessToken && !!user,
+      isLoading: false,
+    }),
+
+  setAccessToken: (accessToken) =>
+    set({
+      accessToken,
+      isAuthenticated: !!accessToken && !!get().user,
+    }),
+
+  setUser: (user) =>
+    set({
+      user,
+      isAuthenticated: !!get().accessToken && !!user,
+    }),
+
+  setLoading: (isLoading) => set({ isLoading }),
+
+  clearAuth: () =>
+    set({
+      user: null,
+      accessToken: null,
+      isAuthenticated: false,
+      isLoading: false,
+    }),
+
+  hasPermission: (permissionCode) => {
+    const { user } = get();
+    if (!user || !user.permissions) return false;
+    return user.permissions.includes(permissionCode);
+  },
+
+  hasRole: (roleCode) => {
+    const { user } = get();
+    if (!user || !user.roles) return false;
+    return user.roles.includes(roleCode);
+  },
+
+  canAccessFarm: (farmId) => {
+    const { user } = get();
+    if (!user) return false;
+    if (user.isSuperAdmin) return true;
+    if (user.roles && user.roles.includes('ROLE_FARM_OWNER')) return true;
+    if (!user.farmIds) return false;
+    return user.farmIds.includes(Number(farmId));
   },
 }));
 

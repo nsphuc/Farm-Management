@@ -33,6 +33,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @com.farm.saas.audit.annotation.Auditable(action = "LOGIN", module = "AUTH")
     @Operation(summary = "Đăng nhập hệ thống", description = "Xác thực danh tính người dùng, trả về Bearer Access JWT và gắn HttpOnly Cookie Refresh Token")
     public ResponseEntity<ApiResponse<LoginResponse>> login(
             @Valid @RequestBody LoginRequest request,
@@ -46,6 +47,7 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
+    @com.farm.saas.audit.annotation.Auditable(action = "REFRESH_TOKEN", module = "AUTH")
     @Operation(summary = "Làm mới Access Token", description = "Đọc Refresh Token từ HttpOnly Cookie, thực hiện Token Rotation và cấp Access Token mới")
     public ResponseEntity<ApiResponse<TokenRefreshResponse>> refreshToken(
             @CookieValue(name = RefreshTokenService.REFRESH_TOKEN_COOKIE_NAME, required = false) String refreshToken,
@@ -59,6 +61,7 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
+    @com.farm.saas.audit.annotation.Auditable(action = "LOGOUT", module = "AUTH")
     @Operation(summary = "Đăng xuất tài khoản", description = "Thu hồi Refresh Token trong cơ sở dữ liệu và xóa HttpOnly Cookie")
     public ResponseEntity<ApiResponse<Void>> logout(
             @CookieValue(name = RefreshTokenService.REFRESH_TOKEN_COOKIE_NAME, required = false) String refreshToken

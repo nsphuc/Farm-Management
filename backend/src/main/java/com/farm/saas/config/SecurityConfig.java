@@ -99,15 +99,20 @@ public class SecurityConfig {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");
+            String correlationId = MDC.get("correlationId");
+            if (correlationId == null) {
+                correlationId = request.getHeader("X-Correlation-ID");
+            }
             ErrorResponse errorResponse = ErrorResponse.builder()
                     .status(HttpStatus.UNAUTHORIZED.value())
                     .error(HttpStatus.UNAUTHORIZED.getReasonPhrase())
                     .code("UNAUTHORIZED")
                     .message("Bạn cần đăng nhập để truy cập tài nguyên này")
                     .timestamp(Instant.now())
-                    .correlationId(MDC.get("correlationId"))
+                    .correlationId(correlationId)
                     .build();
             response.getWriter().write(objectMapper.writeValueAsString(errorResponse));
+            response.getWriter().flush();
         };
     }
 
@@ -117,15 +122,20 @@ public class SecurityConfig {
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");
+            String correlationId = MDC.get("correlationId");
+            if (correlationId == null) {
+                correlationId = request.getHeader("X-Correlation-ID");
+            }
             ErrorResponse errorResponse = ErrorResponse.builder()
                     .status(HttpStatus.FORBIDDEN.value())
                     .error(HttpStatus.FORBIDDEN.getReasonPhrase())
                     .code("INSUFFICIENT_PERMISSIONS")
                     .message("Bạn không có quyền thực hiện thao tác này")
                     .timestamp(Instant.now())
-                    .correlationId(MDC.get("correlationId"))
+                    .correlationId(correlationId)
                     .build();
             response.getWriter().write(objectMapper.writeValueAsString(errorResponse));
+            response.getWriter().flush();
         };
     }
 }

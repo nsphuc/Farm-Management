@@ -50,18 +50,35 @@ public class CustomUserDetails implements UserDetails {
                 .fullName(user.getFullName())
                 .email(user.getEmail())
                 .status(user.getStatus())
-                .roles(roles)
-                .permissions(permissions)
-                .farmIds(farmIds)
+                .roles(roles != null ? roles : java.util.Collections.emptySet())
+                .permissions(permissions != null ? permissions : java.util.Collections.emptySet())
+                .farmIds(farmIds != null ? farmIds : java.util.Collections.emptyList())
                 .accountNonLocked(!user.isAccountLocked())
                 .enabled(user.isActive())
                 .build();
     }
 
+    public Set<String> getRoles() {
+        return roles != null ? roles : java.util.Collections.emptySet();
+    }
+
+    public Set<String> getPermissions() {
+        return permissions != null ? permissions : java.util.Collections.emptySet();
+    }
+
+    public List<Long> getFarmIds() {
+        return farmIds != null ? farmIds : java.util.Collections.emptyList();
+    }
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        // GrantedAuthorities là các Permission Code (ví dụ PERM_FARM_VIEW, PERM_QC_APPROVE)
+        if (permissions == null) {
+            return java.util.Collections.emptySet();
+        }
         return permissions.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(String::trim)
+                .filter(p -> !p.isBlank())
                 .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toSet());
     }
