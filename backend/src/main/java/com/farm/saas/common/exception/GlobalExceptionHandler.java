@@ -76,6 +76,64 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getStatus()).body(errorResponse);
     }
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(org.springframework.security.access.AccessDeniedException ex, HttpServletRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .status(HttpStatus.FORBIDDEN.value())
+                .error(HttpStatus.FORBIDDEN.getReasonPhrase())
+                .code("INSUFFICIENT_PERMISSIONS")
+                .message("Bạn không có quyền thực hiện thao tác này")
+                .timestamp(Instant.now())
+                .correlationId(getCorrelationId(request))
+                .build();
+
+        log.warn("Access denied on URI [{}]: {}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+    }
+
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthenticationException(org.springframework.security.core.AuthenticationException ex, HttpServletRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .status(HttpStatus.UNAUTHORIZED.value())
+                .error(HttpStatus.UNAUTHORIZED.getReasonPhrase())
+                .code("UNAUTHORIZED")
+                .message("Bạn cần đăng nhập để truy cập tài nguyên này")
+                .timestamp(Instant.now())
+                .correlationId(getCorrelationId(request))
+                .build();
+
+        log.warn("Authentication failed on URI [{}]: {}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException ex, HttpServletRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .status(HttpStatus.NOT_FOUND.value())
+                .error(HttpStatus.NOT_FOUND.getReasonPhrase())
+                .code("RESOURCE_NOT_FOUND")
+                .message("Đường dẫn không tồn tại: " + request.getRequestURI())
+                .timestamp(Instant.now())
+                .correlationId(getCorrelationId(request))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(org.springframework.web.HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .status(HttpStatus.METHOD_NOT_ALLOWED.value())
+                .error(HttpStatus.METHOD_NOT_ALLOWED.getReasonPhrase())
+                .code("METHOD_NOT_ALLOWED")
+                .message("Phương thức " + request.getMethod() + " không được hỗ trợ cho đường dẫn này")
+                .timestamp(Instant.now())
+                .correlationId(getCorrelationId(request))
+                .build();
+
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(errorResponse);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneralException(Exception ex, HttpServletRequest request) {
         ErrorResponse errorResponse = ErrorResponse.builder()
@@ -84,14 +142,22 @@ public class GlobalExceptionHandler {
                 .code("INTERNAL_SERVER_ERROR")
                 .message("Đã xảy ra lỗi nội bộ hệ thống. Vui lòng thử lại sau.")
                 .timestamp(Instant.now())
-                .correlationId(getCorrelationId())
+                .correlationId(getCorrelationId(request))
                 .build();
 
-        log.error("Unhandled internal error on URI [{}] with correlationId [{}]:", request.getRequestURI(), getCorrelationId(), ex);
+        log.error("Unhandled internal error on URI [{}] with correlationId [{}]:", request.getRequestURI(), getCorrelationId(request), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
     }
 
     private String getCorrelationId() {
-        return MDC.get("correlationId");
+        return getCorrelationId(null);
+    }
+
+    private String getCorrelationId(HttpServletRequest request) {
+        String correlationId = MDC.get("correlationId");
+        if (correlationId == null && request != null) {
+            correlationId = request.getHeader("X-Correlation-ID");
+        }
+        return correlationId;
     }
 }
