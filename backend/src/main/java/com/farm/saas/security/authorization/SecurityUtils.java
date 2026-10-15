@@ -44,6 +44,10 @@ public final class SecurityUtils {
         return getCurrentUser().map(CustomUserDetails::getTenantId);
     }
 
+    public static Long getRequiredTenantId() {
+        return getCurrentTenantId().orElseThrow(() -> AppException.badRequest("TENANT_REQUIRED", "Yêu cầu định danh Tenant trong phiên làm việc"));
+    }
+
     public static boolean isSuperAdmin() {
         return getCurrentUser().map(CustomUserDetails::isSuperAdmin).orElse(false);
     }

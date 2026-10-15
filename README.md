@@ -192,6 +192,8 @@ CREATE DATABASE farm_saas_dev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
   * **Backend Skeleton:** Java 21 LTS + Spring Boot 3.3.4, Spring Security 6.x, JJWT 0.12.6 (Stateless Bearer Access JWT Provider & Filter), HikariCP, Flyway MySQL, OpenAPI Swagger UI, Correlation ID, Global Exception Handler, ApiResponse. Đã cấu trúc chuẩn 11 modules nghiệp vụ và platform.
   * **Frontend Skeleton:** React 18 + Vite 5 + TailwindCSS + Zustand + React Router DOM 6 + Axios + Lucide Icons. Layouts & Dashboard page, build production thành công.
   * **Cấu hình chung:** `.env.example` toàn dự án và backend, `.gitignore` bảo vệ secrets, `README.md` tài liệu hóa chi tiết.
-* [ ] **Giai đoạn 2 (Auth & RBAC Service):** Đăng nhập, JWT Bearer tokens, HttpOnly Cookie Refresh Token (DEC-05), Token revocation blacklist, phân quyền 6 roles & scope guards.
-* [ ] **Giai đoạn 3 (Tổ chức & Danh mục):** Quản lý Tenant, Enterprise, Farm, Zone, Nhà màng, Đơn vị tính và Vật tư nông nghiệp.
+* [x] **Giai đoạn 2 (Auth & RBAC Service):** Đăng nhập, JWT Bearer tokens, HttpOnly Cookie Refresh Token (DEC-05), Token revocation blacklist, phân quyền 6 roles & scope guards (The Farm Barrier Guard & Tenant Isolation). Đã hoàn tất 100% backend & frontend auth.
+* [ ] **Giai đoạn 3 (Tổ chức & Danh mục):** 
+  * [x] **Backend Tổ chức:** Hoàn tất API CRUD chuẩn mực cho `Farm`, `ProductionZone`, `ZoneLocation` với phân quyền RBAC, The Farm Barrier Guard, chống trùng mã code và Soft-delete bảo vệ lịch sử dữ liệu (Chi tiết tại [.doc/BUSINESS_ORGANIZATION_MODULE_REPORT.md](file:///d:/Projects/Farm_Management/.doc/BUSINESS_ORGANIZATION_MODULE_REPORT.md)).
+  * [ ] **Quản lý Danh mục & Vật tư:** Đơn vị tính, vật tư nông nghiệp, danh mục cây trồng, giống vật nuôi.
 * [ ] **Giai đoạn 4–8:** Trồng trọt, Chăn nuôi RFID, Quản lý kho FIFO/FEFO, Thu hoạch & QC truy xuất QR code (Maker-Checker), Nhân sự & Tài chính nông trại B2B.
