@@ -11,7 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping({"/api/test", "/api/v1"})
+@RequestMapping("/api/test")
 @Tag(name = "Farm Security & Barrier Guard", description = "Endpoints kiểm thử phân quyền RBAC và rào chắn Farm Barrier Guard")
 public class TestFarmSecurityController {
 

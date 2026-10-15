@@ -91,7 +91,7 @@ class RbacSecurityIntegrationTest {
                 List.of(1L)
         );
 
-        mockMvc.perform(post("/api/v1/farms")
+        mockMvc.perform(post("/api/test/farms")
                         .header("Authorization", accountantToken))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403))
