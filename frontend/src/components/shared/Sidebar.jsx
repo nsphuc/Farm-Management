@@ -16,6 +16,9 @@ import {
   Settings,
   ShieldCheck,
   Server,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Layers,
 } from 'lucide-react';
 import { useUiStore } from '../../store/ui/useUiStore';
 import { useAuthStore } from '../../store/auth/useAuthStore';
@@ -88,6 +91,24 @@ export const Sidebar = () => {
           path: '/materials',
           icon: Package,
           permission: ['PERM_INVENTORY_VIEW', 'PERM_FINANCE_REPORT'],
+        },
+        {
+          label: '3.3. Nhập kho',
+          path: '/inventory/receipts',
+          icon: ArrowDownToLine,
+          permission: 'PERM_INVENTORY_VIEW',
+        },
+        {
+          label: '3.4. Xuất kho',
+          path: '/inventory/issues',
+          icon: ArrowUpFromLine,
+          permission: 'PERM_INVENTORY_VIEW',
+        },
+        {
+          label: '3.7. Theo dõi tồn kho',
+          path: '/inventory/balances',
+          icon: Layers,
+          permission: 'PERM_INVENTORY_VIEW',
         },
       ],
     },
