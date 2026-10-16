@@ -25,6 +25,10 @@ public class AppException extends RuntimeException {
         return new AppException(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", resource + " không tồn tại với định danh: " + id);
     }
 
+    public static AppException badRequest(String message) {
+        return new AppException(HttpStatus.BAD_REQUEST, "BAD_REQUEST", message);
+    }
+
     public static AppException badRequest(String code, String message) {
         return new AppException(HttpStatus.BAD_REQUEST, code, message);
     }

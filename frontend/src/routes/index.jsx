@@ -15,6 +15,11 @@ import PartnerListPage from '../pages/organization/partners/PartnerListPage';
 // 3. Kho & Vật tư
 import WarehouseListPage from '../pages/inventory/warehouses/WarehouseListPage';
 import MaterialListPage from '../pages/inventory/materials/MaterialListPage';
+import ReceiptListPage from '../pages/inventory/receipts/ReceiptListPage';
+import ReceiptFormPage from '../pages/inventory/receipts/ReceiptFormPage';
+import IssueListPage from '../pages/inventory/issues/IssueListPage';
+import IssueFormPage from '../pages/inventory/issues/IssueFormPage';
+import InventoryBalancePage from '../pages/inventory/balances/InventoryBalancePage';
 
 export const AppRoutes = () => {
   return (
@@ -102,7 +107,58 @@ export const AppRoutes = () => {
             }
           />
           <Route path="/inventory/materials" element={<Navigate to="/materials" replace />} />
-          <Route path="/inventory" element={<Navigate to="/warehouses" replace />} />
+
+          {/* 3.3. Nhập kho (Inventory Receipts) */}
+          <Route
+            path="/inventory/receipts"
+            element={
+              <ProtectedRoute requiredPermission="PERM_INVENTORY_VIEW">
+                <ReceiptListPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/receipts/new"
+            element={
+              <ProtectedRoute requiredPermission={['PERM_INVENTORY_MANAGE', 'PERM_INVENTORY_RECEIPT']}>
+                <ReceiptFormPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/receipts" element={<Navigate to="/inventory/receipts" replace />} />
+          <Route path="/receipts/new" element={<Navigate to="/inventory/receipts/new" replace />} />
+
+          {/* 3.4. Xuất kho (Inventory Issues) */}
+          <Route
+            path="/inventory/issues"
+            element={
+              <ProtectedRoute requiredPermission="PERM_INVENTORY_VIEW">
+                <IssueListPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/issues/new"
+            element={
+              <ProtectedRoute requiredPermission={['PERM_INVENTORY_MANAGE', 'PERM_INVENTORY_ISSUE']}>
+                <IssueFormPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/issues" element={<Navigate to="/inventory/issues" replace />} />
+          <Route path="/issues/new" element={<Navigate to="/inventory/issues/new" replace />} />
+
+          {/* 3.7. Theo dõi tồn kho (Inventory Balance) */}
+          <Route
+            path="/inventory/balances"
+            element={
+              <ProtectedRoute requiredPermission="PERM_INVENTORY_VIEW">
+                <InventoryBalancePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/balances" element={<Navigate to="/inventory/balances" replace />} />
+          <Route path="/inventory" element={<Navigate to="/inventory/balances" replace />} />
 
           {/* Fallback routes */}
           <Route path="/404" element={<NotFoundPage />} />
