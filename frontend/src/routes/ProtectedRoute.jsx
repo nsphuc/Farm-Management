@@ -5,6 +5,7 @@ import { ShieldAlert } from 'lucide-react';
 
 /**
  * Route Guard bảo vệ các trang yêu cầu đăng nhập và phân quyền RBAC.
+ * Hỗ trợ kiểm tra quyền hạn (đơn lẻ hoặc danh sách các quyền thay thế), vai trò và phạm vi Farm.
  */
 export const ProtectedRoute = ({ children, requiredPermission, requiredRole, requiredFarmId }) => {
   const location = useLocation();
@@ -15,14 +16,24 @@ export const ProtectedRoute = ({ children, requiredPermission, requiredRole, req
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // 2. Kiểm tra Role bắt buộc nếu có
-  if (requiredRole && !hasRole(requiredRole)) {
-    return <ForbiddenState message={`Yêu cầu vai trò: ${requiredRole}`} />;
+  // 2. Kiểm tra Role bắt buộc nếu có (hỗ trợ mảng vai trò)
+  if (requiredRole) {
+    const roles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    const matchRole = roles.some((r) => hasRole(r));
+    if (!matchRole) {
+      return <ForbiddenState message={`Yêu cầu vai trò: ${roles.join(' hoặc ')}`} />;
+    }
   }
 
-  // 3. Kiểm tra Permission bắt buộc nếu có
-  if (requiredPermission && !hasPermission(requiredPermission)) {
-    return <ForbiddenState message={`Yêu cầu quyền hạn: ${requiredPermission}`} />;
+  // 3. Kiểm tra Permission bắt buộc nếu có (hỗ trợ hasAnyAuthority với mảng quyền)
+  if (requiredPermission) {
+    const permissions = Array.isArray(requiredPermission)
+      ? requiredPermission
+      : [requiredPermission];
+    const matchPermission = permissions.some((p) => hasPermission(p));
+    if (!matchPermission) {
+      return <ForbiddenState message={`Yêu cầu quyền hạn: ${permissions.join(' hoặc ')}`} />;
+    }
   }
 
   // 4. Kiểm tra Farm Scope bắt buộc nếu có

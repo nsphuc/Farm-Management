@@ -72,15 +72,27 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        if (permissions == null) {
-            return java.util.Collections.emptySet();
+        Set<GrantedAuthority> authorities = new java.util.HashSet<>();
+        if (permissions != null) {
+            permissions.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(String::trim)
+                    .filter(p -> !p.isBlank())
+                    .map(SimpleGrantedAuthority::new)
+                    .forEach(authorities::add);
         }
-        return permissions.stream()
-                .filter(java.util.Objects::nonNull)
-                .map(String::trim)
-                .filter(p -> !p.isBlank())
-                .map(SimpleGrantedAuthority::new)
-                .collect(Collectors.toSet());
+        if (roles != null) {
+            roles.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(String::trim)
+                    .filter(r -> !r.isBlank())
+                    .forEach(r -> {
+                        String roleWithPrefix = r.startsWith("ROLE_") ? r : "ROLE_" + r;
+                        authorities.add(new SimpleGrantedAuthority(roleWithPrefix));
+                        authorities.add(new SimpleGrantedAuthority(r));
+                    });
+        }
+        return authorities;
     }
 
     @Override
