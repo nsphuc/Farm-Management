@@ -71,6 +71,41 @@ public class SecurityConfig {
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/logout"
                         ).permitAll()
+                        // Phân quyền tầng Web Filter: Chặn sớm các hành động Create/Update/Delete Danh mục & Vật tư
+                        // Kế toán (ROLE_ACCOUNTANT), Nhân sự hiện trường chỉ được quyền xem (GET), không được phép Tạo/Sửa/Xóa (POST/PUT/DELETE)
+                        .requestMatchers(org.springframework.http.HttpMethod.POST,
+                                "/api/v1/material-categories/**",
+                                "/api/v1/materials/**",
+                                "/api/v1/partners/**",
+                                "/api/v1/warehouses/**",
+                                "/api/v1/farms/*/warehouses/**",
+                                "/api/v1/farms/*/cycles/**",
+                                "/api/v1/farms/*/operational-cycles/**",
+                                "/api/v1/cycles/**",
+                                "/api/v1/operational-cycles/**"
+                        ).hasAnyAuthority("ROLE_FARM_OWNER", "ROLE_TENANT_ADMIN", "PERM_FARM_UPDATE")
+                        .requestMatchers(org.springframework.http.HttpMethod.PUT,
+                                "/api/v1/material-categories/**",
+                                "/api/v1/materials/**",
+                                "/api/v1/partners/**",
+                                "/api/v1/warehouses/**",
+                                "/api/v1/farms/*/warehouses/**",
+                                "/api/v1/farms/*/cycles/**",
+                                "/api/v1/farms/*/operational-cycles/**",
+                                "/api/v1/cycles/**",
+                                "/api/v1/operational-cycles/**"
+                        ).hasAnyAuthority("ROLE_FARM_OWNER", "ROLE_TENANT_ADMIN", "PERM_FARM_UPDATE")
+                        .requestMatchers(org.springframework.http.HttpMethod.DELETE,
+                                "/api/v1/material-categories/**",
+                                "/api/v1/materials/**",
+                                "/api/v1/partners/**",
+                                "/api/v1/warehouses/**",
+                                "/api/v1/farms/*/warehouses/**",
+                                "/api/v1/farms/*/cycles/**",
+                                "/api/v1/farms/*/operational-cycles/**",
+                                "/api/v1/cycles/**",
+                                "/api/v1/operational-cycles/**"
+                        ).hasAnyAuthority("ROLE_FARM_OWNER", "ROLE_TENANT_ADMIN", "PERM_FARM_UPDATE")
                         // Mọi endpoint nghiệp vụ khác bắt buộc đã xác thực
                         .anyRequest().authenticated()
                 )
