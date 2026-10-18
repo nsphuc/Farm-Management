@@ -1,0 +1,118 @@
+package com.farm.saas.modules.hr.service.impl;
+
+import com.farm.saas.common.exception.BusinessException;
+import com.farm.saas.common.exception.ResourceNotFoundException;
+import com.farm.saas.common.security.SecurityUtils;
+import com.farm.saas.modules.geography.entity.Farm;
+import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.hr.dto.request.AssignShiftRequest;
+import com.farm.saas.modules.hr.dto.response.ShiftAssignmentResponse;
+import com.farm.saas.modules.hr.entity.Employee;
+import com.farm.saas.modules.hr.entity.ShiftAssignment;
+import com.farm.saas.modules.hr.repository.EmployeeRepository;
+import com.farm.saas.modules.hr.repository.ShiftAssignmentRepository;
+import com.farm.saas.modules.hr.service.ShiftAssignmentService;
+import com.farm.saas.modules.masterdata.entity.WorkShift;
+import com.farm.saas.modules.masterdata.repository.WorkShiftRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ShiftAssignmentServiceImpl implements ShiftAssignmentService {
+
+    private final ShiftAssignmentRepository shiftAssignmentRepository;
+    private final EmployeeRepository employeeRepository;
+    private final WorkShiftRepository workShiftRepository;
+    private final FarmRepository farmRepository;
+
+    @Override
+    @Transactional
+    public ShiftAssignmentResponse assignShift(AssignShiftRequest request) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+
+        Employee employee = employeeRepository.findById(request.getEmployeeId())
+                .filter(e -> e.getTenantId().equals(tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", request.getEmployeeId()));
+
+        WorkShift shift = workShiftRepository.findById(request.getShiftId())
+                .filter(s -> s.getTenantId().equals(tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("WorkShift", "id", request.getShiftId()));
+
+        Farm farm = farmRepository.findById(request.getFarmId())
+                .filter(f -> f.getTenantId().equals(tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.getFarmId()));
+
+        if (shiftAssignmentRepository.findByEmployeeIdAndWorkDateAndShiftId(
+                employee.getId(), request.getWorkDate(), shift.getId()).isPresent()) {
+            throw new BusinessException("DUPLICATE_SHIFT_ASSIGNMENT", "Nhân viên đã được phân ca này trong ngày " + request.getWorkDate());
+        }
+
+        ShiftAssignment assignment = ShiftAssignment.builder()
+                .tenantId(tenantId)
+                .farmId(farm.getId())
+                .employeeId(employee.getId())
+                .shiftId(shift.getId())
+                .workDate(request.getWorkDate())
+                .status("SCHEDULED")
+                .createdAt(Instant.now())
+                .createdBy(currentUserId)
+                .build();
+
+        assignment = shiftAssignmentRepository.save(assignment);
+        log.info("Assigned shift id={} to employee id={} on date {}", shift.getId(), employee.getId(), request.getWorkDate());
+
+        return mapToResponse(assignment, employee, shift, farm);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ShiftAssignmentResponse> getAssignmentsByFarmAndDate(Long farmId, LocalDate workDate) {
+        return shiftAssignmentRepository.findByFarmIdAndWorkDate(farmId, workDate).stream()
+                .map(this::enrichResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ShiftAssignmentResponse> getAssignmentsByEmployeeAndDate(Long employeeId, LocalDate workDate) {
+        return shiftAssignmentRepository.findByEmployeeIdAndWorkDate(employeeId, workDate).stream()
+                .map(this::enrichResponse)
+                .collect(Collectors.toList());
+    }
+
+    private ShiftAssignmentResponse enrichResponse(ShiftAssignment a) {
+        Employee emp = employeeRepository.findById(a.getEmployeeId()).orElse(null);
+        WorkShift ws = workShiftRepository.findById(a.getShiftId()).orElse(null);
+        Farm farm = farmRepository.findById(a.getFarmId()).orElse(null);
+        return mapToResponse(a, emp, ws, farm);
+    }
+
+    private ShiftAssignmentResponse mapToResponse(ShiftAssignment a, Employee emp, WorkShift ws, Farm farm) {
+        return ShiftAssignmentResponse.builder()
+                .id(a.getId())
+                .farmId(a.getFarmId())
+                .farmName(farm != null ? farm.getName() : null)
+                .employeeId(a.getEmployeeId())
+                .employeeName(emp != null ? emp.getFullName() : null)
+                .employeeCode(emp != null ? emp.getEmployeeCode() : null)
+                .shiftId(a.getShiftId())
+                .shiftName(ws != null ? ws.getName() : null)
+                .shiftCode(ws != null ? ws.getShiftCode() : null)
+                .startTime(ws != null ? ws.getStartTime() : null)
+                .endTime(ws != null ? ws.getEndTime() : null)
+                .workDate(a.getWorkDate())
+                .status(a.getStatus())
+                .createdAt(a.getCreatedAt())
+                .build();
+    }
+}

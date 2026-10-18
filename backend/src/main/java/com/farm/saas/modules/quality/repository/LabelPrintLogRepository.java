@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface LabelPrintLogRepository extends JpaRepository<LabelPrintLog, Long>, JpaSpecificationExecutor<LabelPrintLog> {
+    java.util.List<LabelPrintLog> findByProductBatchIdOrderByPrintedAtDesc(Long productBatchId);
 }

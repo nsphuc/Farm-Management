@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface QcInspectionItemRepository extends JpaRepository<QcInspectionItem, Long>, JpaSpecificationExecutor<QcInspectionItem> {
+    java.util.List<QcInspectionItem> findByInspectionId(Long inspectionId);
 }
