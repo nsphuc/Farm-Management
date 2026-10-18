@@ -15,4 +15,6 @@ public interface DebtRecordRepository extends JpaRepository<DebtRecord, Long>, J
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM DebtRecord e WHERE e.id = :id")
     Optional<DebtRecord> findByIdForUpdate(@Param("id") Long id);
+
+    Optional<DebtRecord> findByWarehouseReceiptId(Long warehouseReceiptId);
 }

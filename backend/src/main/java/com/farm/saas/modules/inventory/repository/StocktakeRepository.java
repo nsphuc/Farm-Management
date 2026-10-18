@@ -7,4 +7,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface StocktakeRepository extends JpaRepository<Stocktake, Long>, JpaSpecificationExecutor<Stocktake> {
+    java.util.Optional<Stocktake> findByFarmIdAndId(Long farmId, Long id);
+    boolean existsByTenantIdAndFarmIdAndStocktakeCode(Long tenantId, Long farmId, String stocktakeCode);
 }

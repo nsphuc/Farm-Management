@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface StocktakeItemRepository extends JpaRepository<StocktakeItem, Long>, JpaSpecificationExecutor<StocktakeItem> {
+    java.util.List<StocktakeItem> findByStocktakeId(Long stocktakeId);
 }

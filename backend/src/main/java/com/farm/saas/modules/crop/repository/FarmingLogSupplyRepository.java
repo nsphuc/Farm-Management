@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface FarmingLogSupplyRepository extends JpaRepository<FarmingLogSupply, Long>, JpaSpecificationExecutor<FarmingLogSupply> {
+    java.util.List<FarmingLogSupply> findByFarmingLogId(Long farmingLogId);
 }

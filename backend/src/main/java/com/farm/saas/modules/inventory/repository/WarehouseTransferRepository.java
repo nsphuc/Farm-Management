@@ -7,4 +7,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface WarehouseTransferRepository extends JpaRepository<WarehouseTransfer, Long>, JpaSpecificationExecutor<WarehouseTransfer> {
+    java.util.Optional<WarehouseTransfer> findByTenantIdAndId(Long tenantId, Long id);
+    boolean existsByTenantIdAndTransferCode(Long tenantId, String transferCode);
 }

@@ -18,4 +18,18 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
 
     java.util.Optional<WarehouseInventory> findByFarmIdAndInternalBatchBarcode(Long farmId, String internalBatchBarcode);
     java.util.List<WarehouseInventory> findByFarmIdAndMaterialId(Long farmId, Long materialId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT e FROM WarehouseInventory e WHERE e.warehouseId = :warehouseId AND e.materialId = :materialId AND e.batchNumber = :batchNumber")
+    Optional<WarehouseInventory> findByWarehouseIdAndMaterialIdAndBatchNumberForUpdate(
+            @Param("warehouseId") Long warehouseId,
+            @Param("materialId") Long materialId,
+            @Param("batchNumber") String batchNumber
+    );
+
+    Optional<WarehouseInventory> findByWarehouseIdAndMaterialIdAndBatchNumber(
+            Long warehouseId,
+            Long materialId,
+            String batchNumber
+    );
 }
