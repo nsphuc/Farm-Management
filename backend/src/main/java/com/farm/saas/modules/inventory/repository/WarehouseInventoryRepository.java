@@ -32,4 +32,7 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
             Long materialId,
             String batchNumber
     );
+
+    java.util.List<WarehouseInventory> findByFarmId(Long farmId);
+    java.util.List<WarehouseInventory> findByTenantId(Long tenantId);
 }
