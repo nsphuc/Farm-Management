@@ -240,7 +240,7 @@ export const OperationalCyclePage = () => {
 
           {/* Ẩn nút Thêm chu kỳ nếu không có quyền quản lý trang trại */}
           <Can
-            role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+            role="ROLE_FARM_OWNER"
             permission="PERM_FARM_UPDATE"
             farmId={selectedFarmId}
           >
@@ -355,7 +355,7 @@ export const OperationalCyclePage = () => {
               : `Trang trại "${activeFarm?.name || ''}" hiện chưa có vụ mùa hoặc chu kỳ vận hành nào.`}
           </p>
           <Can
-            role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+            role="ROLE_FARM_OWNER"
             permission="PERM_FARM_UPDATE"
             farmId={selectedFarmId}
           >
@@ -421,7 +421,7 @@ export const OperationalCyclePage = () => {
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Ẩn nút Sửa / Đóng nếu không có quyền quản lý trang trại */}
                           <Can
-                            role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+                            role="ROLE_FARM_OWNER"
                             permission="PERM_FARM_UPDATE"
                             farmId={selectedFarmId}
                           >

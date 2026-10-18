@@ -19,6 +19,10 @@ export const authService = {
   getCurrentUser: async () => {
     return axiosClient.get('/auth/me');
   },
+
+  changePassword: async (data) => {
+    return axiosClient.post('/auth/change-password', data);
+  },
 };
 
 export default authService;

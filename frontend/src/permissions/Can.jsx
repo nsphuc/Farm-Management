@@ -5,7 +5,7 @@ import { useAuthStore } from '../store/auth/useAuthStore';
  * Component hỗ trợ ẩn / hiện UI dựa trên quyền hạn (Permission Code), vai trò hoặc phạm vi Farm.
  * Hỗ trợ cả chuỗi đơn hoặc mảng các quyền / vai trò.
  * Ví dụ sử dụng:
- * <Can permission="PERM_FARM_UPDATE" role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}>
+ * <Can permission="PERM_FARM_UPDATE" role="ROLE_FARM_OWNER">
  *   <button>Thêm kho bãi</button>
  * </Can>
  */

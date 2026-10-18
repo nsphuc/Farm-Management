@@ -3,223 +3,224 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Building2,
-  Calendar,
   Users,
   Boxes,
-  Package,
+  BookOpen,
   Wheat,
-  Beef,
   ClipboardCheck,
-  CalendarCheck,
-  DollarSign,
-  BarChart3,
   Settings,
-  ShieldCheck,
-  Server,
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  Layers,
 } from 'lucide-react';
 import { useUiStore } from '../../store/ui/useUiStore';
 import { useAuthStore } from '../../store/auth/useAuthStore';
 
+/**
+ * Sidebar Menu Hợp Nhất theo Hiến pháp Master UI Workspace Flows (RULE-UI-001).
+ * Tiêu diệt tình trạng Siloed UI: Thay thế toàn bộ menu phân mảnh lắt nhắt thành
+ * 6 Không Gian Làm Việc (Workspaces) liền mạch + Tổng quan + Cấu hình hệ thống.
+ * Hỗ trợ đường dẫn trực tiếp (sub-links) vào các chức năng con: 3.1 Kho bãi, 3.2 Vật tư, 1.5 Chu kỳ vận hành.
+ */
 export const Sidebar = () => {
   const { isSidebarOpen } = useUiStore();
   const { hasPermission, hasRole } = useAuthStore();
   const location = useLocation();
 
-  // Danh mục menu phân cấp theo Sơ đồ phân cấp chức năng (.docx) và ma trận quyền roles-permissions.md
-  const menuSections = [
+  // Danh mục 8 Menu Hợp Nhất theo chuẩn Master UI Workspace Flows
+  const menuItems = [
     {
-      title: 'Hệ thống',
-      items: [
-        { label: 'Tổng quan', path: '/', icon: LayoutDashboard },
-        { label: 'Trạng thái hệ thống', path: '/system-status', icon: Server },
+      id: 'dashboard',
+      label: '1. Tổng quan (Dashboard)',
+      path: '/',
+      icon: LayoutDashboard,
+      badge: 'Chính',
+    },
+    {
+      id: 'workspace-a',
+      label: '2. Không gian Sản xuất',
+      sublabel: 'Workspace A: Mặt bằng & Phân công',
+      path: '/production',
+      icon: Building2,
+      permission: ['PERM_FARM_VIEW', 'PERM_ZONE_MANAGE'],
+    },
+    {
+      id: 'workspace-b',
+      label: '3. Hồ sơ Nhân sự',
+      sublabel: 'Workspace B: Lý lịch & Tài khoản SaaS',
+      path: '/personnel',
+      icon: Users,
+      permission: 'PERM_HR_EMPLOYEE_MANAGE',
+    },
+    {
+      id: 'workspace-c',
+      label: '4. Trung tâm Kho bãi',
+      sublabel: 'Workspace C: Kho & Vật tư',
+      path: '/inventory',
+      icon: Boxes,
+      permission: ['PERM_INVENTORY_VIEW', 'PERM_INVENTORY_RECEIPT', 'PERM_INVENTORY_ISSUE'],
+      children: [
+        { id: 'c-warehouses', label: '3.1. Quản lý Kho bãi', path: '/warehouses' },
+        { id: 'c-materials', label: '3.2. Danh mục Vật tư', path: '/materials' },
+        { id: 'c-receipts', label: '3.3. Nhập kho (warehouse_receipts)', path: '/inventory?tab=receipts' },
+        { id: 'c-issues', label: '3.4. Xuất kho (warehouse_issues)', path: '/inventory?tab=issues' },
+        { id: 'c-balances', label: '3.7. Sổ thẻ kho (warehouse_inventory)', path: '/inventory?tab=balances' },
       ],
     },
     {
-      title: '1. Quản lý Tổ chức & Trang trại',
-      items: [
-        {
-          label: '1.2. Trang trại & Phân khu',
-          path: '/farms',
-          icon: Building2,
-          permission: 'PERM_FARM_VIEW',
-        },
-        {
-          label: '1.5. Chu kỳ vận hành',
-          path: '/cycles',
-          icon: Calendar,
-          permission: ['PERM_FARM_VIEW', 'PERM_FINANCE_REPORT'],
-        },
-        {
-          label: '1.6. Quản lý đối tác',
-          path: '/partners',
-          icon: Users,
-          permission: ['PERM_INVENTORY_VIEW', 'PERM_FINANCE_REPORT', 'PERM_FARM_VIEW'],
-        },
-      ],
+      id: 'workspace-d',
+      label: '5. Danh bạ Đối tác',
+      sublabel: 'Workspace D: Nhà cung cấp & Khách hàng',
+      path: '/partners',
+      icon: BookOpen,
+      permission: ['PERM_INVENTORY_VIEW', 'PERM_FINANCE_REPORT', 'PERM_FARM_VIEW'],
     },
     {
-      title: '2. Quản lý Sản xuất',
-      items: [
-        {
-          label: '2.1. Trồng trọt (Crop)',
-          path: '/crop',
-          icon: Wheat,
-          permission: 'PERM_CROP_VIEW',
-        },
-        {
-          label: '2.2. Chăn nuôi (Livestock)',
-          path: '/livestock',
-          icon: Beef,
-          permission: 'PERM_LIVESTOCK_VIEW',
-        },
-      ],
+      id: 'workspace-e',
+      label: '6. Canh tác & Hiện trường',
+      sublabel: 'Workspace E: Nhật ký & Xuất vật tư',
+      path: '/farming',
+      icon: Wheat,
+      permission: ['PERM_CROP_VIEW', 'PERM_CROP_LOG', 'PERM_LIVESTOCK_VIEW', 'PERM_FARM_VIEW'],
     },
     {
-      title: '3. Quản lý Kho & Vật tư',
-      items: [
-        {
-          label: '3.1. Quản lý kho bãi',
-          path: '/warehouses',
-          icon: Boxes,
-          permission: 'PERM_INVENTORY_VIEW',
-        },
-        {
-          label: '3.2. Danh mục & Vật tư',
-          path: '/materials',
-          icon: Package,
-          permission: ['PERM_INVENTORY_VIEW', 'PERM_FINANCE_REPORT'],
-        },
-        {
-          label: '3.3. Nhập kho',
-          path: '/inventory/receipts',
-          icon: ArrowDownToLine,
-          permission: 'PERM_INVENTORY_VIEW',
-        },
-        {
-          label: '3.4. Xuất kho',
-          path: '/inventory/issues',
-          icon: ArrowUpFromLine,
-          permission: 'PERM_INVENTORY_VIEW',
-        },
-        {
-          label: '3.7. Theo dõi tồn kho',
-          path: '/inventory/balances',
-          icon: Layers,
-          permission: 'PERM_INVENTORY_VIEW',
-        },
-      ],
+      id: 'workspace-f',
+      label: '7. Đường ống QA & Truy xuất',
+      sublabel: 'Workspace F: Lô hàng, KCS, In tem',
+      path: '/quality',
+      icon: ClipboardCheck,
+      permission: ['PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_LABEL_PRINT'],
     },
     {
-      title: 'Vận hành & Nghiệp vụ khác',
-      items: [
-        {
-          label: '4. QC & Truy xuất nguồn gốc',
-          path: '/quality',
-          icon: ClipboardCheck,
-          permission: 'PERM_QC_INSPECT',
-        },
-        {
-          label: '6. Nhân sự & Chấm công',
-          path: '/hr',
-          icon: Users,
-          permission: 'PERM_HR_EMPLOYEE_MANAGE',
-        },
-        {
-          label: '6.2. Công việc & Giao việc',
-          path: '/tasks',
-          icon: CalendarCheck,
-          permission: 'PERM_TASK_ASSIGN',
-        },
-        {
-          label: '7. Tài chính & Chi phí',
-          path: '/finance',
-          icon: DollarSign,
-          permission: 'PERM_FINANCE_REPORT',
-        },
-        {
-          label: 'Báo cáo & Thống kê',
-          path: '/reports',
-          icon: BarChart3,
-          permission: 'PERM_FINANCE_REPORT',
-        },
-        {
-          label: 'Quản trị nền tảng',
-          path: '/platform',
-          icon: ShieldCheck,
-          permission: 'PERM_TENANT_MANAGE',
-          role: 'ROLE_SUPER_ADMIN',
-        },
-        { label: 'Cài đặt', path: '/settings', icon: Settings },
+      id: 'system-settings',
+      label: '8. Cấu hình & Hệ thống',
+      sublabel: 'Cài đặt chung & Chu kỳ vận hành',
+      path: '/settings',
+      icon: Settings,
+      permission: ['PERM_FARM_UPDATE', 'PERM_FARM_VIEW', 'PERM_FINANCE_REPORT'],
+      children: [
+        { id: 's-cycles', label: '1.5. Chu kỳ Vận hành', path: '/cycles' },
       ],
     },
   ];
 
   // Helper kiểm tra quyền của từng menu item
   const checkItemVisibility = (item) => {
-    // Nếu yêu cầu role cụ thể
+    if (!item.role && !item.permission) return true;
     if (item.role) {
       const roles = Array.isArray(item.role) ? item.role : [item.role];
-      if (!roles.some((r) => hasRole(r))) return false;
+      if (roles.some((r) => hasRole(r))) return true;
     }
-    // Nếu yêu cầu permission cụ thể (hỗ trợ mảng quyền thay thế)
     if (item.permission) {
       const permissions = Array.isArray(item.permission) ? item.permission : [item.permission];
-      if (!permissions.some((p) => hasPermission(p))) return false;
+      if (permissions.some((p) => hasPermission(p))) return true;
     }
-    return true;
+    return false;
   };
 
   if (!isSidebarOpen) return null;
 
+  const visibleItems = menuItems.filter(checkItemVisibility);
+
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 min-h-[calc(100vh-4rem)] flex flex-col shrink-0 border-r border-slate-800">
+      {/* Header Sidebar */}
       <div className="p-4 border-b border-slate-800">
-        <p className="text-[11px] uppercase tracking-wider font-bold text-slate-400">
-          Sơ đồ chức năng hệ thống
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] uppercase tracking-wider font-bold text-slate-400">
+            Không Gian Hợp Nhất
+          </p>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800">
+            RULE-UI-001
+          </span>
+        </div>
       </div>
-      <nav className="p-3 space-y-4 flex-1 overflow-y-auto">
-        {menuSections.map((section, sIdx) => {
-          const visibleItems = section.items.filter(checkItemVisibility);
-          if (visibleItems.length === 0) return null;
+
+      {/* Navigation List */}
+      <nav className="p-3 space-y-1.5 flex-1 overflow-y-auto">
+        {visibleItems.map((item) => {
+          const Icon = item.icon;
+          const isExactActive =
+            item.path === '/'
+              ? location.pathname === '/'
+              : location.pathname === item.path;
+          const isParentActive =
+            item.path === '/'
+              ? location.pathname === '/'
+              : location.pathname.startsWith(item.path) ||
+                (item.children && item.children.some((c) => location.pathname === c.path || location.pathname.startsWith(c.path)));
 
           return (
-            <div key={sIdx} className="space-y-1">
-              <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                {section.title}
-              </p>
-              {visibleItems.map((item) => {
-                const Icon = item.icon;
-                const isActive =
-                  item.path === '/'
-                    ? location.pathname === '/'
-                    : location.pathname.startsWith(item.path);
-
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                      isActive
-                        ? 'bg-emerald-600 text-white shadow-sm font-semibold'
-                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" />
+            <div key={item.id} className="space-y-1">
+              <Link
+                to={item.path}
+                className={`flex items-start gap-3 p-2.5 rounded-xl text-xs transition-all group ${
+                  isExactActive
+                    ? 'bg-emerald-600 text-white shadow-sm font-semibold'
+                    : isParentActive
+                    ? 'bg-slate-800/90 text-white font-medium'
+                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                }`}
+              >
+                <Icon
+                  className={`w-4 h-4 shrink-0 mt-0.5 ${
+                    isExactActive
+                      ? 'text-white'
+                      : isParentActive
+                      ? 'text-emerald-400'
+                      : 'text-slate-400 group-hover:text-emerald-400'
+                  }`}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
                     <span className="truncate">{item.label}</span>
-                  </Link>
-                );
-              })}
+                    {item.badge && (
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                  {item.sublabel && (
+                    <p
+                      className={`text-[10px] truncate mt-0.5 ${
+                        isExactActive ? 'text-emerald-100 font-normal' : 'text-slate-500'
+                      }`}
+                    >
+                      {item.sublabel}
+                    </p>
+                  )}
+                </div>
+              </Link>
+
+              {/* Sub-menu links for Batch 2 modules */}
+              {item.children && item.children.length > 0 && (
+                <div className="ml-7 pl-3 border-l border-slate-800/80 space-y-1 my-1">
+                  {item.children.map((sub) => {
+                    const isSubActive =
+                      location.pathname === sub.path ||
+                      location.pathname.startsWith(sub.path + '/');
+                    return (
+                      <Link
+                        key={sub.id}
+                        to={sub.path}
+                        className={`block py-1.5 px-2.5 rounded-lg text-[11px] transition-all ${
+                          isSubActive
+                            ? 'bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        {sub.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
       </nav>
+
+      {/* Footer Sidebar */}
       <div className="p-4 border-t border-slate-800 text-[11px] text-slate-400">
         <p className="font-semibold text-slate-300">Farm SaaS Platform</p>
-        <p className="mt-0.5 text-slate-400">Master Data Frontend v1.0</p>
+        <p className="mt-0.5 text-slate-500">Master UI Workspaces v2.0</p>
       </div>
     </aside>
   );

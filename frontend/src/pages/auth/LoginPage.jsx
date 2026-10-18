@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Eye, EyeOff, Lock, User, AlertCircle, CheckCircle2, Sprout } from 'lucide-react';
 import { useAuthStore } from '../../store/auth/useAuthStore';
 import { authService } from '../../services/auth/authService';
+import { ForceChangePasswordModal } from './ForceChangePasswordModal';
 
 export const LoginPage = () => {
   const navigate = useNavigate();
@@ -16,10 +17,11 @@ export const LoginPage = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
 
-  // Nếu người dùng đã đăng nhập thì tự động điều hướng sang trang chủ
+  // Nếu người dùng đã đăng nhập thì tự động điều hướng sang trang chủ hoặc platform
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/', { replace: true });
+      const isSuper = useAuthStore.getState().user?.roles?.includes('ROLE_SUPER_ADMIN');
+      navigate(isSuper ? '/platform' : '/', { replace: true });
     }
 
     const params = new URLSearchParams(location.search);
@@ -27,6 +29,8 @@ export const LoginPage = () => {
       setInfoMessage('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại để tiếp tục.');
     }
   }, [isAuthenticated, location, navigate]);
+
+  const [showForceChangePassword, setShowForceChangePassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,17 +49,54 @@ export const LoginPage = () => {
 
       if (user && accessToken) {
         setAuth(user, accessToken);
-        const from = location.state?.from?.pathname || '/';
+        const defaultTarget = user?.roles?.includes('ROLE_SUPER_ADMIN') ? '/platform' : '/';
+        const from = location.state?.from?.pathname || defaultTarget;
         navigate(from, { replace: true });
       } else {
         setErrorMessage('Dữ liệu xác thực không hợp lệ. Vui lòng thử lại.');
       }
     } catch (err) {
+      // Bắt mã lỗi Ép đổi mật khẩu lần đầu (HTTP 428 / 403 hoặc code MUST_CHANGE_PASSWORD)
+      if (
+        err.code === 'MUST_CHANGE_PASSWORD' ||
+        err.status === 428 ||
+        err.response?.status === 428 ||
+        (err.status === 403 && err.message?.includes('đổi mật khẩu'))
+      ) {
+        setShowForceChangePassword(true);
+        return;
+      }
+
       const message =
         err.message ||
         err.response?.data?.message ||
         'Tên đăng nhập hoặc mật khẩu không chính xác.';
       setErrorMessage(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForceChangeSuccess = async (newPassword) => {
+    setShowForceChangePassword(false);
+    setPassword(newPassword);
+    setIsLoading(true);
+
+    try {
+      // Đăng nhập tự động với mật khẩu mới vừa đổi
+      const response = await authService.login(username.trim(), newPassword);
+      const { user, accessToken } = response.data || {};
+
+      if (user && accessToken) {
+        setAuth(user, accessToken);
+        const defaultTarget = user?.roles?.includes('ROLE_SUPER_ADMIN') ? '/platform' : '/';
+        const from = location.state?.from?.pathname || defaultTarget;
+        navigate(from, { replace: true });
+      } else {
+        setInfoMessage('Đổi mật khẩu thành công. Vui lòng đăng nhập lại bằng mật khẩu mới.');
+      }
+    } catch {
+      setInfoMessage('Đổi mật khẩu thành công. Vui lòng nhập lại mật khẩu mới để đăng nhập.');
     } finally {
       setIsLoading(false);
     }
@@ -170,6 +211,15 @@ export const LoginPage = () => {
           Bảo mật đa tầng: In-Memory Bearer Access JWT & HttpOnly Session Cookie (DEC-05)
         </div>
       </div>
+
+      {/* Modal ép đổi mật khẩu lần đầu */}
+      <ForceChangePasswordModal
+        isOpen={showForceChangePassword}
+        onClose={() => setShowForceChangePassword(false)}
+        username={username.trim()}
+        initialOldPassword={password}
+        onSuccess={handleForceChangeSuccess}
+      />
     </div>
   );
 };

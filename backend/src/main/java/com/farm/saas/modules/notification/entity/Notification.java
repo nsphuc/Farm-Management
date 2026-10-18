@@ -1,27 +1,21 @@
 package com.farm.saas.modules.notification.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
-
 import java.time.Instant;
+import lombok.*;
 
-/**
- * Entity đại diện cho bảng notifications trong cơ sở dữ liệu (Migration V1.1).
- * Quản lý thông báo người dùng theo chuẩn DEC-04.
- */
-@Entity
-@Table(name = "notifications")
 @Getter
 @Setter
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@Entity
+@Table(name = "notifications")
 public class Notification {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
     @Column(name = "tenant_id")
@@ -30,19 +24,17 @@ public class Notification {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(name = "title", nullable = false)
+    @Column(name = "title", nullable = false, length = 255)
     private String title;
 
     @Column(name = "message", nullable = false, columnDefinition = "TEXT")
     private String message;
 
     @Column(name = "type", nullable = false, length = 50)
-    @Builder.Default
-    private String type = "INFO";
+    private String type;
 
     @Column(name = "is_read", nullable = false)
-    @Builder.Default
-    private Boolean isRead = false;
+    private Boolean isRead;
 
     @Column(name = "read_at")
     private Instant readAt;
@@ -56,11 +48,9 @@ public class Notification {
     @Column(name = "action_url", length = 500)
     private String actionUrl;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @Column(name = "created_at")
     private Instant createdAt;
 
-    @UpdateTimestamp
     @Column(name = "updated_at")
     private Instant updatedAt;
 

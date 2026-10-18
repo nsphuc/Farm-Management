@@ -1,10 +1,10 @@
 -- ==============================================================================
--- FARM SAAS PLATFORM - PRODUCTION-GRADE DATABASE ARCHITECTURE (V1.0 FINAL)
--- Migration File: V1_0__init_system_core.sql
+-- FARM SAAS PLATFORM - PRODUCTION-GRADE DATABASE ARCHITECTURE (CONSOLIDATED AGRI-ERP V1.0)
+-- Migration File: V1_0__init_system_core.sql (SINGLE SOURCE OF TRUTH)
 -- Database Engine: MySQL 8.x (InnoDB)
 -- Character Set: utf8mb4 | Collation: utf8mb4_unicode_ci
 -- Architecture: Enterprise Multi-Tenancy & The Farm Barrier Guard (Tenant -> Farm -> Zone -> Location)
--- Total Tables: 70 tables (Structured into 9 Functional Modules + Idempotent Seeds)
+-- Total Tables: 72 tables (Structured into 10 Functional Modules + Core RBAC & Dev Seeds)
 -- ==============================================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS enterprises (
     legal_representative VARCHAR(150),
     headquarter_address VARCHAR(500),
     established_date DATE,
+    logo_url VARCHAR(500) NULL,
+    contact_phone VARCHAR(30) NULL,
+    contact_email VARCHAR(150) NULL,
+    bank_bin VARCHAR(20) NULL,
+    bank_name VARCHAR(100) NULL,
+    bank_account_no VARCHAR(50) NULL,
+    bank_account_name VARCHAR(150) NULL,
     certifications_json JSON,                              -- VietGAP, GlobalGAP, Organic certificates
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -80,7 +87,13 @@ CREATE TABLE IF NOT EXISTS partners (
     email VARCHAR(100),
     address VARCHAR(500),
     bank_account_info VARCHAR(255),
+    bank_bin VARCHAR(20) NULL,
+    bank_name VARCHAR(100) NULL,
+    bank_account_no VARCHAR(50) NULL,
+    bank_account_name VARCHAR(150) NULL,
     credit_rating VARCHAR(30) DEFAULT 'UNRATED',          -- A, B, C, UNRATED
+    credit_limit DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    payment_term_days INT NOT NULL DEFAULT 0,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',          -- ACTIVE, INACTIVE, BLACKLISTED
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -90,6 +103,7 @@ CREATE TABLE IF NOT EXISTS partners (
     CONSTRAINT fk_partners_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
     CONSTRAINT chk_partners_type CHECK (partner_type IN ('SUPPLIER', 'BUYER', 'LOGISTICS', 'AGENT')),
     CONSTRAINT chk_partners_status CHECK (status IN ('ACTIVE', 'INACTIVE', 'BLACKLISTED')),
+    CONSTRAINT chk_partners_credit CHECK (credit_limit >= 0.00 AND payment_term_days >= 0),
     UNIQUE KEY uk_partners_tenant_code (tenant_id, code),
     UNIQUE KEY uk_partners_tenant_id (tenant_id, id),      -- Composite Parent Key cho cô lập Tenant
     INDEX idx_partners_tenant (tenant_id)
@@ -111,6 +125,7 @@ CREATE TABLE IF NOT EXISTS users (
     phone VARCHAR(30),
     avatar_url VARCHAR(500),
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',          -- ACTIVE, LOCKED, INACTIVE
+    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
     failed_logins INT NOT NULL DEFAULT 0,
     lock_until TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -223,6 +238,7 @@ CREATE TABLE IF NOT EXISTS farms (
     total_area_m2 DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
     latitude DECIMAL(10, 8),
     longitude DECIMAL(11, 8),
+    geofence_radius_m INT NOT NULL DEFAULT 300,
     address VARCHAR(500),
     manager_user_id BIGINT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',          -- ACTIVE, INACTIVE, MAINTENANCE
@@ -236,6 +252,7 @@ CREATE TABLE IF NOT EXISTS farms (
     CONSTRAINT chk_farms_type CHECK (farm_type IN ('CROP', 'LIVESTOCK', 'MIXED', 'AQUACULTURE')),
     CONSTRAINT chk_farms_status CHECK (status IN ('ACTIVE', 'INACTIVE', 'MAINTENANCE')),
     CONSTRAINT chk_farms_area CHECK (total_area_m2 >= 0.00),
+    CONSTRAINT chk_farms_geofence CHECK (geofence_radius_m > 0),
     UNIQUE KEY uk_farms_tenant_code (tenant_id, code),
     UNIQUE KEY uk_farms_tenant_id (tenant_id, id),         -- Composite Parent Key cho The Farm Barrier Guard
     INDEX idx_farms_tenant (tenant_id)
@@ -253,7 +270,7 @@ CREATE TABLE IF NOT EXISTS user_farm_access (
     granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     granted_by BIGINT NULL,
     PRIMARY KEY (user_id, farm_id),
-    CONSTRAINT fk_user_farm_access_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_farm_access_user_tenant FOREIGN KEY (tenant_id, user_id) REFERENCES users(tenant_id, id) ON DELETE CASCADE,
     CONSTRAINT fk_user_farm_access_farm_tenant FOREIGN KEY (tenant_id, farm_id) REFERENCES farms(tenant_id, id) ON DELETE CASCADE,
     INDEX idx_user_farm_access_farm (farm_id),
     INDEX idx_user_farm_access_tenant (tenant_id)
@@ -270,6 +287,7 @@ CREATE TABLE IF NOT EXISTS production_zones (
     area_m2 DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
     soil_type VARCHAR(100),
     water_source VARCHAR(100),
+    map_layout_json JSON NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',          -- ACTIVE, FALLOW, QUARANTINE, MAINTENANCE
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -315,8 +333,9 @@ CREATE TABLE IF NOT EXISTS farm_assignments (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     tenant_id BIGINT NOT NULL,
     farm_id BIGINT NOT NULL,
+    zone_id BIGINT NULL,
     user_id BIGINT NOT NULL,
-    role_in_farm VARCHAR(50) NOT NULL,                     -- FARM_MANAGER, TECHNICAL_LEAD, AGRONOMIST, VETERINARIAN, WAREHOUSE_KEEPER, FIELD_WORKER
+    role_in_farm VARCHAR(50) NOT NULL,                     -- FARM_MANAGER, ZONE_MANAGER, TECHNICAL_LEAD, AGRONOMIST, VETERINARIAN, WAREHOUSE_KEEPER, FIELD_WORKER
     assigned_from DATE NOT NULL,
     assigned_to DATE NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -326,10 +345,13 @@ CREATE TABLE IF NOT EXISTS farm_assignments (
     updated_by BIGINT NULL,
     version BIGINT DEFAULT 0,
     CONSTRAINT fk_farm_assignments_farm_tenant FOREIGN KEY (tenant_id, farm_id) REFERENCES farms(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT fk_farm_assignments_zone_composite FOREIGN KEY (tenant_id, farm_id, zone_id) REFERENCES production_zones(tenant_id, farm_id, id) ON DELETE CASCADE,
     CONSTRAINT fk_farm_assignments_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT chk_farm_assignments_dates CHECK (assigned_to IS NULL OR assigned_to >= assigned_from),
+    CONSTRAINT chk_farm_assignments_role CHECK (role_in_farm IN ('FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'AGRONOMIST', 'VETERINARIAN', 'WAREHOUSE_KEEPER', 'FIELD_WORKER')),
     INDEX idx_farm_assignments_tenant (tenant_id),
     INDEX idx_farm_assignments_farm (farm_id),
+    INDEX idx_farm_assignments_zone (zone_id),
     INDEX idx_farm_assignments_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -406,6 +428,7 @@ CREATE TABLE IF NOT EXISTS crop_seasons (
     tenant_id BIGINT NOT NULL,
     farm_id BIGINT NOT NULL,
     zone_id BIGINT NOT NULL,
+    operational_cycle_id BIGINT NULL,
     season_code VARCHAR(50) NOT NULL,
     crop_type_id BIGINT NOT NULL,
     start_date DATE NOT NULL,
@@ -423,6 +446,7 @@ CREATE TABLE IF NOT EXISTS crop_seasons (
     version BIGINT DEFAULT 0,
     CONSTRAINT fk_crop_seasons_zone_composite FOREIGN KEY (tenant_id, farm_id, zone_id) REFERENCES production_zones(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_crop_seasons_crop_type_composite FOREIGN KEY (tenant_id, crop_type_id) REFERENCES crop_types(tenant_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_crop_seasons_cycle_composite FOREIGN KEY (tenant_id, farm_id, operational_cycle_id) REFERENCES operational_cycles(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT chk_crop_seasons_area CHECK (planted_area_m2 > 0.00),
     CONSTRAINT chk_crop_seasons_dates CHECK (
         (expected_harvest_date IS NULL OR expected_harvest_date >= start_date) AND
@@ -439,6 +463,7 @@ CREATE TABLE IF NOT EXISTS crop_seasons (
     INDEX idx_crop_seasons_tenant (tenant_id),
     INDEX idx_crop_seasons_farm (farm_id),
     INDEX idx_crop_seasons_zone (zone_id),
+    INDEX idx_crop_seasons_cycle (operational_cycle_id),
     INDEX idx_crop_seasons_crop_type (crop_type_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -451,6 +476,8 @@ CREATE TABLE IF NOT EXISTS farming_logs (
     log_date DATE NOT NULL,
     stage VARCHAR(50),                                      -- SEEDLING, VEGETATIVE, FLOWERING, FRUITING, MATURATION
     activity_type VARCHAR(50) NOT NULL,                     -- SOIL_TILLAGE, IRRIGATION, FERTILIZATION, PESTICIDE_APPLICATION, PRUNING, WEEDING, HARVESTING
+    phi_days INT NOT NULL DEFAULT 0,
+    phi_end_date DATE NULL,
     supplies_used_json JSON,                                -- Snapshot dữ liệu thô
     weather_notes VARCHAR(500),
     performed_by_user_id BIGINT NULL,
@@ -464,6 +491,7 @@ CREATE TABLE IF NOT EXISTS farming_logs (
     CONSTRAINT fk_farming_logs_season_composite FOREIGN KEY (tenant_id, farm_id, season_id) REFERENCES crop_seasons(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_farming_logs_performed_by FOREIGN KEY (performed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT chk_farming_logs_activity CHECK (activity_type IN ('SOIL_TILLAGE', 'IRRIGATION', 'FERTILIZATION', 'PESTICIDE_APPLICATION', 'PRUNING', 'WEEDING', 'HARVESTING')),
+    CONSTRAINT chk_farming_logs_phi CHECK (phi_days >= 0),
     UNIQUE KEY uk_farming_logs_tenant_farm_id (tenant_id, farm_id, id),
     INDEX idx_farming_logs_tenant (tenant_id),
     INDEX idx_farming_logs_farm (farm_id),
@@ -506,6 +534,7 @@ CREATE TABLE IF NOT EXISTS livestock_groups (
     tenant_id BIGINT NOT NULL,
     farm_id BIGINT NOT NULL,
     zone_id BIGINT NOT NULL,
+    operational_cycle_id BIGINT NULL,
     group_code VARCHAR(50) NOT NULL,
     breed_id BIGINT NOT NULL,
     initial_quantity INT NOT NULL,
@@ -519,13 +548,15 @@ CREATE TABLE IF NOT EXISTS livestock_groups (
     version BIGINT DEFAULT 0,
     CONSTRAINT fk_livestock_groups_zone_composite FOREIGN KEY (tenant_id, farm_id, zone_id) REFERENCES production_zones(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_livestock_groups_breed_composite FOREIGN KEY (tenant_id, breed_id) REFERENCES livestock_breeds(tenant_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_livestock_groups_cycle_composite FOREIGN KEY (tenant_id, farm_id, operational_cycle_id) REFERENCES operational_cycles(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT chk_livestock_groups_qty CHECK (initial_quantity >= 0 AND current_quantity >= 0),
     CONSTRAINT chk_livestock_groups_status CHECK (status IN ('ACTIVE', 'QUARANTINED', 'SOLD', 'CULLED')),
     UNIQUE KEY uk_livestock_groups_code (tenant_id, farm_id, group_code),
     UNIQUE KEY uk_livestock_groups_tenant_farm_id (tenant_id, farm_id, id),
     INDEX idx_livestock_groups_tenant (tenant_id),
     INDEX idx_livestock_groups_farm (farm_id),
-    INDEX idx_livestock_groups_zone (zone_id)
+    INDEX idx_livestock_groups_zone (zone_id),
+    INDEX idx_livestock_groups_cycle (operational_cycle_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 23. Quản lý Cá thể vật nuôi độc lập (Livestock Individuals - Thẻ tai RFID)
@@ -643,7 +674,11 @@ CREATE TABLE IF NOT EXISTS warehouses (
     farm_id BIGINT NOT NULL,
     code VARCHAR(50) NOT NULL,
     name VARCHAR(150) NOT NULL,
-    warehouse_type VARCHAR(50) NOT NULL,                   -- FERTILIZER, PESTICIDE, ANIMAL_FEED, HARVESTED_PRODUCE, TOOLS_EQUIPMENT, GENERAL
+    warehouse_type VARCHAR(50) NOT NULL,                   -- FERTILIZER, PESTICIDE, ANIMAL_FEED, HARVESTED_PRODUCE, COLD_STORAGE, TOOLS_EQUIPMENT, GENERAL
+    capacity_m3 DECIMAL(12, 2) NULL,
+    floor_area_m2 DECIMAL(12, 2) NULL,
+    standard_temp_c DECIMAL(5, 2) NULL,
+    standard_humidity_pct DECIMAL(5, 2) NULL,
     location_desc VARCHAR(255),
     manager_user_id BIGINT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',          -- ACTIVE, INACTIVE, FULL
@@ -654,7 +689,8 @@ CREATE TABLE IF NOT EXISTS warehouses (
     version BIGINT DEFAULT 0,
     CONSTRAINT fk_warehouses_farm_tenant FOREIGN KEY (tenant_id, farm_id) REFERENCES farms(tenant_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_warehouses_manager FOREIGN KEY (manager_user_id) REFERENCES users(id) ON DELETE SET NULL,
-    CONSTRAINT chk_warehouses_type CHECK (warehouse_type IN ('FERTILIZER', 'PESTICIDE', 'ANIMAL_FEED', 'HARVESTED_PRODUCE', 'TOOLS_EQUIPMENT', 'GENERAL')),
+    CONSTRAINT chk_warehouses_type CHECK (warehouse_type IN ('FERTILIZER', 'PESTICIDE', 'ANIMAL_FEED', 'HARVESTED_PRODUCE', 'COLD_STORAGE', 'TOOLS_EQUIPMENT', 'GENERAL')),
+    CONSTRAINT chk_warehouses_specs CHECK ((capacity_m3 IS NULL OR capacity_m3 >= 0.00) AND (floor_area_m2 IS NULL OR floor_area_m2 >= 0.00) AND (standard_humidity_pct IS NULL OR (standard_humidity_pct >= 0.00 AND standard_humidity_pct <= 100.00))),
     CONSTRAINT chk_warehouses_status CHECK (status IN ('ACTIVE', 'INACTIVE', 'FULL')),
     UNIQUE KEY uk_warehouses_farm_code (farm_id, code),
     UNIQUE KEY uk_warehouses_tenant_farm_id (tenant_id, farm_id, id),
@@ -669,6 +705,7 @@ CREATE TABLE IF NOT EXISTS material_categories (
     tenant_id BIGINT NOT NULL,
     name VARCHAR(150) NOT NULL,
     code VARCHAR(50) NOT NULL,
+    description VARCHAR(500) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     created_by BIGINT NULL,
@@ -686,6 +723,7 @@ CREATE TABLE IF NOT EXISTS materials (
     tenant_id BIGINT NOT NULL,
     category_id BIGINT NOT NULL,
     sku_code VARCHAR(50) NOT NULL,
+    barcode VARCHAR(100) NULL,
     name VARCHAR(255) NOT NULL,
     standard_unit VARCHAR(30) NOT NULL,                     -- KG, GRAM, LITER, ML, BAG, BOTTLE, DOSE, PIECE, BOX
     dispatch_strategy VARCHAR(20) NOT NULL DEFAULT 'FIFO',  -- FIFO (First In First Out), FEFO (First Expired First Out)
@@ -693,6 +731,12 @@ CREATE TABLE IF NOT EXISTS materials (
     min_stock_level DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
     max_stock_level DECIMAL(12, 2),
     unit_price_standard DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    manufacturer_name VARCHAR(255) NULL,
+    active_ingredient VARCHAR(255) NULL,
+    default_phi_days INT NOT NULL DEFAULT 0,
+    shelf_life_days INT NULL,
+    description VARCHAR(500) NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',          -- ACTIVE, INACTIVE, DISCONTINUED
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     created_by BIGINT NULL,
@@ -704,7 +748,10 @@ CREATE TABLE IF NOT EXISTS materials (
     CONSTRAINT chk_materials_max_stock CHECK (max_stock_level IS NULL OR max_stock_level >= min_stock_level),
     CONSTRAINT chk_materials_price CHECK (unit_price_standard >= 0.00),
     CONSTRAINT chk_materials_alert_days CHECK (expiry_alert_days >= 0),
+    CONSTRAINT chk_materials_phi CHECK (default_phi_days >= 0),
+    CONSTRAINT chk_materials_status CHECK (status IN ('ACTIVE', 'INACTIVE', 'DISCONTINUED')),
     UNIQUE KEY uk_materials_sku (tenant_id, sku_code),
+    UNIQUE KEY uk_materials_tenant_barcode (tenant_id, barcode),
     UNIQUE KEY uk_materials_tenant_id (tenant_id, id),
     INDEX idx_materials_tenant (tenant_id),
     INDEX idx_materials_category (category_id)
@@ -716,6 +763,7 @@ CREATE TABLE IF NOT EXISTS material_unit_conversions (
     tenant_id BIGINT NOT NULL,
     material_id BIGINT NOT NULL,
     unit_name VARCHAR(30) NOT NULL,                         -- BAG, BOX, BOTTLE, PACK
+    unit_barcode VARCHAR(100) NULL,
     conversion_factor DECIMAL(12, 4) NOT NULL,              -- 1 BAG = 25.0000 KG (quy về standard_unit)
     is_purchase_unit BOOLEAN NOT NULL DEFAULT FALSE,
     is_dispatch_unit BOOLEAN NOT NULL DEFAULT FALSE,
@@ -724,6 +772,7 @@ CREATE TABLE IF NOT EXISTS material_unit_conversions (
     CONSTRAINT fk_unit_conversions_material FOREIGN KEY (tenant_id, material_id) REFERENCES materials(tenant_id, id) ON DELETE CASCADE,
     CONSTRAINT chk_unit_conv_factor CHECK (conversion_factor > 0.0000),
     UNIQUE KEY uk_material_unit_name (material_id, unit_name),
+    UNIQUE KEY uk_unit_conv_tenant_barcode (tenant_id, unit_barcode),
     INDEX idx_unit_conv_tenant (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -764,12 +813,14 @@ CREATE TABLE IF NOT EXISTS warehouse_inventory (
     warehouse_id BIGINT NOT NULL,
     material_id BIGINT NOT NULL,
     batch_number VARCHAR(50) NOT NULL,
+    manufacture_date DATE NULL,
     inward_date DATE NOT NULL,                             -- Phục vụ chiến lược FIFO
     expiry_date DATE,                                      -- Phục vụ chiến lược FEFO
     unit_cost DECIMAL(14, 2) NOT NULL DEFAULT 0.00,        -- Đơn giá vốn thực tế
     quantity_on_hand DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
     reserved_quantity DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
     storage_bin_code VARCHAR(50),
+    internal_batch_barcode VARCHAR(100) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     created_by BIGINT NULL,
@@ -803,6 +854,8 @@ CREATE TABLE IF NOT EXISTS warehouse_receipts (
     total_amount DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     notes VARCHAR(500),
     status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',           -- DRAFT, APPROVED, COMPLETED, CANCELLED
+    approved_by BIGINT NULL,
+    approved_at TIMESTAMP NULL,
     cancelled_at TIMESTAMP NULL,
     cancelled_by BIGINT NULL,
     cancellation_reason VARCHAR(500) NULL,
@@ -813,6 +866,7 @@ CREATE TABLE IF NOT EXISTS warehouse_receipts (
     version BIGINT DEFAULT 0,
     CONSTRAINT fk_warehouse_receipts_warehouse_composite FOREIGN KEY (tenant_id, farm_id, warehouse_id) REFERENCES warehouses(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_warehouse_receipts_partner_composite FOREIGN KEY (tenant_id, partner_id) REFERENCES partners(tenant_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_warehouse_receipts_approved_by FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_warehouse_receipts_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT chk_warehouse_receipts_type CHECK (receipt_type IN ('PURCHASE', 'HARVEST_RETURN', 'INTERNAL_TRANSFER', 'ADJUSTMENT')),
     CONSTRAINT chk_warehouse_receipts_status CHECK (status IN ('DRAFT', 'APPROVED', 'COMPLETED', 'CANCELLED')),
@@ -822,7 +876,8 @@ CREATE TABLE IF NOT EXISTS warehouse_receipts (
     UNIQUE KEY uk_warehouse_receipts_tenant_id (tenant_id, id),
     INDEX idx_warehouse_receipts_tenant (tenant_id),
     INDEX idx_warehouse_receipts_farm (farm_id),
-    INDEX idx_warehouse_receipts_date (receipt_date)
+    INDEX idx_warehouse_receipts_date (receipt_date),
+    INDEX idx_warehouse_receipts_approved_by (approved_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 33. Chi tiết Phiếu Nhập kho (Warehouse Receipt Items)
@@ -833,6 +888,9 @@ CREATE TABLE IF NOT EXISTS warehouse_receipt_items (
     material_id BIGINT NOT NULL,
     batch_number VARCHAR(50) NOT NULL,
     expiry_date DATE,
+    entered_unit VARCHAR(30) NULL,
+    entered_quantity DECIMAL(12, 2) NULL,
+    conversion_factor DECIMAL(12, 4) NOT NULL DEFAULT 1.0000,
     quantity DECIMAL(12, 2) NOT NULL,
     unit_price DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     total_price DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
@@ -869,6 +927,8 @@ CREATE TABLE IF NOT EXISTS warehouse_issues (
     total_amount DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     notes VARCHAR(500),
     status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',           -- DRAFT, APPROVED, COMPLETED, CANCELLED
+    approved_by BIGINT NULL,
+    approved_at TIMESTAMP NULL,
     cancelled_at TIMESTAMP NULL,
     cancelled_by BIGINT NULL,
     cancellation_reason VARCHAR(500) NULL,
@@ -884,6 +944,7 @@ CREATE TABLE IF NOT EXISTS warehouse_issues (
     CONSTRAINT fk_warehouse_issues_season_composite FOREIGN KEY (tenant_id, farm_id, season_id) REFERENCES crop_seasons(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_warehouse_issues_farming_log_composite FOREIGN KEY (tenant_id, farm_id, farming_log_id) REFERENCES farming_logs(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_warehouse_issues_livestock_event_composite FOREIGN KEY (tenant_id, farm_id, livestock_event_id) REFERENCES livestock_events(tenant_id, farm_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_warehouse_issues_approved_by FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_warehouse_issues_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT chk_warehouse_issues_type CHECK (issue_type IN ('PRODUCTION_BACKFLUSH', 'INTERNAL_USE', 'SALE_FULFILLMENT', 'DAMAGE_DISPOSAL', 'TRANSFER')),
     CONSTRAINT chk_warehouse_issues_status CHECK (status IN ('DRAFT', 'APPROVED', 'COMPLETED', 'CANCELLED')),
@@ -895,7 +956,8 @@ CREATE TABLE IF NOT EXISTS warehouse_issues (
     UNIQUE KEY uk_warehouse_issues_tenant_id (tenant_id, id),
     INDEX idx_warehouse_issues_tenant (tenant_id),
     INDEX idx_warehouse_issues_farm (farm_id),
-    INDEX idx_warehouse_issues_date (issue_date)
+    INDEX idx_warehouse_issues_date (issue_date),
+    INDEX idx_warehouse_issues_approved_by (approved_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 35. Chi tiết Phiếu Xuất kho (Warehouse Issue Items)
@@ -905,6 +967,9 @@ CREATE TABLE IF NOT EXISTS warehouse_issue_items (
     tenant_id BIGINT NOT NULL,
     material_id BIGINT NOT NULL,
     batch_number VARCHAR(50) NOT NULL,
+    entered_unit VARCHAR(30) NULL,
+    entered_quantity DECIMAL(12, 2) NULL,
+    conversion_factor DECIMAL(12, 4) NOT NULL DEFAULT 1.0000,
     quantity DECIMAL(12, 2) NOT NULL,
     unit_price DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     total_price DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
@@ -1037,6 +1102,8 @@ CREATE TABLE IF NOT EXISTS stocktakes (
     stocktake_code VARCHAR(50) NOT NULL,
     stocktake_date DATE NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',           -- DRAFT, IN_PROGRESS, COMPLETED, CANCELLED
+    approved_by BIGINT NULL,
+    approved_at TIMESTAMP NULL,
     notes VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1044,11 +1111,13 @@ CREATE TABLE IF NOT EXISTS stocktakes (
     updated_by BIGINT NULL,
     version BIGINT DEFAULT 0,
     CONSTRAINT fk_stocktakes_warehouse_composite FOREIGN KEY (tenant_id, farm_id, warehouse_id) REFERENCES warehouses(tenant_id, farm_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_stocktakes_approved_by FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT chk_stocktakes_status CHECK (status IN ('DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')),
     UNIQUE KEY uk_stocktakes_code (tenant_id, farm_id, stocktake_code),
     UNIQUE KEY uk_stocktakes_tenant_farm_id (tenant_id, farm_id, id),
     INDEX idx_stocktakes_tenant (tenant_id),
-    INDEX idx_stocktakes_farm (farm_id)
+    INDEX idx_stocktakes_farm (farm_id),
+    INDEX idx_stocktakes_approved_by (approved_by)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 40. Chi tiết Sai lệch Kiểm kê Kho (Stocktake Items)
@@ -1185,12 +1254,15 @@ CREATE TABLE IF NOT EXISTS product_batches (
     season_id BIGINT NULL,                                 -- Vụ mùa chính
     livestock_group_id BIGINT NULL,                        -- Lứa chăn nuôi chính
     batch_code VARCHAR(50) NOT NULL,
+    gtin_barcode VARCHAR(100) NULL,
     traceability_code VARCHAR(64) NULL UNIQUE,             -- UUID / NanoID sinh khi ĐÃ PHÊ DUYỆT QC
     product_name VARCHAR(255) NOT NULL,
     harvest_date DATE NOT NULL,
     expiry_date DATE,
+    storage_conditions VARCHAR(255) NULL,
     initial_quantity DECIMAL(12, 2) NOT NULL,
     remaining_quantity DECIMAL(12, 2) NOT NULL,
+    reserved_quantity DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
     unit VARCHAR(30) NOT NULL,
     quality_grade VARCHAR(20) DEFAULT 'STANDARD',          -- GRADE_A, GRADE_B, EXPORT, STANDARD
     qr_image_url VARCHAR(500) NULL,
@@ -1215,7 +1287,7 @@ CREATE TABLE IF NOT EXISTS product_batches (
     CONSTRAINT fk_product_batches_approved_by FOREIGN KEY (approved_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_product_batches_rejected_by FOREIGN KEY (rejected_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_product_batches_recalled_by FOREIGN KEY (recalled_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
-    CONSTRAINT chk_product_batches_quantities CHECK (initial_quantity > 0.00 AND remaining_quantity >= 0.00 AND remaining_quantity <= initial_quantity),
+    CONSTRAINT chk_product_batches_quantities CHECK (initial_quantity > 0.00 AND remaining_quantity >= 0.00 AND remaining_quantity <= initial_quantity AND reserved_quantity >= 0.00 AND reserved_quantity <= remaining_quantity),
     CONSTRAINT chk_product_batches_dates CHECK (expiry_date IS NULL OR expiry_date >= harvest_date),
     CONSTRAINT chk_product_batches_status CHECK (status IN ('PENDING_APPROVAL', 'READY_TO_PRINT', 'PRINTED', 'SELLING', 'REJECTED', 'RECALLED')),
     UNIQUE KEY uk_product_batch_code (tenant_id, farm_id, batch_code),
@@ -1342,6 +1414,10 @@ CREATE TABLE IF NOT EXISTS traceability_snapshots (
     vietgap_cert_json JSON,
     farming_timeline_json JSON NOT NULL,
     harvest_info_json JSON NOT NULL,
+    qc_inspection_json JSON NULL,
+    snapshot_hash VARCHAR(128) NULL,
+    scan_count BIGINT NOT NULL DEFAULT 0,
+    last_scanned_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_snapshots_farm_tenant FOREIGN KEY (tenant_id, farm_id) REFERENCES farms(tenant_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_snapshots_batch FOREIGN KEY (product_batch_id) REFERENCES product_batches(id) ON DELETE RESTRICT,
@@ -1381,13 +1457,17 @@ CREATE TABLE IF NOT EXISTS employees (
     user_id BIGINT NULL,                                   -- Tài khoản đăng nhập hệ thống nếu có
     employee_code VARCHAR(50) NOT NULL,
     full_name VARCHAR(150) NOT NULL,
+    phone VARCHAR(30) NULL,
+    email VARCHAR(150) NULL,
     id_card_number VARCHAR(30),
+    date_of_birth DATE NULL,
     position VARCHAR(100),
     department VARCHAR(100),
     joined_date DATE NOT NULL,
     base_salary DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
     hourly_rate DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
     contract_type VARCHAR(50) NOT NULL DEFAULT 'FULL_TIME',-- FULL_TIME, PART_TIME, SEASONAL, INTERN
+    annual_leave_quota DECIMAL(4, 1) NOT NULL DEFAULT 12.0,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',          -- ACTIVE, ON_LEAVE, RESIGNED, TERMINATED
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1399,6 +1479,7 @@ CREATE TABLE IF NOT EXISTS employees (
     CONSTRAINT fk_employees_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT chk_employees_salaries CHECK (base_salary >= 0.00 AND hourly_rate >= 0.00),
     CONSTRAINT chk_employees_contract CHECK (contract_type IN ('FULL_TIME', 'PART_TIME', 'SEASONAL', 'INTERN')),
+    CONSTRAINT chk_employees_leave_quota CHECK (annual_leave_quota >= 0.0),
     CONSTRAINT chk_employees_status CHECK (status IN ('ACTIVE', 'ON_LEAVE', 'RESIGNED', 'TERMINATED')),
     UNIQUE KEY uk_employees_tenant_code (tenant_id, employee_code),
     UNIQUE KEY uk_employees_tenant_id (tenant_id, id),
@@ -1416,6 +1497,8 @@ CREATE TABLE IF NOT EXISTS work_shifts (
     shift_code VARCHAR(50) NOT NULL,
     start_time TIME NOT NULL,
     end_time TIME NOT NULL,
+    break_minutes INT NOT NULL DEFAULT 60,
+    grace_late_minutes INT NOT NULL DEFAULT 15,
     is_overnight BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1424,6 +1507,7 @@ CREATE TABLE IF NOT EXISTS work_shifts (
     version BIGINT DEFAULT 0,
     CONSTRAINT fk_work_shifts_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT,
     CONSTRAINT fk_work_shifts_farm_composite FOREIGN KEY (tenant_id, farm_id) REFERENCES farms(tenant_id, id) ON DELETE CASCADE,
+    CONSTRAINT chk_work_shifts_break CHECK (break_minutes >= 0 AND grace_late_minutes >= 0),
     UNIQUE KEY uk_work_shifts_code (tenant_id, shift_code),
     UNIQUE KEY uk_work_shifts_tenant_id (tenant_id, id),
     INDEX idx_work_shifts_tenant (tenant_id)
@@ -1465,6 +1549,15 @@ CREATE TABLE IF NOT EXISTS time_attendances (
     gps_latitude DECIMAL(10, 8),
     gps_longitude DECIMAL(11, 8),
     gps_distance_m DECIMAL(8, 2),
+    check_out_latitude DECIMAL(10, 8) NULL,
+    check_out_longitude DECIMAL(11, 8) NULL,
+    check_out_distance_m DECIMAL(8, 2) NULL,
+    check_in_photo_url VARCHAR(500) NULL,
+    check_out_photo_url VARCHAR(500) NULL,
+    working_hours DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+    late_minutes INT NOT NULL DEFAULT 0,
+    early_leave_minutes INT NOT NULL DEFAULT 0,
+    device_info VARCHAR(255) NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'VALID',           -- VALID, LATE, EARLY_DEPARTURE, OUT_OF_RANGE, ABSENT
     notes VARCHAR(255),
     is_adjusted BOOLEAN NOT NULL DEFAULT FALSE,
@@ -1763,8 +1856,12 @@ CREATE TABLE IF NOT EXISTS sales_deliveries (
     tenant_id BIGINT NOT NULL,
     farm_id BIGINT NOT NULL,
     sales_order_id BIGINT NOT NULL,
+    logistics_partner_id BIGINT NULL,
     delivery_code VARCHAR(50) NOT NULL,
     delivery_date DATE NOT NULL,
+    driver_name VARCHAR(150) NULL,
+    vehicle_plate VARCHAR(50) NULL,
+    proof_of_delivery_url VARCHAR(500) NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',           -- DRAFT, DISPATCHED, DELIVERED, CANCELLED
     delivered_by_user_id BIGINT NULL,
     receiver_name VARCHAR(150),
@@ -1778,6 +1875,7 @@ CREATE TABLE IF NOT EXISTS sales_deliveries (
     updated_by BIGINT NULL,
     version BIGINT DEFAULT 0,
     CONSTRAINT fk_sales_deliveries_order_composite FOREIGN KEY (tenant_id, farm_id, sales_order_id) REFERENCES sales_orders(tenant_id, farm_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_sales_deliveries_logistics_composite FOREIGN KEY (tenant_id, logistics_partner_id) REFERENCES partners(tenant_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_sales_deliveries_user FOREIGN KEY (delivered_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT chk_sales_deliveries_status CHECK (status IN ('DRAFT', 'DISPATCHED', 'DELIVERED', 'CANCELLED')),
     CONSTRAINT chk_sales_deliveries_amount CHECK (total_shipped_amount >= 0.00),
@@ -1785,7 +1883,8 @@ CREATE TABLE IF NOT EXISTS sales_deliveries (
     UNIQUE KEY uk_sales_deliveries_tenant_farm_id (tenant_id, farm_id, id),
     INDEX idx_sales_deliveries_tenant (tenant_id),
     INDEX idx_sales_deliveries_farm (farm_id),
-    INDEX idx_sales_deliveries_order (sales_order_id)
+    INDEX idx_sales_deliveries_order (sales_order_id),
+    INDEX idx_sales_deliveries_logistics (logistics_partner_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 65. Chi tiết Xuất giao hàng theo Lô Thành phẩm (Sales Delivery Items - Bổ sung mới)
@@ -1863,8 +1962,12 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     debt_record_id BIGINT NULL,
     amount DECIMAL(14, 2) NOT NULL,
     allocated_amount DECIMAL(14, 2) NOT NULL DEFAULT 0.00, -- Số tiền đã được phân bổ cho các chứng từ nợ cụ thể
-    payment_method VARCHAR(50) NOT NULL DEFAULT 'BANK_TRANSFER', -- CASH, BANK_TRANSFER, E_WALLET
+    payment_method VARCHAR(50) NOT NULL DEFAULT 'BANK_TRANSFER', -- CASH, BANK_TRANSFER, VIETQR, E_WALLET, DEBT_OFFSET
     reference_code VARCHAR(100),                           -- Mã giao dịch ngân hàng / hóa đơn
+    qr_transfer_content VARCHAR(150) NULL,
+    proof_image_url VARCHAR(500) NULL,
+    confirmed_by_user_id BIGINT NULL,
+    confirmed_at TIMESTAMP NULL,
     payment_date DATE NOT NULL,
     notes VARCHAR(500),
     status VARCHAR(30) NOT NULL DEFAULT 'PENDING',         -- PENDING, COMPLETED, CANCELLED
@@ -1878,9 +1981,11 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     CONSTRAINT fk_payment_trans_order_composite FOREIGN KEY (tenant_id, farm_id, sales_order_id) REFERENCES sales_orders(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_payment_trans_receipt_composite FOREIGN KEY (tenant_id, farm_id, warehouse_receipt_id) REFERENCES warehouse_receipts(tenant_id, farm_id, id) ON DELETE RESTRICT,
     CONSTRAINT fk_payment_trans_debt_composite FOREIGN KEY (tenant_id, farm_id, debt_record_id) REFERENCES debt_records(tenant_id, farm_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_payment_trans_confirmed_by FOREIGN KEY (confirmed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT chk_payment_trans_amount CHECK (amount > 0.00),
     CONSTRAINT chk_payment_trans_alloc CHECK (allocated_amount >= 0.00 AND allocated_amount <= amount),
     CONSTRAINT chk_payment_trans_type CHECK (payment_type IN ('RECEIPT', 'PAYMENT', 'REFUND')),
+    CONSTRAINT chk_payment_trans_method CHECK (payment_method IN ('CASH', 'BANK_TRANSFER', 'VIETQR', 'E_WALLET', 'DEBT_OFFSET')),
     CONSTRAINT chk_payment_trans_status CHECK (status IN ('PENDING', 'COMPLETED', 'CANCELLED')),
     UNIQUE KEY uk_payment_transactions_code (tenant_id, farm_id, payment_code),
     UNIQUE KEY uk_payment_transactions_tenant_farm_id (tenant_id, farm_id, id),
@@ -1889,7 +1994,8 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     INDEX idx_payment_trans_partner (partner_id),
     INDEX idx_payment_trans_order (sales_order_id),
     INDEX idx_payment_trans_debt (debt_record_id),
-    INDEX idx_payment_trans_date (payment_date)
+    INDEX idx_payment_trans_date (payment_date),
+    INDEX idx_payment_trans_confirmed_by (confirmed_by_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 68. Phân bổ Giao dịch Thanh toán cho Nhiều Khoản nợ (Payment Allocations - Bổ sung mới)
@@ -1956,10 +2062,58 @@ CREATE TABLE IF NOT EXISTS budget_line_items (
     INDEX idx_budget_line_items_budget (budget_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ==============================================================================
+-- PHẦN 10: THÔNG BÁO VÀ PHIÊN BẢO MẬT (NOTIFICATIONS & AUTH SECURITY - BẢNG 71 & 72)
+-- ==============================================================================
+
+-- 71. Bảng Thông báo đa cấp (Notifications - Tích hợp từ V1.1)
+CREATE TABLE IF NOT EXISTS notifications (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id BIGINT NULL,                                 -- NULL nếu thông báo cấp hệ thống toàn nền tảng, có giá trị nếu theo tenant
+    user_id BIGINT NOT NULL,                                -- Người dùng nhận thông báo
+    title VARCHAR(255) NOT NULL,                           -- Tiêu đề ngắn gọn của thông báo
+    message TEXT NOT NULL,                                 -- Nội dung chi tiết thông báo
+    type VARCHAR(50) NOT NULL DEFAULT 'INFO',              -- INFO, WARNING, ALERT, TASK, QC, SYSTEM
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,                -- Trạng thái đã đọc (TRUE/FALSE)
+    read_at TIMESTAMP NULL,                                -- Thời điểm người dùng đánh dấu đã đọc
+    reference_type VARCHAR(50) NULL,                       -- Loại đối tượng liên kết: CROP_SEASON, HARVEST, QC_INSPECTION, TASK, INVENTORY, DELIVERY, ORDER, SYSTEM
+    reference_id BIGINT NULL,                              -- ID đối tượng liên kết
+    action_url VARCHAR(500) NULL,                          -- Đường dẫn chuyển hướng khi click thông báo
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_by BIGINT NULL,
+    version BIGINT DEFAULT 0,
+    CONSTRAINT fk_notifications_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+    CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT chk_notifications_type CHECK (type IN ('INFO', 'WARNING', 'ALERT', 'TASK', 'QC', 'SYSTEM')),
+    INDEX idx_notifications_user_read (user_id, is_read, created_at),
+    INDEX idx_notifications_tenant (tenant_id),
+    INDEX idx_notifications_reference (reference_type, reference_id),
+    INDEX idx_notifications_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 72. Quản lý Refresh Token an toàn trong Cơ sở dữ liệu (Refresh Tokens - Tích hợp từ V1.2)
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    token VARCHAR(255) NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    revoked_at TIMESTAMP NULL,
+    replaced_by_token VARCHAR(255) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by_ip VARCHAR(50) NULL,
+    user_agent VARCHAR(500) NULL,
+    CONSTRAINT fk_refresh_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_refresh_tokens_user (user_id),
+    INDEX idx_refresh_tokens_token (token),
+    INDEX idx_refresh_tokens_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ==============================================================================
--- PHẦN 10: DỮ LIỆU KHỞI TẠO CỐT LÕI (DEFAULT ROLES & PERMISSIONS SEED DATA)
+-- PHẦN 11: DỮ LIỆU KHỞI TẠO CỐT LÕI (DEFAULT ROLES & PERMISSIONS SEED DATA)
 -- ==============================================================================
 
 -- 1. Khởi tạo Danh mục Vai trò (Roles)
@@ -2015,7 +2169,14 @@ INSERT INTO permissions (code, module, action, resource, description) VALUES
 ('PERM_FINANCE_REPORT', 'FINANCE', 'READ', 'REPORT', 'Xem báo cáo tài chính, dòng tiền và chi phí sản xuất')
 ON DUPLICATE KEY UPDATE description = VALUES(description);
 
--- 3. Gán Quyền cho Role Chủ trang trại (ROLE_FARM_OWNER)
+-- 3. Gán Quyền cho Role Quản trị viên toàn hệ thống (ROLE_SUPER_ADMIN - 1 quyền hệ thống)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_SUPER_ADMIN' AND p.code IN (
+    'PERM_TENANT_MANAGE'
+);
+
+-- 4. Gán Quyền cho Role Chủ trang trại (ROLE_FARM_OWNER - Toàn bộ 29 quyền nghiệp vụ)
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.code = 'ROLE_FARM_OWNER' AND p.code IN (
@@ -2028,7 +2189,7 @@ WHERE r.code = 'ROLE_FARM_OWNER' AND p.code IN (
     'PERM_FINANCE_EXPENSE', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_PAYMENT', 'PERM_PAYMENT_ALLOCATE', 'PERM_FINANCE_REPORT'
 );
 
--- 4. Gán Quyền cho Role Nhân viên Nông vụ / Hiện trường (ROLE_FIELD_STAFF)
+-- 5. Gán Quyền cho Role Nhân viên Nông vụ / Hiện trường (ROLE_FIELD_STAFF - 6 quyền)
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.code = 'ROLE_FIELD_STAFF' AND p.code IN (
@@ -2036,29 +2197,89 @@ WHERE r.code = 'ROLE_FIELD_STAFF' AND p.code IN (
     'PERM_LIVESTOCK_VIEW', 'PERM_HARVEST_MANAGE', 'PERM_HR_ATTENDANCE'
 );
 
--- 5. Gán Quyền cho Role Thủ kho (ROLE_WAREHOUSE_STAFF)
+-- 6. Gán Quyền cho Role Thủ kho (ROLE_WAREHOUSE_STAFF - 8 quyền, không có HR Attendance)
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.code = 'ROLE_WAREHOUSE_STAFF' AND p.code IN (
     'PERM_FARM_VIEW',
     'PERM_INVENTORY_VIEW', 'PERM_INVENTORY_RECEIPT', 'PERM_INVENTORY_ISSUE', 'PERM_INVENTORY_TRANSFER', 'PERM_INVENTORY_STOCKTAKE',
-    'PERM_LABEL_PRINT', 'PERM_DELIVERY_MANAGE', 'PERM_HR_ATTENDANCE'
+    'PERM_LABEL_PRINT', 'PERM_DELIVERY_MANAGE'
 );
 
--- 6. Gán Quyền cho Role Kỹ thuật viên trưởng / Bác sĩ Thú y (ROLE_TECHNICAL_STAFF)
+-- 7. Gán Quyền cho Role Kỹ thuật viên trưởng / Bác sĩ Thú y (ROLE_TECHNICAL_STAFF - 8 quyền, Maker không Checker)
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.code = 'ROLE_TECHNICAL_STAFF' AND p.code IN (
     'PERM_FARM_VIEW', 'PERM_CROP_VIEW', 'PERM_CROP_PLAN',
     'PERM_LIVESTOCK_VIEW', 'PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET',
-    'PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_QC_RECALL', 'PERM_HR_ATTENDANCE'
+    'PERM_QC_INSPECT', 'PERM_HR_ATTENDANCE'
 );
 
--- 7. Gán Quyền cho Role Kế toán (ROLE_ACCOUNTANT)
+-- 8. Gán Quyền cho Role Kế toán (ROLE_ACCOUNTANT - 7 quyền, không có HR Attendance)
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
 WHERE r.code = 'ROLE_ACCOUNTANT' AND p.code IN (
     'PERM_FARM_VIEW', 'PERM_INVENTORY_VIEW',
-    'PERM_FINANCE_EXPENSE', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_PAYMENT', 'PERM_PAYMENT_ALLOCATE', 'PERM_FINANCE_REPORT',
-    'PERM_HR_ATTENDANCE'
+    'PERM_FINANCE_EXPENSE', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_PAYMENT', 'PERM_PAYMENT_ALLOCATE', 'PERM_FINANCE_REPORT'
 );
+
+-- ==============================================================================
+-- PHẦN 12: DỮ LIỆU KHỞI TẠO MẪU MÔI TRƯỜNG DEV/TEST (SAMPLE SEED DATA)
+-- ==============================================================================
+
+-- 1. Khởi tạo Tenant mẫu (Tenant 1 & Tenant 2 phục vụ kiểm thử Multi-Tenancy)
+INSERT INTO tenants (id, code, name, subdomain, subscription_plan, status)
+VALUES 
+    (1, 'TNT_GREENFARM', 'Hợp Tác Xã Nông Trại Xanh', 'greenfarm', 'ENTERPRISE', 'ACTIVE'),
+    (2, 'TNT_REDFARM', 'Công Ty Nông Nghiệp Đỏ', 'redfarm', 'PROFESSIONAL', 'ACTIVE')
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- 2. Khởi tạo Trang trại mẫu (Trang Trại Đà Lạt 01)
+INSERT INTO farms (id, tenant_id, code, name, farm_type, total_area_m2, status)
+VALUES (1, 1, 'FARM_DALAT_01', 'Trang Trại Đà Lạt 01', 'CROP', 50000.00, 'ACTIVE')
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- 3. Khởi tạo Người dùng ban đầu (Mật khẩu mặc định: Password@123)
+-- BCrypt: $2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu
+INSERT INTO users (id, tenant_id, is_super_admin, username, email, password_hash, full_name, phone, status, must_change_password)
+VALUES 
+    -- Super Admin (tenant_id = NULL)
+    (1, NULL, TRUE, 'admin', 'admin@farm.saas', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Quản Trị Viên Hệ Thống', '0901234567', 'ACTIVE', FALSE),
+    -- Farm Owner (Tenant 1)
+    (2, 1, FALSE, 'owner', 'owner@greenfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Trần Văn Chủ', '0912345678', 'ACTIVE', FALSE),
+    -- Field Staff (Tenant 1)
+    (3, 1, FALSE, 'staff', 'staff@greenfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Nguyễn Văn Nông Vụ', '0923456789', 'ACTIVE', FALSE),
+    -- Warehouse Staff (Tenant 1)
+    (4, 1, FALSE, 'warehouse', 'warehouse@greenfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Lê Thị Thủ Kho', '0934567890', 'ACTIVE', FALSE),
+    -- Technical Staff (Tenant 1)
+    (5, 1, FALSE, 'tech', 'tech@greenfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Phạm Văn Kỹ Thuật', '0945678901', 'ACTIVE', FALSE),
+    -- Accountant (Tenant 1)
+    (6, 1, FALSE, 'accountant', 'accountant@greenfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Hoàng Thị Kế Toán', '0956789012', 'ACTIVE', FALSE),
+    -- Farm Owner (Tenant 2)
+    (7, 2, FALSE, 'owner_red', 'owner@redfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Lê Văn Đỏ', '0967890123', 'ACTIVE', FALSE)
+ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), full_name = VALUES(full_name);
+
+-- Gán Quản lý cho Farm 1
+UPDATE farms SET manager_user_id = 2 WHERE id = 1;
+
+-- 4. Phân vai trò cho người dùng (user_roles)
+INSERT INTO user_roles (tenant_id, user_id, role_id, farm_id)
+VALUES 
+    (NULL, 1, 1, NULL), -- admin: ROLE_SUPER_ADMIN
+    (1, 2, 2, NULL),    -- owner: ROLE_FARM_OWNER
+    (1, 3, 3, 1),       -- staff: ROLE_FIELD_STAFF (Farm 1)
+    (1, 4, 4, 1),       -- warehouse: ROLE_WAREHOUSE_STAFF (Farm 1)
+    (1, 5, 5, 1),       -- tech: ROLE_TECHNICAL_STAFF (Farm 1)
+    (1, 6, 6, NULL),    -- accountant: ROLE_ACCOUNTANT
+    (2, 7, 2, NULL)     -- owner_red: ROLE_FARM_OWNER (Tenant 2)
+ON DUPLICATE KEY UPDATE role_id = VALUES(role_id);
+
+-- 5. Cấp quyền truy cập Farm (user_farm_access)
+INSERT INTO user_farm_access (user_id, farm_id, tenant_id)
+VALUES 
+    (2, 1, 1),
+    (3, 1, 1),
+    (4, 1, 1),
+    (5, 1, 1),
+    (6, 1, 1)
+ON DUPLICATE KEY UPDATE tenant_id = VALUES(tenant_id);

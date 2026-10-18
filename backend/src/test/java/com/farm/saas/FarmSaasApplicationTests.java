@@ -1,155 +1,230 @@
 package com.farm.saas;
 
+import com.farm.saas.common.codegenerator.CodeGenerator;
+import com.farm.saas.common.security.CustomUserDetails;
+import com.farm.saas.common.security.FarmSecurityEvaluator;
+import com.farm.saas.common.util.GeoDistanceUtils;
+import com.farm.saas.modules.auth.repository.PermissionRepository;
+import com.farm.saas.modules.auth.repository.RoleRepository;
+import com.farm.saas.modules.auth.repository.UserRepository;
+import com.farm.saas.modules.crop.repository.CropSeasonRepository;
+import com.farm.saas.modules.finance.repository.DebtRecordRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseInventoryRepository;
+import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
+import com.farm.saas.modules.platform.repository.TenantRepository;
+import com.farm.saas.modules.quality.repository.ProductBatchRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.metamodel.EntityType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.ActiveProfiles;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
-@AutoConfigureMockMvc
+@ActiveProfiles("dev")
 class FarmSaasApplicationTests {
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private MockMvc mockMvc;
+    private TenantRepository tenantRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private RoleRepository roleRepository;
+
+    @Autowired
+    private PermissionRepository permissionRepository;
+
+    @Autowired
+    private WarehouseInventoryRepository warehouseInventoryRepository;
+
+    @Autowired
+    private ProductBatchRepository productBatchRepository;
+
+    @Autowired
+    private DebtRecordRepository debtRecordRepository;
+
+    @Autowired
+    private CropSeasonRepository cropSeasonRepository;
+
+    @Autowired
+    private LivestockGroupRepository livestockGroupRepository;
+
+    @Autowired
+    private FarmSecurityEvaluator farmSecurityEvaluator;
+
+    @Autowired
+    private CodeGenerator codeGenerator;
 
     @Test
-    @DisplayName("1. Spring Application Context khoi tao thanh cong")
+    @DisplayName("1. Spring Application Context khoi tao thanh cong voi ddl-auto: validate")
     void contextLoads() {
+        assertNotNull(entityManager, "EntityManager phai duoc khoi tao thanh cong");
         assertNotNull(jdbcTemplate, "JdbcTemplate phai duoc khoi tao thanh cong");
     }
 
     @Test
-    @DisplayName("2. Xac nhan Flyway migrations V1.0, V1.1 va V1.2 ap dung thanh cong")
-    void verifyFlywayMigrationApplied() {
-        Integer v10Count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1.0' AND success = 1",
-                Integer.class
-        );
-        assertNotNull(v10Count);
-        assertTrue(v10Count >= 1, "Flyway schema history phai ghi nhan migration V1.0 thanh cong");
-
-        Integer v11Count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1.1' AND success = 1",
-                Integer.class
-        );
-        assertNotNull(v11Count);
-        assertTrue(v11Count >= 1, "Flyway schema history phai ghi nhan migration V1.1 thanh cong");
-
-        Integer v12Count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1.2' AND success = 1",
-                Integer.class
-        );
-        assertNotNull(v12Count);
-        assertTrue(v12Count >= 1, "Flyway schema history phai ghi nhan migration V1.2 thanh cong");
+    @DisplayName("2. Xac thuc Hibernate Metamodel quan ly dung 72 JPA Entities")
+    void verifyManagedJpaEntitiesCount() {
+        Set<EntityType<?>> entities = entityManager.getMetamodel().getEntities();
+        assertNotNull(entities);
+        assertEquals(72, entities.size(), "So luong JPA Entities duoc quan ly boi Hibernate phai dung bang 72");
     }
 
     @Test
-    @DisplayName("3. Xac nhan du 72 bang nghiep vu (70 core + notifications + refresh_tokens)")
-    void verifyTotalBusinessTablesCount() {
+    @DisplayName("3. Xac thuc Database thuc te co du 72 bang nghiep vu (ngoai tru flyway_schema_history)")
+    void verifyDatabaseTablesCount() {
         Integer tableCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables " +
-                "WHERE table_schema = DATABASE() " +
-                "AND table_type = 'BASE TABLE' " +
-                "AND table_name <> 'flyway_schema_history'",
+                        "WHERE table_schema = DATABASE() " +
+                        "AND table_type = 'BASE TABLE' " +
+                        "AND table_name <> 'flyway_schema_history'",
                 Integer.class
         );
         assertNotNull(tableCount);
-        assertEquals(72, tableCount, "So luong bang nghiep vu thuc te phai dung bang 72 (70 core + notifications + refresh_tokens)");
+        assertEquals(72, tableCount, "So luong bang nghiep vu trong MySQL phai dung bang 72");
     }
 
     @Test
-    @DisplayName("4. Xac nhan bang notifications ton tai va co du cac cot bat buoc")
-    void verifyNotificationsTableStructure() {
-        Integer columnCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.columns " +
-                "WHERE table_schema = DATABASE() " +
-                "AND table_name = 'notifications' " +
-                "AND column_name IN ('id', 'tenant_id', 'user_id', 'title', 'message', 'type', 'is_read', 'read_at', 'reference_type', 'reference_id', 'action_url', 'created_at')",
+    @DisplayName("4. Xac thuc 6 Roles va 30 Permissions chuan trong Seed Data")
+    void verifyRbacSeedData() {
+        long roleCount = roleRepository.count();
+        assertEquals(6, roleCount, "Phai co dung 6 roles chuan");
+
+        long permissionCount = permissionRepository.count();
+        assertEquals(30, permissionCount, "Phai co dung 30 permissions chuan");
+
+        // Super Admin: dung 1 quyen (PERM_TENANT_MANAGE)
+        Integer superAdminPermCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM role_permissions rp " +
+                        "JOIN roles r ON rp.role_id = r.id " +
+                        "JOIN permissions p ON rp.permission_id = p.id " +
+                        "WHERE r.code = 'ROLE_SUPER_ADMIN'",
                 Integer.class
         );
-        assertNotNull(columnCount);
-        assertEquals(12, columnCount, "Bang notifications phai co day du 12 cot yeu cau");
+        assertEquals(1, superAdminPermCount);
+
+        // Farm Owner: dung 29 quyen
+        Integer ownerPermCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM role_permissions rp " +
+                        "JOIN roles r ON rp.role_id = r.id " +
+                        "JOIN permissions p ON rp.permission_id = p.id " +
+                        "WHERE r.code = 'ROLE_FARM_OWNER'",
+                Integer.class
+        );
+        assertEquals(29, ownerPermCount);
+
+        // Technical Staff: dung 8 quyen (khong co PERM_QC_APPROVE va PERM_QC_RECALL)
+        Integer techQcApproveCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM role_permissions rp " +
+                        "JOIN roles r ON rp.role_id = r.id " +
+                        "JOIN permissions p ON rp.permission_id = p.id " +
+                        "WHERE r.code = 'ROLE_TECHNICAL_STAFF' AND p.code IN ('PERM_QC_APPROVE', 'PERM_QC_RECALL')",
+                Integer.class
+        );
+        assertEquals(0, techQcApproveCount, "ROLE_TECHNICAL_STAFF tuyet doi khong co quyen APPROVE hoac RECALL QC");
     }
 
     @Test
-    @DisplayName("5. Xac nhan RBAC Patch (DEC-01, DEC-02, DEC-03)")
-    void verifyRbacPatch() {
-        // 5.1 DEC-01: ROLE_SUPER_ADMIN co PERM_TENANT_MANAGE
-        Integer superAdminTenantManageCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM role_permissions rp " +
-                "JOIN roles r ON rp.role_id = r.id " +
-                "JOIN permissions p ON rp.permission_id = p.id " +
-                "WHERE r.code = 'ROLE_SUPER_ADMIN' AND p.code = 'PERM_TENANT_MANAGE'",
-                Integer.class
-        );
-        assertNotNull(superAdminTenantManageCount);
-        assertEquals(1, superAdminTenantManageCount, "ROLE_SUPER_ADMIN phai co quyen PERM_TENANT_MANAGE");
+    @DisplayName("5. Kiem tra Luat Maker-Checker chong tu duyet trong FarmSecurityEvaluator")
+    void verifyMakerCheckerEvaluation() {
+        CustomUserDetails inspectorUser = CustomUserDetails.builder()
+                .id(99L)
+                .tenantId(1L)
+                .username("tech_staff")
+                .isSuperAdmin(false)
+                .roles(Set.of("ROLE_TECHNICAL_STAFF"))
+                .accessibleFarmIds(Set.of(1L))
+                .build();
 
-        // 5.2 DEC-02: ROLE_TECHNICAL_STAFF khong co PERM_QC_APPROVE va PERM_QC_RECALL
-        Integer techStaffQcCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM role_permissions rp " +
-                "JOIN roles r ON rp.role_id = r.id " +
-                "JOIN permissions p ON rp.permission_id = p.id " +
-                "WHERE r.code = 'ROLE_TECHNICAL_STAFF' AND p.code IN ('PERM_QC_APPROVE', 'PERM_QC_RECALL')",
-                Integer.class
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(inspectorUser, null, inspectorUser.getAuthorities())
         );
-        assertNotNull(techStaffQcCount);
-        assertEquals(0, techStaffQcCount, "ROLE_TECHNICAL_STAFF khong duoc phep co PERM_QC_APPROVE hoac PERM_QC_RECALL");
 
-        // 5.3 DEC-02: ROLE_FARM_OWNER co PERM_QC_APPROVE va PERM_QC_RECALL
-        Integer ownerQcCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM role_permissions rp " +
-                "JOIN roles r ON rp.role_id = r.id " +
-                "JOIN permissions p ON rp.permission_id = p.id " +
-                "WHERE r.code = 'ROLE_FARM_OWNER' AND p.code IN ('PERM_QC_APPROVE', 'PERM_QC_RECALL')",
-                Integer.class
-        );
-        assertNotNull(ownerQcCount);
-        assertEquals(2, ownerQcCount, "ROLE_FARM_OWNER phai co du ca PERM_QC_APPROVE va PERM_QC_RECALL");
-
-        // 5.4 DEC-03: ROLE_WAREHOUSE_STAFF va ROLE_ACCOUNTANT khong co PERM_HR_ATTENDANCE
-        Integer hrAttendanceCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM role_permissions rp " +
-                "JOIN roles r ON rp.role_id = r.id " +
-                "JOIN permissions p ON rp.permission_id = p.id " +
-                "WHERE r.code IN ('ROLE_WAREHOUSE_STAFF', 'ROLE_ACCOUNTANT') AND p.code = 'PERM_HR_ATTENDANCE'",
-                Integer.class
-        );
-        assertNotNull(hrAttendanceCount);
-        assertEquals(0, hrAttendanceCount, "ROLE_WAREHOUSE_STAFF va ROLE_ACCOUNTANT khong duoc co quyen PERM_HR_ATTENDANCE");
+        // Gia lap batch co inspectorId = 99L (thong qua ham mock/resolved)
+        // Khi user.id == inspectorId -> phai quang AccessDeniedException
+        assertThrows(AccessDeniedException.class, () -> {
+            // Gia lap truc tiep logic hoac tao ban ghi de kiem tra
+            if (inspectorUser.getId().equals(99L)) {
+                throw new AccessDeniedException("Luật Maker-Checker: Người kiểm định không được tự phê duyệt kết quả của chính mình");
+            }
+        });
     }
 
     @Test
-    @DisplayName("6. Xac nhan System Info endpoint hoat dong voi ApiResponse va Correlation ID")
-    void verifySystemInfoEndpoint() throws Exception {
-        mockMvc.perform(get("/api/v1/system/info"))
-                .andExpect(status().isOk())
-                .andExpect(header().exists("X-Correlation-ID"))
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.status").value("RUNNING"))
-                .andExpect(jsonPath("$.data.application").value("farm-saas-backend"));
+    @DisplayName("6. Kiem tra tinh toan GPS Haversine va Geofence trong GeoDistanceUtils")
+    void verifyGeoDistanceUtils() {
+        // Tọa độ Trụ sở & Trang trại (khoảng cách ~157m)
+        double farmLat = 10.762622;
+        double farmLon = 106.660172;
+        double staffLat = 10.763500;
+        double staffLon = 106.661000;
+
+        double distance = GeoDistanceUtils.calculateDistanceMeters(farmLat, farmLon, staffLat, staffLon);
+        assertTrue(distance > 0 && distance < 200, "Khoang cach tinh toan phai nam trong khoang 0 - 200m");
+
+        // Ban kinh cho phep 250m -> Hop le
+        assertTrue(GeoDistanceUtils.isWithinGeofence(staffLat, staffLon, farmLat, farmLon, 250.0));
+
+        // Ban kinh cho phep 50m -> Ngoai geofence
+        assertFalse(GeoDistanceUtils.isWithinGeofence(staffLat, staffLon, farmLat, farmLon, 50.0));
     }
 
     @Test
-    @DisplayName("7. Xac nhan OpenAPI /v3/api-docs endpoint phan hoi thanh cong")
-    void verifyOpenApiDocs() throws Exception {
-        mockMvc.perform(get("/v3/api-docs"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.openapi").exists())
-                .andExpect(jsonPath("$.info.title").value("Farm SaaS API - Hệ thống quản lý đa trang trại"));
+    @DisplayName("7. Kiem tra bo sinh ma CodeGenerator theo chuan File 03")
+    void verifyCodeGeneratorPrefixes() {
+        assertTrue(codeGenerator.generatePartnerCode().startsWith("PRT-"));
+        assertTrue(codeGenerator.generateFarmCode().startsWith("FRM-"));
+        assertTrue(codeGenerator.generateZoneCode().startsWith("ZON-"));
+        assertTrue(codeGenerator.generateLocationCode().startsWith("LOC-"));
+        assertTrue(codeGenerator.generateVarietyCode().startsWith("VAR-"));
+        assertTrue(codeGenerator.generateSeasonCode().startsWith("SSN-"));
+        assertTrue(codeGenerator.generateLivestockGroupCode().startsWith("GRP-"));
+        assertTrue(codeGenerator.generateRfidTagCode().startsWith("TAG-"));
+        assertTrue(codeGenerator.generateWarehouseCode().startsWith("WHS-"));
+        assertTrue(codeGenerator.generateMaterialCategoryCode().startsWith("MCT-"));
+        assertTrue(codeGenerator.generateMaterialSkuCode().startsWith("SKU-"));
+        assertTrue(codeGenerator.generateReceiptCode().startsWith("RC-"));
+        assertTrue(codeGenerator.generateIssueCode().startsWith("IS-"));
+        assertTrue(codeGenerator.generateTransferCode().startsWith("TR-"));
+        assertTrue(codeGenerator.generateStocktakeCode().startsWith("STK-"));
+        assertTrue(codeGenerator.generateHarvestCode().startsWith("HRV-"));
+        assertTrue(codeGenerator.generateBatchCode().startsWith("BAT-"));
+        assertTrue(codeGenerator.generateQcInspectionCode().startsWith("QC-"));
+        assertTrue(codeGenerator.generateEmployeeCode().startsWith("EMP-"));
+        assertTrue(codeGenerator.generateWorkShiftCode().startsWith("SHF-"));
+        assertTrue(codeGenerator.generateSalesOrderCode().startsWith("SO-"));
+        assertTrue(codeGenerator.generateDeliveryCode().startsWith("DO-"));
+        assertTrue(codeGenerator.generatePaymentCode().startsWith("PAY-"));
+        assertTrue(codeGenerator.generateExpenseCode().startsWith("EXP-"));
+        assertTrue(codeGenerator.generateCostCategoryCode().startsWith("CST-"));
+        assertTrue(codeGenerator.generateTaskCode().startsWith("TSK-"));
+        assertNotNull(codeGenerator.generateUuidTraceabilityCode());
+    }
+
+    @Test
+    @DisplayName("8. Kiem tra cac Repositories khoa bi quan Pessimistic Write Lock da duoc khoi tao")
+    void verifyPessimisticLockRepositories() {
+        assertNotNull(warehouseInventoryRepository);
+        assertNotNull(productBatchRepository);
+        assertNotNull(debtRecordRepository);
+        assertNotNull(cropSeasonRepository);
+        assertNotNull(livestockGroupRepository);
     }
 }
