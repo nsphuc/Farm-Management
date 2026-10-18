@@ -1,11 +1,12 @@
 package com.farm.saas.common.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -19,219 +20,134 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex, HttpServletRequest request) {
-        Map<String, String> details = new HashMap<>();
-        for (FieldError error : ex.getBindingResult().getFieldErrors()) {
-            details.put(error.getField(), error.getDefaultMessage());
-        }
-        for (org.springframework.validation.ObjectError error : ex.getBindingResult().getGlobalErrors()) {
-            details.put(error.getObjectName(), error.getDefaultMessage());
-        }
-
-        // Tạo message mô tả lỗi đầu tiên để người dùng dễ nhận biết (VD: "Ngày kết thúc chu kỳ phải lớn hơn hoặc bằng ngày bắt đầu")
-        String firstErrorMessage = details.values().stream().findFirst().orElse("Dữ liệu đầu vào không hợp lệ");
-        String finalMessage = details.size() == 1
-                ? firstErrorMessage
-                : "Dữ liệu đầu vào không hợp lệ: " + firstErrorMessage;
-
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .code("VALIDATION_FAILED")
-                .message(finalMessage)
-                .details(details)
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleResourceNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
+        log.warn("Resource not found: {} | URI: {}", ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
                 .timestamp(Instant.now())
-                .correlationId(getCorrelationId(request))
+                .status(HttpStatus.NOT_FOUND.value())
+                .error("Not Found")
+                .errorCode(ex.getErrorCode())
+                .message(ex.getMessage())
+                .path(request.getRequestURI())
                 .build();
-
-        log.warn("Validation failed for URI [{}]: {}", request.getRequestURI(), details);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
-    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
-    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(
-            org.springframework.http.converter.HttpMessageNotReadableException ex, HttpServletRequest request) {
-        String detailMessage = "Dữ liệu yêu cầu không hợp lệ hoặc định dạng JSON/Enum không đúng chuẩn";
-        Map<String, String> details = new HashMap<>();
-
-        Throwable cause = ex.getCause();
-        if (cause instanceof com.fasterxml.jackson.databind.exc.InvalidFormatException ife) {
-            String fieldPath = ife.getPath().stream()
-                    .map(ref -> ref.getFieldName() != null ? ref.getFieldName() : "[" + ref.getIndex() + "]")
-                    .collect(java.util.stream.Collectors.joining("."));
-            Object invalidValue = ife.getValue();
-            Class<?> targetType = ife.getTargetType();
-
-            if (targetType != null && targetType.isEnum()) {
-                Object[] enumConstants = targetType.getEnumConstants();
-                String allowedValues = java.util.Arrays.toString(enumConstants);
-                detailMessage = String.format("Giá trị '%s' không hợp lệ cho trường '%s'. Các giá trị hợp lệ: %s",
-                        invalidValue, fieldPath, allowedValues);
-                details.put(fieldPath, String.format("Giá trị '%s' không thuộc danh mục hợp lệ: %s", invalidValue, allowedValues));
-            } else {
-                detailMessage = String.format("Định dạng giá trị '%s' không hợp lệ cho trường '%s' (yêu cầu kiểu: %s)",
-                        invalidValue, fieldPath, targetType != null ? targetType.getSimpleName() : "không xác định");
-                details.put(fieldPath, "Sai định dạng dữ liệu");
-            }
-        } else if (cause instanceof com.fasterxml.jackson.core.JsonParseException jpe) {
-            detailMessage = "Cú pháp JSON bị lỗi: " + jpe.getOriginalMessage();
-        }
-
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .code("INVALID_REQUEST_BODY")
-                .message(detailMessage)
-                .details(details.isEmpty() ? null : details)
+    @ExceptionHandler(ConcurrentModificationException.class)
+    public ResponseEntity<ApiErrorResponse> handleConcurrentModification(ConcurrentModificationException ex, HttpServletRequest request) {
+        log.warn("Concurrent modification: {} | URI: {}", ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
                 .timestamp(Instant.now())
-                .correlationId(getCorrelationId(request))
+                .status(HttpStatus.CONFLICT.value())
+                .error("Conflict")
+                .errorCode(ex.getErrorCode())
+                .message(ex.getMessage())
+                .path(request.getRequestURI())
                 .build();
-
-        log.warn("HttpMessageNotReadable on URI [{}]: {}", request.getRequestURI(), detailMessage);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
-    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<ErrorResponse> handleMethodArgumentTypeMismatch(
-            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
-        String fieldName = ex.getName();
-        Object value = ex.getValue();
-        Class<?> requiredType = ex.getRequiredType();
-        String message = String.format("Tham số '%s' nhận giá trị '%s' không hợp lệ (yêu cầu kiểu: %s)",
-                fieldName, value, requiredType != null ? requiredType.getSimpleName() : "không xác định");
-
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .code("TYPE_MISMATCH")
-                .message(message)
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ApiErrorResponse> handleOptimisticLockingFailure(OptimisticLockingFailureException ex, HttpServletRequest request) {
+        log.warn("Optimistic locking conflict: {} | URI: {}", ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
                 .timestamp(Instant.now())
-                .correlationId(getCorrelationId(request))
+                .status(HttpStatus.CONFLICT.value())
+                .error("Conflict")
+                .errorCode("CONCURRENT_MODIFICATION")
+                .message("Dữ liệu đã bị cập nhật bởi một giao dịch khác. Vui lòng tải lại và thử lại.")
+                .path(request.getRequestURI())
                 .build();
-
-        log.warn("Type mismatch on URI [{}]: {}", request.getRequestURI(), message);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
-    @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
-        Map<String, String> details = new HashMap<>();
-        ex.getConstraintViolations().forEach(violation -> {
-            String property = violation.getPropertyPath().toString();
-            details.put(property, violation.getMessage());
-        });
-
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.BAD_REQUEST.value())
-                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .code("CONSTRAINT_VIOLATION")
-                .message("Ràng buộc dữ liệu không thỏa mãn")
-                .details(details)
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ApiErrorResponse> handleApiException(ApiException ex, HttpServletRequest request) {
+        log.warn("API exception [{}] {}: {} | URI: {}", ex.getStatus(), ex.getErrorCode(), ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
                 .timestamp(Instant.now())
-                .correlationId(getCorrelationId())
-                .build();
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-    }
-
-    @ExceptionHandler(AppException.class)
-    public ResponseEntity<ErrorResponse> handleAppException(AppException ex, HttpServletRequest request) {
-        ErrorResponse errorResponse = ErrorResponse.builder()
                 .status(ex.getStatus().value())
                 .error(ex.getStatus().getReasonPhrase())
-                .code(ex.getCode())
+                .errorCode(ex.getErrorCode())
                 .message(ex.getMessage())
-                .timestamp(Instant.now())
-                .correlationId(getCorrelationId())
+                .path(request.getRequestURI())
                 .build();
-
-        log.warn("Business exception [{}] on URI [{}]: {}", ex.getCode(), request.getRequestURI(), ex.getMessage());
-        return ResponseEntity.status(ex.getStatus()).body(errorResponse);
+        return ResponseEntity.status(ex.getStatus()).body(error);
     }
 
-    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
-    public ResponseEntity<ErrorResponse> handleAccessDenied(org.springframework.security.access.AccessDeniedException ex, HttpServletRequest request) {
-        ErrorResponse errorResponse = ErrorResponse.builder()
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ApiErrorResponse> handleBusinessException(BusinessException ex, HttpServletRequest request) {
+        log.warn("Business exception [{}]: {} | URI: {}", ex.getErrorCode(), ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Bad Request")
+                .errorCode(ex.getErrorCode())
+                .message(ex.getMessage())
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiErrorResponse> handleValidationException(MethodArgumentNotValidException ex, HttpServletRequest request) {
+        Map<String, String> fieldErrors = new HashMap<>();
+        for (FieldError err : ex.getBindingResult().getFieldErrors()) {
+            fieldErrors.put(err.getField(), err.getDefaultMessage());
+        }
+
+        ApiErrorResponse error = ApiErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Validation Error")
+                .errorCode("INVALID_INPUT_DATA")
+                .message("Dữ liệu đầu vào không hợp lệ")
+                .fieldErrors(fieldErrors)
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
+        log.warn("Access denied: {} | URI: {}", ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
+                .timestamp(Instant.now())
                 .status(HttpStatus.FORBIDDEN.value())
-                .error(HttpStatus.FORBIDDEN.getReasonPhrase())
-                .code("INSUFFICIENT_PERMISSIONS")
-                .message("Bạn không có quyền thực hiện thao tác này")
-                .timestamp(Instant.now())
-                .correlationId(getCorrelationId(request))
+                .error("Forbidden")
+                .errorCode("ACCESS_DENIED")
+                .message(ex.getMessage() != null ? ex.getMessage() : "Bạn không có quyền thực hiện thao tác này hoặc không thuộc phạm vi trang trại cho phép")
+                .path(request.getRequestURI())
                 .build();
-
-        log.warn("Access denied on URI [{}]: {}", request.getRequestURI(), ex.getMessage());
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
     }
 
-    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
-    public ResponseEntity<ErrorResponse> handleAuthenticationException(org.springframework.security.core.AuthenticationException ex, HttpServletRequest request) {
-        ErrorResponse errorResponse = ErrorResponse.builder()
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiErrorResponse> handleAuthenticationException(AuthenticationException ex, HttpServletRequest request) {
+        log.warn("Authentication failure: {} | URI: {}", ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
+                .timestamp(Instant.now())
                 .status(HttpStatus.UNAUTHORIZED.value())
-                .error(HttpStatus.UNAUTHORIZED.getReasonPhrase())
-                .code("UNAUTHORIZED")
-                .message("Bạn cần đăng nhập để truy cập tài nguyên này")
-                .timestamp(Instant.now())
-                .correlationId(getCorrelationId(request))
+                .error("Unauthorized")
+                .errorCode("UNAUTHORIZED")
+                .message("Yêu cầu xác thực tài khoản hợp lệ")
+                .path(request.getRequestURI())
                 .build();
-
-        log.warn("Authentication failed on URI [{}]: {}", request.getRequestURI(), ex.getMessage());
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
-    }
-
-    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException ex, HttpServletRequest request) {
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.NOT_FOUND.value())
-                .error(HttpStatus.NOT_FOUND.getReasonPhrase())
-                .code("RESOURCE_NOT_FOUND")
-                .message("Đường dẫn không tồn tại: " + request.getRequestURI())
-                .timestamp(Instant.now())
-                .correlationId(getCorrelationId(request))
-                .build();
-
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
-    }
-
-    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ErrorResponse> handleMethodNotSupported(org.springframework.web.HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.METHOD_NOT_ALLOWED.value())
-                .error(HttpStatus.METHOD_NOT_ALLOWED.getReasonPhrase())
-                .code("METHOD_NOT_ALLOWED")
-                .message("Phương thức " + request.getMethod() + " không được hỗ trợ cho đường dẫn này")
-                .timestamp(Instant.now())
-                .correlationId(getCorrelationId(request))
-                .build();
-
-        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(errorResponse);
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneralException(Exception ex, HttpServletRequest request) {
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
-                .error(HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase())
-                .code("INTERNAL_SERVER_ERROR")
-                .message("Đã xảy ra lỗi nội bộ hệ thống. Vui lòng thử lại sau.")
+    public ResponseEntity<ApiErrorResponse> handleGenericException(Exception ex, HttpServletRequest request) {
+        log.error("Internal server error: ", ex);
+        ApiErrorResponse error = ApiErrorResponse.builder()
                 .timestamp(Instant.now())
-                .correlationId(getCorrelationId(request))
+                .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                .error("Internal Server Error")
+                .errorCode("INTERNAL_SERVER_ERROR")
+                .message("Đã xảy ra lỗi nội bộ hệ thống. Vui lòng liên hệ quản trị viên.")
+                .path(request.getRequestURI())
                 .build();
-
-        log.error("Unhandled internal error on URI [{}] with correlationId [{}]:", request.getRequestURI(), getCorrelationId(request), ex);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-    }
-
-    private String getCorrelationId() {
-        return getCorrelationId(null);
-    }
-
-    private String getCorrelationId(HttpServletRequest request) {
-        String correlationId = MDC.get("correlationId");
-        if (correlationId == null && request != null) {
-            correlationId = request.getHeader("X-Correlation-ID");
-        }
-        return correlationId;
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
     }
 }

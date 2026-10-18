@@ -73,9 +73,7 @@ export const MaterialFormModal = ({ isOpen, onClose, material = null, categories
       newErrors.categoryId = 'Vui lòng chọn nhóm vật tư';
     }
 
-    if (!isEditing && !formData.code.trim()) {
-      newErrors.code = 'Mã SKU vật tư không được để trống';
-    } else if (!isEditing && formData.code.trim().length > 50) {
+    if (formData.code.trim() && formData.code.trim().length > 50) {
       newErrors.code = 'Mã SKU tối đa 50 ký tự';
     }
 
@@ -137,9 +135,9 @@ export const MaterialFormModal = ({ isOpen, onClose, material = null, categories
         await materialApi.updateMaterial(material.id, payload);
         toast.success(`Cập nhật vật tư "${formData.name}" thành công!`);
       } else {
-        // Tạo mới vật tư
+        // Tạo mới vật tư (Tự sinh VT-00X nếu để trống)
         await materialApi.createMaterial({
-          code: formData.code.trim().toUpperCase(),
+          code: formData.code.trim() ? formData.code.trim().toUpperCase() : null,
           ...payload,
         });
         toast.success(`Tạo mới vật tư "${formData.name}" thành công!`);
@@ -215,10 +213,13 @@ export const MaterialFormModal = ({ isOpen, onClose, material = null, categories
               {errors.categoryId && <p className="text-xs text-rose-500 mt-1">{errors.categoryId}</p>}
             </div>
 
-            {/* Mã SKU vật tư */}
+            {/* Mã SKU vật tư (Tự sinh) */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                Mã SKU vật tư {!isEditing && <span className="text-rose-500">*</span>}
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                <span>Mã SKU / Mã vật tư</span>
+                {!isEditing && (
+                  <span className="text-[11px] text-emerald-600 font-normal">Tự sinh VT-00X</span>
+                )}
               </label>
               <input
                 type="text"
@@ -226,7 +227,7 @@ export const MaterialFormModal = ({ isOpen, onClose, material = null, categories
                 disabled={isEditing}
                 value={formData.code}
                 onChange={handleChange}
-                placeholder="VD: SKU-PB-NPK-01"
+                placeholder={isEditing ? formData.code : 'Hệ thống tự cấp (VT-00X)'}
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-mono uppercase transition-colors ${
                   errors.code
                     ? 'border-rose-300 bg-rose-50/50 focus:border-rose-500 focus:ring-rose-200'
@@ -236,6 +237,9 @@ export const MaterialFormModal = ({ isOpen, onClose, material = null, categories
                 } focus:outline-none focus:ring-2`}
               />
               {errors.code && <p className="text-xs text-rose-500 mt-1">{errors.code}</p>}
+              {!isEditing && (
+                <p className="text-[11px] text-slate-400 mt-1">Để trống để hệ thống tự động sinh mã</p>
+              )}
             </div>
           </div>
 

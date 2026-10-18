@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Building2, MapPin, Compass, AlertCircle, Save, Sprout } from 'lucide-react';
+import { X, Building2, MapPin, Compass, AlertCircle, Save, Sprout, Sparkles } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Can } from '../../../permissions/Can';
 import { farmApi } from '../../../services/farmApi';
@@ -50,14 +50,10 @@ export const FarmFormModal = ({ isOpen, farm = null, onClose, onSuccess }) => {
   const validate = () => {
     const errs = {};
 
-    if (!isEditing && !formData.code.trim()) {
-      errs.code = 'Mã trang trại không được để trống';
-    } else if (!isEditing && !/^[A-Za-z0-9_-]+$/.test(formData.code.trim())) {
-      errs.code = 'Mã trang trại chỉ chứa chữ, số, dấu gạch nối (-) hoặc gạch dưới (_)';
-    }
-
     if (!formData.name.trim()) {
       errs.name = 'Tên trang trại không được để trống';
+    } else if (formData.name.trim().length < 2 || formData.name.trim().length > 255) {
+      errs.name = 'Tên trang trại phải từ 2 đến 255 ký tự';
     }
 
     if (!formData.farmType) {
@@ -117,7 +113,7 @@ export const FarmFormModal = ({ isOpen, farm = null, onClose, onSuccess }) => {
 
     setIsSubmitting(true);
     try {
-      // Chuẩn bị payload sạch: Tuyệt đối không gửi tenantId hoặc status
+      // Chuẩn bị payload sạch: Tuyệt đối không gửi code (backend tự sinh), tenantId hoặc status
       const payload = {
         name: formData.name.trim(),
         farmType: formData.farmType,
@@ -129,19 +125,24 @@ export const FarmFormModal = ({ isOpen, farm = null, onClose, onSuccess }) => {
       };
 
       if (!isEditing) {
-        payload.code = formData.code.trim().toUpperCase();
-        await farmApi.createFarm(payload);
-        toast.success(`Đã tạo trang trại "${payload.name}" thành công`);
+        const res = await farmApi.createFarm(payload);
+        const generatedCode = res?.data?.code || '';
+        toast.success(`Đã tạo trang trại "${payload.name}" thành công! (Mã: ${generatedCode})`);
       } else {
         await farmApi.updateFarm(farm.id, payload);
-        toast.success(`Đã cập nhật trang trại "${payload.name}" thành công`);
+        toast.success(`Đã cập nhật trang trại "${payload.name}" thành công!`);
       }
 
       onSuccess?.();
       onClose();
     } catch (err) {
+      const apiDetails = err.response?.data?.details || err.details;
+      if (apiDetails && typeof apiDetails === 'object') {
+        setErrors(apiDetails);
+      }
       const errMsg =
         err.response?.data?.message ||
+        err.message ||
         (isEditing ? 'Cập nhật trang trại thất bại' : 'Tạo mới trang trại thất bại');
       toast.error(errMsg);
     } finally {
@@ -186,57 +187,80 @@ export const FarmFormModal = ({ isOpen, farm = null, onClose, onSuccess }) => {
         {/* Modal Body / Form */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 flex-1">
           {/* Mã và Tên Trang Trại */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                Mã trang trại <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="code"
-                value={formData.code}
-                onChange={handleChange}
-                disabled={isEditing || isSubmitting}
-                placeholder="VD: FARM_DALAT_01"
-                className={`w-full px-3.5 py-2 rounded-lg border text-sm font-mono uppercase transition-colors focus:outline-none focus:ring-2 ${
-                  isEditing
-                    ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
-                    : errors.code
-                    ? 'border-rose-300 focus:ring-rose-500/20 bg-rose-50/30'
-                    : 'border-slate-300 focus:ring-emerald-500/20 focus:border-emerald-500'
-                }`}
-              />
-              {errors.code && (
-                <p className="text-xs text-rose-500 mt-1 flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.code}
-                </p>
-              )}
-            </div>
+          {isEditing ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Mã trang trại
+                </label>
+                <input
+                  type="text"
+                  name="code"
+                  value={formData.code}
+                  disabled
+                  className="w-full px-3.5 py-2 rounded-lg border text-sm font-mono uppercase bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed"
+                />
+              </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                Tên trang trại <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-                disabled={isSubmitting}
-                placeholder="VD: Trang Trại Công Nghệ Cao Đà Lạt 01"
-                className={`w-full px-3.5 py-2 rounded-lg border text-sm transition-colors focus:outline-none focus:ring-2 ${
-                  errors.name
-                    ? 'border-rose-300 focus:ring-rose-500/20 bg-rose-50/30'
-                    : 'border-slate-300 focus:ring-emerald-500/20 focus:border-emerald-500'
-                }`}
-              />
-              {errors.name && (
-                <p className="text-xs text-rose-500 mt-1 flex items-center gap-1">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.name}
-                </p>
-              )}
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Tên trang trại <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  disabled={isSubmitting}
+                  placeholder="VD: Trang Trại Công Nghệ Cao Đà Lạt 01"
+                  className={`w-full px-3.5 py-2 rounded-lg border text-sm transition-colors focus:outline-none focus:ring-2 ${
+                    errors.name
+                      ? 'border-rose-400 focus:ring-rose-500/20 bg-rose-50/50'
+                      : 'border-slate-300 focus:ring-emerald-500/20 focus:border-emerald-500'
+                  }`}
+                />
+                {errors.name && (
+                  <p className="text-xs text-rose-500 mt-1 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.name}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Thông báo Auto-generated ID */}
+              <div className="p-3.5 rounded-xl border border-dashed border-emerald-300 bg-emerald-50/60 text-emerald-800 text-xs flex items-center gap-2.5">
+                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="font-medium">
+                  Mã trang trại sẽ được hệ thống tự động sinh theo mẫu chuẩn FARM-[00X] bằng Pessimistic Lock sau khi lưu.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Tên trang trại <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  disabled={isSubmitting}
+                  placeholder="VD: Trang Trại Công Nghệ Cao Đà Lạt 01"
+                  className={`w-full px-3.5 py-2 rounded-lg border text-sm transition-colors focus:outline-none focus:ring-2 ${
+                    errors.name
+                      ? 'border-rose-400 focus:ring-rose-500/20 bg-rose-50/50'
+                      : 'border-slate-300 focus:ring-emerald-500/20 focus:border-emerald-500'
+                  }`}
+                />
+                {errors.name && (
+                  <p className="text-xs text-rose-500 mt-1 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {errors.name}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Loại hình trang trại (Radio Cards) */}
           <div>

@@ -1,0 +1,390 @@
+package com.farm.saas.modules.auth.service;
+
+import com.farm.saas.common.audit.AuditTrailEvent;
+import com.farm.saas.common.exception.ApiException;
+import com.farm.saas.common.security.CustomUserDetails;
+import com.farm.saas.common.security.JwtTokenProvider;
+import com.farm.saas.common.security.SecurityUtils;
+import com.farm.saas.modules.auth.dto.request.ChangePasswordRequest;
+import com.farm.saas.modules.auth.dto.request.LoginRequest;
+import com.farm.saas.modules.auth.dto.response.AuthResponse;
+import com.farm.saas.modules.auth.dto.response.UserInfoDto;
+import com.farm.saas.modules.auth.entity.RefreshToken;
+import com.farm.saas.modules.auth.entity.Role;
+import com.farm.saas.modules.auth.entity.RolePermission;
+import com.farm.saas.modules.auth.entity.User;
+import com.farm.saas.modules.auth.entity.UserRole;
+import com.farm.saas.modules.auth.repository.PermissionRepository;
+import com.farm.saas.modules.auth.repository.RefreshTokenRepository;
+import com.farm.saas.modules.auth.repository.RolePermissionRepository;
+import com.farm.saas.modules.auth.repository.RoleRepository;
+import com.farm.saas.modules.auth.repository.UserRepository;
+import com.farm.saas.modules.auth.repository.UserRoleRepository;
+import com.farm.saas.modules.geography.entity.Farm;
+import com.farm.saas.modules.geography.entity.UserFarmAccess;
+import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.geography.repository.UserFarmAccessRepository;
+import com.farm.saas.modules.platform.entity.Tenant;
+import com.farm.saas.modules.platform.repository.TenantRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.*;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AuthServiceImpl implements AuthService {
+
+    private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final RoleRepository roleRepository;
+    private final UserRoleRepository userRoleRepository;
+    private final RolePermissionRepository rolePermissionRepository;
+    private final PermissionRepository permissionRepository;
+    private final UserFarmAccessRepository userFarmAccessRepository;
+    private final FarmRepository farmRepository;
+    private final TenantRepository tenantRepository;
+    private final JwtTokenProvider jwtTokenProvider;
+    private final PasswordEncoder passwordEncoder;
+    private final ApplicationEventPublisher eventPublisher;
+
+    private static final String PASSWORD_REGEX = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$";
+    private static final Pattern PASSWORD_PATTERN = Pattern.compile(PASSWORD_REGEX);
+
+    @Override
+    @Transactional(noRollbackFor = ApiException.class)
+    public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        User user = userRepository.findByUsername(request.getUsername())
+                .or(() -> userRepository.findByEmail(request.getUsername()))
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Tài khoản hoặc mật khẩu không chính xác."));
+
+        if (user.getLockUntil() != null && user.getLockUntil().isAfter(Instant.now())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_LOCKED", "Tài khoản đang bị tạm khóa do nhập sai mật khẩu quá nhiều lần.");
+        }
+
+        if (user.getTenantId() != null) {
+            Tenant tenant = tenantRepository.findById(user.getTenantId())
+                    .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "TENANT_NOT_FOUND", "Khách thuê không tồn tại."));
+            if ("SUSPENDED".equalsIgnoreCase(tenant.getStatus()) || "INACTIVE".equalsIgnoreCase(tenant.getStatus())) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "TENANT_SUSPENDED", "Khách thuê đã bị tạm ngưng hoặc vô hiệu hóa.");
+            }
+        }
+
+        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            int failed = (user.getFailedLogins() != null ? user.getFailedLogins() : 0) + 1;
+            user.setFailedLogins(failed);
+            if (failed >= 5) {
+                user.setLockUntil(Instant.now().plusSeconds(15 * 60));
+            }
+            userRepository.save(user);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Tài khoản hoặc mật khẩu không chính xác.");
+        }
+
+        if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_INACTIVE", "Tài khoản đang ở trạng thái không hoạt động.");
+        }
+
+        user.setFailedLogins(0);
+        user.setLockUntil(null);
+        userRepository.save(user);
+
+        UserInfoDto userInfo = buildUserInfoDto(user);
+        CustomUserDetails userDetails = buildUserDetails(user, userInfo);
+        String accessToken = jwtTokenProvider.generateAccessToken(userDetails);
+
+        String refreshTokenStr = UUID.randomUUID().toString();
+        RefreshToken refreshToken = RefreshToken.builder()
+                .userId(user.getId())
+                .token(refreshTokenStr)
+                .expiresAt(Instant.now().plusSeconds(7 * 24 * 3600))
+                .revoked(false)
+                .createdAt(Instant.now())
+                .createdByIp(getClientIp(httpRequest))
+                .userAgent(httpRequest.getHeader("User-Agent"))
+                .build();
+        refreshTokenRepository.save(refreshToken);
+
+        setRefreshTokenCookie(httpResponse, refreshTokenStr, 7 * 24 * 3600);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(user.getTenantId())
+                .userId(user.getId())
+                .action("LOGIN")
+                .module("AUTH")
+                .endpoint("/api/v1/auth/login")
+                .method("POST")
+                .ipAddress(getClientIp(httpRequest))
+                .userAgent(httpRequest.getHeader("User-Agent"))
+                .build());
+
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .tokenType("Bearer")
+                .expiresIn(1800L)
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .userInfo(userInfo)
+                .build();
+    }
+
+    @Override
+    @Transactional(noRollbackFor = ApiException.class)
+    public AuthResponse refreshToken(String refreshTokenStr, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        if (refreshTokenStr == null || refreshTokenStr.isBlank()) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "MISSING_REFRESH_TOKEN", "Thiếu mã làm mới phiên đăng nhập.");
+        }
+
+        RefreshToken token = refreshTokenRepository.findByToken(refreshTokenStr)
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Mã làm mới không hợp lệ."));
+
+        // Chống Token Replay Attack (File 05 Mục 2.1)
+        if (Boolean.TRUE.equals(token.getRevoked())) {
+            log.warn("DETECTED REPLAY ATTACK on refresh token {} for user {}", token.getId(), token.getUserId());
+            refreshTokenRepository.revokeAllByUserId(token.getUserId(), Instant.now());
+
+            eventPublisher.publishEvent(AuditTrailEvent.builder()
+                    .userId(token.getUserId())
+                    .action("TOKEN_REPLAY_ATTACK")
+                    .module("SECURITY_ALERT")
+                    .oldValue(token.getToken())
+                    .ipAddress(getClientIp(httpRequest))
+                    .userAgent(httpRequest.getHeader("User-Agent"))
+                    .build());
+
+            clearRefreshTokenCookie(httpResponse);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "REFRESH_TOKEN_REVOKED", "Mã làm mới đã bị thu hồi hoặc nghi vấn bị đánh cắp! Toàn bộ phiên làm việc của tài khoản đã bị vô hiệu hóa.");
+        }
+
+        if (token.getExpiresAt().isBefore(Instant.now())) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "TOKEN_EXPIRED", "Mã làm mới đã hết hạn.");
+        }
+
+        User user = userRepository.findById(token.getUserId())
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "USER_NOT_FOUND", "Người dùng không tồn tại."));
+
+        if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_INACTIVE", "Tài khoản đang bị khóa.");
+        }
+
+        if (user.getTenantId() != null) {
+            Tenant tenant = tenantRepository.findById(user.getTenantId()).orElse(null);
+            if (tenant != null && ("SUSPENDED".equalsIgnoreCase(tenant.getStatus()) || "INACTIVE".equalsIgnoreCase(tenant.getStatus()))) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "TENANT_SUSPENDED", "Khách thuê đã bị tạm ngưng hoặc vô hiệu hóa.");
+            }
+        }
+
+        // Xoay vòng Refresh Token (Token Rotation)
+        String newRefreshTokenStr = UUID.randomUUID().toString();
+        token.setRevoked(true);
+        token.setRevokedAt(Instant.now());
+        token.setReplacedByToken(newRefreshTokenStr);
+        refreshTokenRepository.save(token);
+
+        RefreshToken newToken = RefreshToken.builder()
+                .userId(user.getId())
+                .token(newRefreshTokenStr)
+                .expiresAt(Instant.now().plusSeconds(7 * 24 * 3600))
+                .revoked(false)
+                .createdAt(Instant.now())
+                .createdByIp(getClientIp(httpRequest))
+                .userAgent(httpRequest.getHeader("User-Agent"))
+                .build();
+        refreshTokenRepository.save(newToken);
+
+        UserInfoDto userInfo = buildUserInfoDto(user);
+        CustomUserDetails userDetails = buildUserDetails(user, userInfo);
+        String accessToken = jwtTokenProvider.generateAccessToken(userDetails);
+
+        setRefreshTokenCookie(httpResponse, newRefreshTokenStr, 7 * 24 * 3600);
+
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .tokenType("Bearer")
+                .expiresIn(1800L)
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .userInfo(userInfo)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void logout(String refreshTokenStr, HttpServletResponse httpResponse) {
+        if (refreshTokenStr != null && !refreshTokenStr.isBlank()) {
+            refreshTokenRepository.findByToken(refreshTokenStr).ifPresent(token -> {
+                token.setRevoked(true);
+                token.setRevokedAt(Instant.now());
+                refreshTokenRepository.save(token);
+            });
+        }
+        clearRefreshTokenCookie(httpResponse);
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(ChangePasswordRequest request) {
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        if (currentUserId == null) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Chưa đăng nhập.");
+        }
+
+        User user = userRepository.findById(currentUserId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "Người dùng không tồn tại."));
+
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_OLD_PASSWORD", "Mật khẩu cũ không chính xác.");
+        }
+
+        if (request.getNewPassword() == null || !PASSWORD_PATTERN.matcher(request.getNewPassword()).matches()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PASSWORD_TOO_WEAK", "Mật khẩu mới không đạt chuẩn bảo mật (tối thiểu 8 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt).");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setMustChangePassword(false);
+        user.setUpdatedAt(Instant.now());
+        userRepository.saveAndFlush(user);
+
+        // Thu hồi toàn bộ refresh token cũ để ép đăng nhập lại nếu muốn hoặc bảo mật
+        refreshTokenRepository.revokeAllByUserId(user.getId(), Instant.now());
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(user.getTenantId())
+                .userId(user.getId())
+                .action("CHANGE_PASSWORD")
+                .module("AUTH")
+                .endpoint("/api/v1/auth/change-password")
+                .method("POST")
+                .build());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserInfoDto getMe() {
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        if (currentUserId == null) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Chưa đăng nhập.");
+        }
+        User user = userRepository.findById(currentUserId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "Người dùng không tồn tại."));
+        return buildUserInfoDto(user);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> getMyPermissions() {
+        UserInfoDto me = getMe();
+        return me.getPermissions();
+    }
+
+    private UserInfoDto buildUserInfoDto(User user) {
+        List<UserRole> userRoles = userRoleRepository.findByUserId(user.getId());
+        Set<Long> roleIds = userRoles.stream().map(UserRole::getRoleId).collect(Collectors.toSet());
+        List<Role> roles = roleRepository.findAllById(roleIds);
+
+        List<UserInfoDto.RoleDto> roleDtos = roles.stream().map(r -> UserInfoDto.RoleDto.builder()
+                .id(r.getId())
+                .code(r.getCode())
+                .name(r.getName())
+                .scopeLevel(r.getScopeLevel())
+                .build()).toList();
+
+        List<String> permCodes = new ArrayList<>();
+        if (!roleIds.isEmpty()) {
+            List<Long> permIds = rolePermissionRepository.findByRoleIdIn(roleIds).stream()
+                    .map(RolePermission::getPermissionId)
+                    .distinct()
+                    .collect(Collectors.toList());
+            permCodes = permissionRepository.findAllById(permIds).stream()
+                    .map(com.farm.saas.modules.auth.entity.Permission::getCode)
+                    .collect(Collectors.toList());
+        }
+
+        // Fetch accessible farms
+        List<UserFarmAccess> accesses = userFarmAccessRepository.findByUserId(user.getId());
+        List<UserInfoDto.AccessibleFarmDto> farmDtos = new ArrayList<>();
+        for (UserFarmAccess access : accesses) {
+            Optional<Farm> farmOpt = farmRepository.findById(access.getFarmId());
+            if (farmOpt.isPresent()) {
+                Farm farm = farmOpt.get();
+                farmDtos.add(UserInfoDto.AccessibleFarmDto.builder()
+                        .farmId(farm.getId())
+                        .farmCode(farm.getCode())
+                        .farmName(farm.getName())
+                        .farmType(farm.getFarmType())
+                        .assignedRole("MEMBER")
+                        .build());
+            }
+        }
+
+        return UserInfoDto.builder()
+                .id(user.getId())
+                .tenantId(user.getTenantId())
+                .username(user.getUsername())
+                .fullName(user.getFullName())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .isSuperAdmin(Boolean.TRUE.equals(user.getIsSuperAdmin()))
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .roles(roleDtos)
+                .permissions(permCodes)
+                .accessibleFarms(farmDtos)
+                .build();
+    }
+
+    private CustomUserDetails buildUserDetails(User user, UserInfoDto userInfo) {
+        Set<String> roleCodes = userInfo.getRoles().stream().map(UserInfoDto.RoleDto::getCode).collect(Collectors.toSet());
+        Set<String> permCodes = new HashSet<>(userInfo.getPermissions());
+        Set<Long> accessibleFarmIds = userInfo.getAccessibleFarms().stream().map(UserInfoDto.AccessibleFarmDto::getFarmId).collect(Collectors.toSet());
+
+        return CustomUserDetails.builder()
+                .id(user.getId())
+                .tenantId(user.getTenantId())
+                .username(user.getUsername())
+                .passwordHash(user.getPasswordHash())
+                .isSuperAdmin(Boolean.TRUE.equals(user.getIsSuperAdmin()))
+                .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
+                .roles(roleCodes)
+                .permissions(permCodes)
+                .accessibleFarmIds(accessibleFarmIds)
+                .build();
+    }
+
+    private void setRefreshTokenCookie(HttpServletResponse response, String token, long maxAgeSeconds) {
+        ResponseCookie cookie = ResponseCookie.from("refreshToken", token)
+                .httpOnly(true)
+                .secure(false) // Allow test environments without HTTPS
+                .path("/api/v1/auth")
+                .maxAge(maxAgeSeconds)
+                .sameSite("Strict")
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+    }
+
+    private void clearRefreshTokenCookie(HttpServletResponse response) {
+        ResponseCookie cookie = ResponseCookie.from("refreshToken", "")
+                .httpOnly(true)
+                .secure(false)
+                .path("/api/v1/auth")
+                .maxAge(0)
+                .sameSite("Strict")
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        if (request == null) return null;
+        String xf = request.getHeader("X-Forwarded-For");
+        return xf != null ? xf.split(",")[0] : request.getRemoteAddr();
+    }
+}

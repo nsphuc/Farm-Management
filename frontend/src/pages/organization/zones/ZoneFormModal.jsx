@@ -54,6 +54,8 @@ export const ZoneFormModal = ({ isOpen, farmId, zone = null, onClose, onSuccess 
 
     if (!formData.name.trim()) {
       errs.name = 'Tên phân khu không được để trống';
+    } else if (formData.name.trim().length < 2 || formData.name.trim().length > 255) {
+      errs.name = 'Tên phân khu phải từ 2 đến 255 ký tự';
     }
 
     if (!formData.zoneType) {
@@ -104,8 +106,13 @@ export const ZoneFormModal = ({ isOpen, farmId, zone = null, onClose, onSuccess 
       onSuccess?.();
       onClose();
     } catch (err) {
+      const apiDetails = err.response?.data?.details || err.details;
+      if (apiDetails && typeof apiDetails === 'object') {
+        setErrors(apiDetails);
+      }
       const errMsg =
         err.response?.data?.message ||
+        err.message ||
         (isEditing ? 'Cập nhật phân khu thất bại' : 'Tạo mới phân khu thất bại');
       toast.error(errMsg);
     } finally {
@@ -295,7 +302,8 @@ export const ZoneFormModal = ({ isOpen, farmId, zone = null, onClose, onSuccess 
               variant="primary"
               onClick={handleSubmit}
               loading={isSubmitting}
-              className="gap-2 bg-sky-600 hover:bg-sky-700 focus:ring-sky-500"
+              disabled={isSubmitting || Object.values(errors).some(Boolean)}
+              className="gap-2 bg-sky-600 hover:bg-sky-700 focus:ring-sky-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />
               <span>{isEditing ? 'Lưu thay đổi' : 'Tạo phân khu'}</span>

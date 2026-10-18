@@ -75,7 +75,7 @@ export const ReceiptFormPage = () => {
         const [farmsRes, materialsRes, partnersRes] = await Promise.all([
           farmApi.getAllFarms(),
           materialApi.getAllMaterials(),
-          partnerApi.getAllPartners('SUPPLIER'),
+          partnerApi.getAllPartners(),
         ]);
 
         const farmList = farmsRes.data || [];
@@ -85,7 +85,11 @@ export const ReceiptFormPage = () => {
         }
 
         setMaterials(materialsRes.data || []);
-        setPartners(partnersRes.data || []);
+        // Lọc đối tác có vai trò Nhà cung cấp (SUPPLIER) hoặc Đại lý hai chiều (AGENT)
+        const supplierList = (partnersRes.data || []).filter(
+          (p) => (p.partnerType === 'SUPPLIER' || p.partnerType === 'AGENT') && p.status !== 'INACTIVE'
+        );
+        setPartners(supplierList);
       } catch (err) {
         console.error('Lỗi khi tải dữ liệu nền tảng:', err);
         toast.error('Không thể tải danh mục vật tư hoặc đối tác', 'Lỗi hệ thống');
@@ -185,6 +189,7 @@ export const ReceiptFormPage = () => {
   const isFormValid = useMemo(() => {
     if (!formData.warehouseId) return false;
     if (!formData.receiptDate) return false;
+    if (formData.receiptType === 'PURCHASE' && !formData.partnerId) return false;
     if (items.length === 0) return false;
 
     // Kiểm tra từng dòng
@@ -201,6 +206,11 @@ export const ReceiptFormPage = () => {
   // Xử lý gửi Form tạo phiếu nhập kho
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (formData.receiptType === 'PURCHASE' && !formData.partnerId) {
+      toast.warning('Hình thức Nhập mua từ Nhà cung cấp BẮT BUỘC phải chọn Đối tác / Nhà cung cấp', 'Thiếu thông tin');
+      return;
+    }
 
     if (!isFormValid) {
       toast.warning('Vui lòng điền đầy đủ kho bãi, vật tư, số lô và số lượng > 0 cho từng dòng', 'Thiếu dữ liệu');

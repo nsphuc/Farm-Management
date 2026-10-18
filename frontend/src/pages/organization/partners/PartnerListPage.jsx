@@ -192,7 +192,7 @@ export const PartnerListPage = () => {
 
         {/* Ẩn nút Thêm đối tác nếu người dùng không có quyền quản lý */}
         <Can
-          role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+          role="ROLE_FARM_OWNER"
           permission="PERM_FARM_UPDATE"
         >
           <Button onClick={handleOpenCreate} className="shadow-sm">
@@ -311,7 +311,7 @@ export const PartnerListPage = () => {
               ? 'Không có đối tác nào khớp với tiêu chí tìm kiếm hiện tại.'
               : 'Chưa có đối tác nào được đăng ký trong hệ thống.'}
           </p>
-          <Can role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']} permission="PERM_FARM_UPDATE">
+          <Can role="ROLE_FARM_OWNER" permission="PERM_FARM_UPDATE">
             <Button size="sm" onClick={handleOpenCreate} className="mt-4">
               <Plus className="w-4 h-4 mr-1.5" /> Thêm đối tác ngay
             </Button>
@@ -380,7 +380,7 @@ export const PartnerListPage = () => {
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Ẩn nút Sửa đối tác nếu không có quyền quản lý */}
                           <Can
-                            role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+                            role="ROLE_FARM_OWNER"
                             permission="PERM_FARM_UPDATE"
                           >
                             <button

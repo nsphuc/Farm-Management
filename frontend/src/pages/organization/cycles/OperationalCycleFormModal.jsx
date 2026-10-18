@@ -79,19 +79,42 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
     return Object.keys(newErrors).length === 0;
   };
 
+  const isDateRangeInvalid = Boolean(
+    formData.startDate && formData.endDate && formData.endDate < formData.startDate
+  );
+  const isClosed = Boolean(isEditing && cycle?.status === 'CLOSED');
+
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    if (errors[name]) {
-      setErrors((prev) => ({ ...prev, [name]: null }));
-    }
+    setFormData((prev) => {
+      const next = { ...prev, [name]: value };
+      if (next.startDate && next.endDate && next.endDate < next.startDate) {
+        setErrors((prevErr) => ({
+          ...prevErr,
+          endDate: 'Ngày kết thúc chu kỳ phải lớn hơn hoặc bằng ngày bắt đầu!',
+        }));
+      } else {
+        setErrors((prevErr) => {
+          const updated = { ...prevErr, [name]: null };
+          if (name === 'startDate' || name === 'endDate') {
+            delete updated.endDate;
+          }
+          return updated;
+        });
+      }
+      return next;
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!validateForm()) {
+    if (isClosed) {
+      toast.error('Chu kỳ vận hành này đã đóng (CLOSED), không thể chỉnh sửa dữ liệu!', 'Thao tác bị chặn');
+      return;
+    }
+    if (!validateForm() || isDateRangeInvalid) {
       // Cảnh báo người dùng nếu ngày kết thúc < ngày bắt đầu
-      if (formData.startDate && formData.endDate && formData.endDate < formData.startDate) {
+      if (isDateRangeInvalid) {
         toast.error('Ngày kết thúc chu kỳ phải lớn hơn hoặc bằng ngày bắt đầu!', 'Lỗi ngày tháng');
       }
       return;
@@ -168,6 +191,16 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {isClosed && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-amber-900 text-xs">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-900">Chu kỳ vận hành đã ĐÓNG (CLOSED)</p>
+                <p className="mt-0.5 text-amber-700">Theo Hiến pháp nghiệp vụ (Điều 8.2), chu kỳ đã đóng sổ không thể chỉnh sửa để bảo toàn tính toàn vẹn của dữ liệu kế toán và nhật ký sản xuất.</p>
+              </div>
+            </div>
+          )}
+
           {/* Tên chu kỳ */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -176,6 +209,7 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
             <input
               type="text"
               name="name"
+              disabled={isClosed}
               value={formData.name}
               onChange={handleChange}
               placeholder="VD: Vụ Đông Xuân 2026 - Lô A, Đợt nuôi heo giống Q1"
@@ -183,7 +217,7 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
                 errors.name
                   ? 'border-rose-300 bg-rose-50/50 focus:border-rose-500 focus:ring-rose-200'
                   : 'border-slate-200 bg-white hover:border-slate-300 focus:border-emerald-500 focus:ring-emerald-200'
-              } focus:outline-none focus:ring-2`}
+              } ${isClosed ? 'bg-slate-100 cursor-not-allowed text-slate-500' : ''} focus:outline-none focus:ring-2`}
             />
             {errors.name && <p className="text-xs text-rose-500 mt-1">{errors.name}</p>}
           </div>
@@ -198,6 +232,7 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
                 type="number"
                 min="2000"
                 name="fiscalYear"
+                disabled={isClosed}
                 value={formData.fiscalYear}
                 onChange={handleChange}
                 placeholder="VD: 2026"
@@ -205,7 +240,7 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
                   errors.fiscalYear
                     ? 'border-rose-300 bg-rose-50/50 focus:border-rose-500 focus:ring-rose-200'
                     : 'border-slate-200 bg-white hover:border-slate-300 focus:border-emerald-500 focus:ring-emerald-200'
-                } focus:outline-none focus:ring-2`}
+                } ${isClosed ? 'bg-slate-100 cursor-not-allowed text-slate-500' : ''} focus:outline-none focus:ring-2`}
               />
               {errors.fiscalYear && <p className="text-xs text-rose-500 mt-1">{errors.fiscalYear}</p>}
             </div>
@@ -218,9 +253,12 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
                 </label>
                 <select
                   name="status"
+                  disabled={isClosed}
                   value={formData.status}
                   onChange={handleChange}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 focus:outline-none text-sm transition-colors"
+                  className={`w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 focus:outline-none text-sm transition-colors ${
+                    isClosed ? 'bg-slate-100 cursor-not-allowed text-slate-500' : ''
+                  }`}
                 >
                   <option value="PLANNING">Lên kế hoạch (PLANNING)</option>
                   <option value="ACTIVE">Đang canh tác / Nuôi (ACTIVE)</option>
@@ -240,13 +278,14 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
               <input
                 type="date"
                 name="startDate"
+                disabled={isClosed}
                 value={formData.startDate}
                 onChange={handleChange}
                 className={`w-full px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
                   errors.startDate
                     ? 'border-rose-300 bg-rose-50/50 focus:border-rose-500 focus:ring-rose-200'
                     : 'border-slate-200 bg-white hover:border-slate-300 focus:border-emerald-500 focus:ring-emerald-200'
-                } focus:outline-none focus:ring-2`}
+                } ${isClosed ? 'bg-slate-100 cursor-not-allowed text-slate-500' : ''} focus:outline-none focus:ring-2`}
               />
               {errors.startDate && <p className="text-xs text-rose-500 mt-1">{errors.startDate}</p>}
             </div>
@@ -259,20 +298,26 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
               <input
                 type="date"
                 name="endDate"
+                disabled={isClosed}
                 value={formData.endDate}
                 onChange={handleChange}
                 className={`w-full px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
-                  errors.endDate
+                  errors.endDate || isDateRangeInvalid
                     ? 'border-rose-300 bg-rose-50/50 focus:border-rose-500 focus:ring-rose-200'
                     : 'border-slate-200 bg-white hover:border-slate-300 focus:border-emerald-500 focus:ring-emerald-200'
-                } focus:outline-none focus:ring-2`}
+                } ${isClosed ? 'bg-slate-100 cursor-not-allowed text-slate-500' : ''} focus:outline-none focus:ring-2`}
               />
-              {errors.endDate && <p className="text-xs text-rose-500 mt-1">{errors.endDate}</p>}
+              {(errors.endDate || isDateRangeInvalid) && (
+                <p className="text-xs text-rose-500 mt-1 font-medium flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                  {errors.endDate || 'Ngày kết thúc chu kỳ phải lớn hơn hoặc bằng ngày bắt đầu!'}
+                </p>
+              )}
             </div>
 
             <div className="col-span-full">
               <p className="text-[11px] text-slate-500 italic">
-                * Quy tắc nghiệp vụ: Ngày kết thúc chu kỳ bắt buộc phải lớn hơn hoặc bằng ngày bắt đầu.
+                * Quy tắc nghiệp vụ: Ngày kết thúc chu kỳ bắt buộc phải lớn hơn hoặc bằng ngày bắt đầu. Nút gửi sẽ bị khóa nếu ngày kết thúc &lt; ngày bắt đầu.
               </p>
             </div>
           </div>
@@ -282,7 +327,13 @@ export const OperationalCycleFormModal = ({ isOpen, onClose, farmId, farmName, c
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               Hủy bỏ
             </Button>
-            <Button type="submit" variant="primary" isLoading={isSubmitting}>
+            <Button
+              type="submit"
+              variant="primary"
+              isLoading={isSubmitting}
+              disabled={isSubmitting || isDateRangeInvalid || isClosed}
+              className={isDateRangeInvalid || isClosed ? 'opacity-50 cursor-not-allowed' : ''}
+            >
               {isEditing ? 'Cập nhật chu kỳ' : 'Lưu chu kỳ'}
             </Button>
           </div>

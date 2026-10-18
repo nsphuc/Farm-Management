@@ -187,24 +187,37 @@ export const WarehouseListPage = () => {
   };
 
   // Render Badge loại kho
+  // Render Badge loại kho chuẩn 6 loại SQL
   const renderTypeBadge = (type) => {
     switch (type) {
-      case 'COLD_STORAGE':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-50 text-cyan-700 border border-cyan-200">
-            <Snowflake className="w-3 h-3 text-cyan-500" /> Kho lạnh
-          </span>
-        );
-      case 'RAW_MATERIAL':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-            <Package className="w-3 h-3 text-amber-500" /> Kho vật tư thô
-          </span>
-        );
-      case 'FINISHED_GOODS':
+      case 'FERTILIZER':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <Boxes className="w-3 h-3 text-emerald-500" /> Kho thành phẩm
+            <Package className="w-3 h-3 text-emerald-500" /> Kho phân bón
+          </span>
+        );
+      case 'PESTICIDE':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+            <AlertCircle className="w-3 h-3 text-rose-500" /> Kho thuốc BVTV
+          </span>
+        );
+      case 'ANIMAL_FEED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+            <Boxes className="w-3 h-3 text-amber-500" /> Kho thức ăn chăn nuôi
+          </span>
+        );
+      case 'HARVESTED_PRODUCE':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-200">
+            <Boxes className="w-3 h-3 text-teal-500" /> Kho nông sản thành phẩm
+          </span>
+        );
+      case 'TOOLS_EQUIPMENT':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+            <Layers className="w-3 h-3 text-blue-500" /> Kho công cụ máy móc
           </span>
         );
       case 'GENERAL':
@@ -258,7 +271,7 @@ export const WarehouseListPage = () => {
 
           {/* Ẩn nút Thêm kho nếu người dùng không có quyền quản lý kho */}
           <Can
-            role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+            role="ROLE_FARM_OWNER"
             permission="PERM_FARM_UPDATE"
             farmId={selectedFarmId}
           >
@@ -328,9 +341,11 @@ export const WarehouseListPage = () => {
             className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white hover:border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 focus:outline-none transition-colors"
           >
             <option value="ALL">Tất cả loại kho</option>
-            <option value="RAW_MATERIAL">Kho vật tư thô</option>
-            <option value="FINISHED_GOODS">Kho thành phẩm</option>
-            <option value="COLD_STORAGE">Kho lạnh bảo quản</option>
+            <option value="FERTILIZER">Kho phân bón</option>
+            <option value="PESTICIDE">Kho thuốc BVTV</option>
+            <option value="ANIMAL_FEED">Kho thức ăn chăn nuôi</option>
+            <option value="HARVESTED_PRODUCE">Kho nông sản thành phẩm</option>
+            <option value="TOOLS_EQUIPMENT">Kho công cụ máy móc</option>
             <option value="GENERAL">Kho tổng hợp</option>
           </select>
 
@@ -384,7 +399,7 @@ export const WarehouseListPage = () => {
               : `Trang trại "${activeFarm?.name || ''}" hiện chưa được cấu hình kho bãi nào.`}
           </p>
           <Can
-            role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+            role="ROLE_FARM_OWNER"
             permission="PERM_FARM_UPDATE"
             farmId={selectedFarmId}
           >
@@ -463,7 +478,7 @@ export const WarehouseListPage = () => {
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Ẩn nút Sửa kho nếu không có quyền */}
                           <Can
-                            role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+                            role="ROLE_FARM_OWNER"
                             permission="PERM_FARM_UPDATE"
                             farmId={selectedFarmId}
                           >

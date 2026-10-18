@@ -222,7 +222,7 @@ export const IssueListPage = () => {
             Làm mới
           </Button>
 
-          <Can permission={['PERM_INVENTORY_MANAGE', 'PERM_INVENTORY_ISSUE']}>
+          <Can permission="PERM_INVENTORY_ISSUE">
             <Button
               variant="primary"
               size="sm"
@@ -361,7 +361,7 @@ export const IssueListPage = () => {
             <p className="text-xs text-slate-400 max-w-sm text-center">
               Chưa tìm thấy chứng từ xuất kho phù hợp với điều kiện lọc hiện tại. Bấm nút dưới để tạo phiếu xuất mới.
             </p>
-            <Can permission={['PERM_INVENTORY_MANAGE', 'PERM_INVENTORY_ISSUE']}>
+            <Can permission="PERM_INVENTORY_ISSUE">
               <Button
                 variant="primary"
                 size="sm"

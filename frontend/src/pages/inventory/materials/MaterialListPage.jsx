@@ -178,7 +178,7 @@ export const MaterialListPage = () => {
 
         <div className="flex items-center gap-2.5">
           {/* Nút Quản lý nhóm vật tư */}
-          <Can role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']} permission="PERM_FARM_UPDATE">
+          <Can role="ROLE_FARM_OWNER" permission="PERM_FARM_UPDATE">
             <Button
               variant="outline"
               onClick={() => setIsCategoryModalOpen(true)}
@@ -312,7 +312,7 @@ export const MaterialListPage = () => {
               ? 'Không có mặt hàng vật tư nào khớp với tiêu chí tìm kiếm.'
               : 'Chưa có mặt hàng vật tư nào được tạo trong danh mục.'}
           </p>
-          <Can role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']} permission="PERM_FARM_UPDATE">
+          <Can role="ROLE_FARM_OWNER" permission="PERM_FARM_UPDATE">
             <Button size="sm" onClick={handleOpenCreate} className="mt-4">
               <Plus className="w-4 h-4 mr-1.5" /> Thêm vật tư mới
             </Button>
@@ -390,7 +390,7 @@ export const MaterialListPage = () => {
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Ẩn nút Sửa / Xóa vật tư nếu không có quyền */}
                           <Can
-                            role={['ROLE_FARM_OWNER', 'ROLE_TENANT_ADMIN']}
+                            role="ROLE_FARM_OWNER"
                             permission="PERM_FARM_UPDATE"
                           >
                             <button

@@ -32,7 +32,7 @@ export const WarehouseFormModal = ({ isOpen, onClose, farmId, farmName, warehous
       setFormData({
         code: warehouse.code || '',
         name: warehouse.name || '',
-        warehouseType: warehouse.warehouseType || 'RAW_MATERIAL',
+        warehouseType: warehouse.warehouseType || 'GENERAL',
         capacityM3: warehouse.capacityM3 ?? '',
         areaM2: warehouse.areaM2 ?? '',
         standardTemperature: warehouse.standardTemperature ?? '',
@@ -43,7 +43,7 @@ export const WarehouseFormModal = ({ isOpen, onClose, farmId, farmName, warehous
       setFormData({
         code: '',
         name: '',
-        warehouseType: 'RAW_MATERIAL',
+        warehouseType: 'GENERAL',
         capacityM3: '',
         areaM2: '',
         standardTemperature: '',
@@ -60,9 +60,7 @@ export const WarehouseFormModal = ({ isOpen, onClose, farmId, farmName, warehous
   const validateForm = () => {
     const newErrors = {};
 
-    if (!isEditing && !formData.code.trim()) {
-      newErrors.code = 'Mã kho không được để trống';
-    } else if (!isEditing && formData.code.trim().length > 50) {
+    if (formData.code.trim() && formData.code.trim().length > 50) {
       newErrors.code = 'Mã kho tối đa 50 ký tự';
     }
 
@@ -122,9 +120,9 @@ export const WarehouseFormModal = ({ isOpen, onClose, farmId, farmName, warehous
         await warehouseApi.updateWarehouse(farmId, warehouse.id, payload);
         toast.success(`Cập nhật thông tin kho "${formData.name}" thành công!`);
       } else {
-        // Tạo mới kho
+        // Tạo mới kho (Tự sinh mã KHO-00X nếu để trống)
         await warehouseApi.createWarehouse(farmId, {
-          code: formData.code.trim().toUpperCase(),
+          code: formData.code.trim() ? formData.code.trim().toUpperCase() : null,
           ...payload,
         });
         toast.success(`Tạo mới kho "${formData.name}" thành công!`);
@@ -175,8 +173,11 @@ export const WarehouseFormModal = ({ isOpen, onClose, farmId, farmName, warehous
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Mã kho */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                Mã kho {!isEditing && <span className="text-rose-500">*</span>}
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                <span>Mã kho</span>
+                {!isEditing && (
+                  <span className="text-[11px] text-emerald-600 font-normal">Tự sinh KHO-00X</span>
+                )}
               </label>
               <input
                 type="text"
@@ -184,7 +185,7 @@ export const WarehouseFormModal = ({ isOpen, onClose, farmId, farmName, warehous
                 disabled={isEditing}
                 value={formData.code}
                 onChange={handleChange}
-                placeholder="VD: KHO-PB-01, KHO-LANH-A"
+                placeholder={isEditing ? formData.code : 'Hệ thống tự cấp (KHO-00X)'}
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-mono uppercase transition-colors ${
                   errors.code
                     ? 'border-rose-300 bg-rose-50/50 focus:border-rose-500 focus:ring-rose-200'
@@ -194,6 +195,9 @@ export const WarehouseFormModal = ({ isOpen, onClose, farmId, farmName, warehous
                 } focus:outline-none focus:ring-2`}
               />
               {errors.code && <p className="text-xs text-rose-500 mt-1">{errors.code}</p>}
+              {!isEditing && (
+                <p className="text-[11px] text-slate-400 mt-1">Để trống để hệ thống tự động sinh mã</p>
+              )}
             </div>
 
             {/* Phân loại kho */}
@@ -207,10 +211,12 @@ export const WarehouseFormModal = ({ isOpen, onClose, farmId, farmName, warehous
                 onChange={handleChange}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 focus:outline-none text-sm transition-colors"
               >
-                <option value="RAW_MATERIAL">Kho vật tư thô (Phân bón, Giống, Thuốc BVTV)</option>
-                <option value="FINISHED_GOODS">Kho nông sản thành phẩm (Sau thu hoạch)</option>
-                <option value="COLD_STORAGE">Kho lạnh bảo quản (Nhiệt độ thấp)</option>
-                <option value="GENERAL">Kho tổng hợp / Dụng cụ máy móc</option>
+                <option value="FERTILIZER">Kho phân bón (Hóa học, Hữu cơ, Vi sinh)</option>
+                <option value="PESTICIDE">Kho thuốc BVTV & Hóa chất</option>
+                <option value="ANIMAL_FEED">Kho thức ăn chăn nuôi & Phụ gia</option>
+                <option value="HARVESTED_PRODUCE">Kho nông sản thành phẩm sau thu hoạch</option>
+                <option value="TOOLS_EQUIPMENT">Kho công cụ & Dụng cụ máy móc</option>
+                <option value="GENERAL">Kho tổng hợp / Vật tư phụ trợ</option>
               </select>
             </div>
           </div>

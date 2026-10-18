@@ -205,7 +205,7 @@ export const ReceiptDetailModal = ({ isOpen, onClose, receipt, onReceiptUpdated 
           <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50">
             <div>
               {receipt.status !== 'CANCELLED' && (
-                <Can permission={['PERM_INVENTORY_MANAGE', 'PERM_INVENTORY_RECEIPT']}>
+                <Can permission="PERM_INVENTORY_RECEIPT">
                   <Button
                     variant="danger"
                     size="sm"

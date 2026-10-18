@@ -223,7 +223,7 @@ export const ReceiptListPage = () => {
             Làm mới
           </Button>
 
-          <Can permission={['PERM_INVENTORY_MANAGE', 'PERM_INVENTORY_RECEIPT']}>
+          <Can permission="PERM_INVENTORY_RECEIPT">
             <Button
               variant="primary"
               size="sm"
@@ -361,7 +361,7 @@ export const ReceiptListPage = () => {
             <p className="text-xs text-slate-400 max-w-sm text-center">
               Chưa tìm thấy chứng từ nhập kho phù hợp với điều kiện lọc hiện tại. Bấm nút dưới để tạo phiếu nhập mới.
             </p>
-            <Can permission={['PERM_INVENTORY_MANAGE', 'PERM_INVENTORY_RECEIPT']}>
+            <Can permission="PERM_INVENTORY_RECEIPT">
               <Button
                 variant="primary"
                 size="sm"

@@ -52,13 +52,17 @@ export const useAuthStore = create((set, get) => ({
     return user.roles.includes(roleCode);
   },
 
+  isSuperAdmin: () => {
+    const { user } = get();
+    return !!(user?.roles && user.roles.includes('ROLE_SUPER_ADMIN'));
+  },
+
   canAccessFarm: (farmId) => {
     const { user } = get();
-    if (!user) return false;
-    if (user.isSuperAdmin) return true;
+    if (!user || !farmId) return false;
     if (user.roles && user.roles.includes('ROLE_FARM_OWNER')) return true;
-    if (!user.farmIds) return false;
-    return user.farmIds.includes(Number(farmId));
+    const accessible = user.accessibleFarmIds || user.farmIds || [];
+    return accessible.includes(Number(farmId));
   },
 }));
 
