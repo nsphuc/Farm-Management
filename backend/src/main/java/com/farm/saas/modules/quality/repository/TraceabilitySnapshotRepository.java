@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface TraceabilitySnapshotRepository extends JpaRepository<TraceabilitySnapshot, Long>, JpaSpecificationExecutor<TraceabilitySnapshot> {
+    java.util.Optional<TraceabilitySnapshot> findByProductBatchId(Long productBatchId);
 }

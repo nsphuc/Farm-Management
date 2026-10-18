@@ -9,4 +9,8 @@ public class ResourceNotFoundException extends BusinessException {
     public ResourceNotFoundException(String resourceName, Object identifier) {
         super("RESOURCE_NOT_FOUND", String.format("Không tìm thấy %s với định danh: %s", resourceName, identifier));
     }
+
+    public ResourceNotFoundException(String resourceName, String fieldName, Object fieldValue) {
+        super("RESOURCE_NOT_FOUND", String.format("Không tìm thấy %s với %s: %s", resourceName, fieldName, fieldValue));
+    }
 }

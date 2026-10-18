@@ -96,10 +96,9 @@ public class FarmSecurityEvaluator {
     public Long resolveBatchInspectorId(Long batchId) {
         try {
             return jdbcTemplate.queryForObject(
-                    "SELECT qi.inspector_user_id FROM qc_inspections qi " +
-                            "JOIN product_batches pb ON pb.id = ? " +
-                            "WHERE qi.product_batch_id = pb.id " +
-                            "ORDER BY qi.id DESC LIMIT 1",
+                    "SELECT inspector_user_id FROM qc_inspections " +
+                            "WHERE product_batch_id = ? " +
+                            "ORDER BY id DESC LIMIT 1",
                     Long.class, batchId);
         } catch (EmptyResultDataAccessException ex) {
             return null;

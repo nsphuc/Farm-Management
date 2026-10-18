@@ -7,4 +7,8 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, Long>, JpaSpecificationExecutor<LeaveRequest> {
+    java.util.List<LeaveRequest> findByEmployeeIdOrderByCreatedAtDesc(Long employeeId);
+    java.util.List<LeaveRequest> findByFarmIdOrderByCreatedAtDesc(Long farmId);
+    org.springframework.data.domain.Page<LeaveRequest> findByFarmId(Long farmId, org.springframework.data.domain.Pageable pageable);
+    org.springframework.data.domain.Page<LeaveRequest> findByTenantId(Long tenantId, org.springframework.data.domain.Pageable pageable);
 }

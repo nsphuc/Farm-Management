@@ -7,4 +7,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface FarmTaskRepository extends JpaRepository<FarmTask, Long>, JpaSpecificationExecutor<FarmTask> {
+    java.util.List<FarmTask> findByFarmIdOrderByCreatedAtDesc(Long farmId);
+    org.springframework.data.domain.Page<FarmTask> findByFarmId(Long farmId, org.springframework.data.domain.Pageable pageable);
+    java.util.List<FarmTask> findByAssignedToEmployeeIdOrderByCreatedAtDesc(Long assignedToEmployeeId);
 }

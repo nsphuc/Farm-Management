@@ -15,4 +15,9 @@ public interface ProductBatchRepository extends JpaRepository<ProductBatch, Long
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM ProductBatch e WHERE e.id = :id")
     Optional<ProductBatch> findByIdForUpdate(@Param("id") Long id);
+
+    Optional<ProductBatch> findByTraceabilityCode(String traceabilityCode);
+    Optional<ProductBatch> findByTenantIdAndFarmIdAndBatchCode(Long tenantId, Long farmId, String batchCode);
+    java.util.List<ProductBatch> findByFarmIdOrderByCreatedAtDesc(Long farmId);
+    org.springframework.data.domain.Page<ProductBatch> findByFarmId(Long farmId, org.springframework.data.domain.Pageable pageable);
 }

@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ProductBatchTransactionRepository extends JpaRepository<ProductBatchTransaction, Long>, JpaSpecificationExecutor<ProductBatchTransaction> {
+    java.util.List<ProductBatchTransaction> findByProductBatchIdOrderByCreatedAtDesc(Long productBatchId);
 }

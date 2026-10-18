@@ -7,4 +7,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface HarvestRecordRepository extends JpaRepository<HarvestRecord, Long>, JpaSpecificationExecutor<HarvestRecord> {
+    java.util.List<HarvestRecord> findByFarmIdOrderByHarvestDateDescCreatedAtDesc(Long farmId);
+    org.springframework.data.domain.Page<HarvestRecord> findByFarmId(Long farmId, org.springframework.data.domain.Pageable pageable);
+    java.util.Optional<HarvestRecord> findByTenantIdAndFarmIdAndHarvestCode(Long tenantId, Long farmId, String harvestCode);
 }
