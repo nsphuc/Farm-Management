@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface WarehouseTransferItemRepository extends JpaRepository<WarehouseTransferItem, Long>, JpaSpecificationExecutor<WarehouseTransferItem> {
+    java.util.List<WarehouseTransferItem> findByTransferId(Long transferId);
 }

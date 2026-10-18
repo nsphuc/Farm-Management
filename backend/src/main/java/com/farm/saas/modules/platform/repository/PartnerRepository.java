@@ -16,6 +16,8 @@ public interface PartnerRepository extends JpaRepository<Partner, Long>, JpaSpec
 
     boolean existsByTenantIdAndCode(Long tenantId, String code);
 
+    Optional<Partner> findByTenantIdAndCode(Long tenantId, String code);
+
     Optional<Partner> findByTenantIdAndId(Long tenantId, Long id);
 
     @Query("SELECT p FROM Partner p WHERE p.tenantId = :tenantId AND " +

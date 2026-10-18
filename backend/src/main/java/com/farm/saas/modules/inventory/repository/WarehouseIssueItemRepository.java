@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface WarehouseIssueItemRepository extends JpaRepository<WarehouseIssueItem, Long>, JpaSpecificationExecutor<WarehouseIssueItem> {
+    java.util.List<WarehouseIssueItem> findByIssueId(Long issueId);
 }

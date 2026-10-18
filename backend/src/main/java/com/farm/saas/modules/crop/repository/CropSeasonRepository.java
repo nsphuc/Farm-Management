@@ -15,4 +15,9 @@ public interface CropSeasonRepository extends JpaRepository<CropSeason, Long>, J
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM CropSeason e WHERE e.id = :id")
     Optional<CropSeason> findByIdForUpdate(@Param("id") Long id);
+
+    Optional<CropSeason> findByFarmIdAndId(Long farmId, Long id);
+    Optional<CropSeason> findByTenantIdAndFarmIdAndSeasonCode(Long tenantId, Long farmId, String seasonCode);
+    boolean existsByTenantIdAndFarmIdAndSeasonCode(Long tenantId, Long farmId, String seasonCode);
+    java.util.List<CropSeason> findByFarmId(Long farmId);
 }

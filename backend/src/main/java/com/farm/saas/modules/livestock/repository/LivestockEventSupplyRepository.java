@@ -7,4 +7,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface LivestockEventSupplyRepository extends JpaRepository<LivestockEventSupply, Long>, JpaSpecificationExecutor<LivestockEventSupply> {
+    java.util.List<LivestockEventSupply> findByLivestockEventId(Long eventId);
 }

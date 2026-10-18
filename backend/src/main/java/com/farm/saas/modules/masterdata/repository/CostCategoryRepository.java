@@ -10,5 +10,6 @@ public interface CostCategoryRepository extends JpaRepository<CostCategory, Long
     java.util.List<CostCategory> findByTenantId(Long tenantId);
     java.util.Optional<CostCategory> findByTenantIdAndCode(Long tenantId, String code);
     java.util.Optional<CostCategory> findByTenantIdAndId(Long tenantId, Long id);
+    java.util.List<CostCategory> findByTenantIdAndCostType(Long tenantId, String costType);
     boolean existsByTenantIdAndCode(Long tenantId, String code);
 }

@@ -15,4 +15,8 @@ public interface LivestockGroupRepository extends JpaRepository<LivestockGroup, 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM LivestockGroup e WHERE e.id = :id")
     Optional<LivestockGroup> findByIdForUpdate(@Param("id") Long id);
+
+    Optional<LivestockGroup> findByFarmIdAndId(Long farmId, Long id);
+    Optional<LivestockGroup> findByTenantIdAndFarmIdAndGroupCode(Long tenantId, Long farmId, String groupCode);
+    boolean existsByTenantIdAndFarmIdAndGroupCode(Long tenantId, Long farmId, String groupCode);
 }
