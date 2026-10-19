@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle } from 'lucide-react';
 import { cn } from '@/utils/formatters';
+import { renderIcon } from '@/utils/iconHelper';
 
 /**
  * FormField wrapper with Label, Asterisk, and Inline Field Error (Tiêu chí 4 File 10)
@@ -42,10 +43,64 @@ export function FormField({
 
 /**
  * Standard TextInput with React Hook Form ref support
+ * Hỗ trợ đa định dạng prefixIcon / leftIcon / suffixIcon / rightIcon / icon.
  */
 export const Input = React.forwardRef(
-  ({ name, id, error, className, hasError, type = 'text', ...props }, ref) => {
+  (
+    {
+      name,
+      id,
+      error,
+      className,
+      hasError,
+      type = 'text',
+      icon,
+      prefixIcon,
+      leftIcon,
+      suffixIcon,
+      rightIcon,
+      ...props
+    },
+    ref
+  ) => {
     const isError = Boolean(error || hasError);
+    const leadingIcon = prefixIcon || leftIcon || icon;
+    const trailingIcon = suffixIcon || rightIcon;
+
+    if (leadingIcon || trailingIcon) {
+      return (
+        <div className="relative flex items-center w-full">
+          {leadingIcon && (
+            <div className="absolute left-3 flex items-center pointer-events-none text-slate-400">
+              {renderIcon(leadingIcon, 'h-4 w-4 shrink-0')}
+            </div>
+          )}
+          <input
+            ref={ref}
+            id={id || name}
+            name={name}
+            type={type}
+            className={cn(
+              'w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 transition-colors',
+              'placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-1',
+              leadingIcon && 'pl-9',
+              trailingIcon && 'pr-9',
+              isError
+                ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20 text-rose-900 bg-rose-50/20'
+                : 'border-slate-300 focus:border-emerald-500 focus:ring-emerald-500/20',
+              'disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed',
+              className
+            )}
+            {...props}
+          />
+          {trailingIcon && (
+            <div className="absolute right-3 flex items-center pointer-events-none text-slate-400">
+              {renderIcon(trailingIcon, 'h-4 w-4 shrink-0')}
+            </div>
+          )}
+        </div>
+      );
+    }
 
     return (
       <input
@@ -71,10 +126,65 @@ Input.displayName = 'Input';
 
 /**
  * Standard SelectInput
+ * Hỗ trợ đa định dạng prefixIcon / leftIcon / icon.
  */
 export const Select = React.forwardRef(
-  ({ name, id, error, hasError, options = [], children, className, placeholder, ...props }, ref) => {
+  (
+    {
+      name,
+      id,
+      error,
+      hasError,
+      options = [],
+      children,
+      className,
+      placeholder,
+      icon,
+      prefixIcon,
+      leftIcon,
+      ...props
+    },
+    ref
+  ) => {
     const isError = Boolean(error || hasError);
+    const leadingIcon = prefixIcon || leftIcon || icon;
+
+    if (leadingIcon) {
+      return (
+        <div className="relative flex items-center w-full">
+          <div className="absolute left-3 flex items-center pointer-events-none text-slate-400">
+            {renderIcon(leadingIcon, 'h-4 w-4 shrink-0')}
+          </div>
+          <select
+            ref={ref}
+            id={id || name}
+            name={name}
+            className={cn(
+              'w-full rounded-lg border bg-white pl-9 pr-3 py-2 text-sm text-slate-900 transition-colors cursor-pointer',
+              'focus:outline-none focus:ring-2 focus:ring-offset-1',
+              isError
+                ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20 text-rose-900 bg-rose-50/20'
+                : 'border-slate-300 focus:border-emerald-500 focus:ring-emerald-500/20',
+              'disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed',
+              className
+            )}
+            {...props}
+          >
+            {placeholder && (
+              <option value="" disabled>
+                {placeholder}
+              </option>
+            )}
+            {options.map((opt) => (
+              <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+                {opt.label}
+              </option>
+            ))}
+            {children}
+          </select>
+        </div>
+      );
+    }
 
     return (
       <select

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/utils/formatters';
+import { renderIcon } from '@/utils/iconHelper';
 
 const MODAL_SIZES = {
   sm: 'max-w-md',
@@ -12,12 +13,14 @@ const MODAL_SIZES = {
 
 /**
  * Modal Component - Hộp thoại chuẩn trung tâm
+ * Hỗ trợ prop icon đa định dạng (JSX Element hoặc Component type) ở Header.
  */
 export function Modal({
   isOpen,
   onClose,
   title,
   subtitle,
+  icon,
   children,
   footer,
   size = 'md',
@@ -67,11 +70,14 @@ export function Modal({
         )}
       >
         {/* Header */}
-        {(title || showCloseButton) && (
+        {(title || showCloseButton || icon) && (
           <div className="border-b border-slate-200 bg-slate-50/60 px-6 py-4 flex items-center justify-between rounded-t-2xl">
-            <div>
-              {title && <h3 className="text-lg font-bold text-slate-900">{title}</h3>}
-              {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+            <div className="flex items-center gap-3">
+              {renderIcon(icon, 'h-5 w-5 text-emerald-600 shrink-0')}
+              <div>
+                {title && <h3 className="text-lg font-bold text-slate-900">{title}</h3>}
+                {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+              </div>
             </div>
             {showCloseButton && !preventClose && (
               <button

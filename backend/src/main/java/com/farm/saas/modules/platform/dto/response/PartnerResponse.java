@@ -27,6 +27,11 @@ public class PartnerResponse {
     private Integer paymentTermDays;
     private String creditRating;
     private String status;
+    private String contactPerson;
+    private String bankBin;
+    private String bankName;
+    private String bankAccountNo;
+    private String bankAccountName;
     private String notes;
     private BigDecimal currentDebt;
     private Instant createdAt;

@@ -1,29 +1,100 @@
-import React, { useState } from 'react';
-import { Settings, Building, Calendar, Warehouse, Package, Clock, Coins, Layers } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
+import React from 'react';
+import { useSearchParams } from 'react-router-dom';
+import {
+  Settings,
+  Building2,
+  Calendar,
+  Sprout,
+  PawPrint,
+  Package,
+  Warehouse,
+  Layers,
+  Clock,
+  Coins,
+} from 'lucide-react';
+import { EnterpriseProfileTab } from './tabs/EnterpriseProfileTab';
+import { CyclesAndFarmSettingsTab } from './tabs/CyclesAndFarmSettingsTab';
+import { CropTypesTab } from './tabs/CropTypesTab';
+import { LivestockBreedsTab } from './tabs/LivestockBreedsTab';
+import { MaterialsTab } from './tabs/MaterialsTab';
+import { WarehousesTab } from './tabs/WarehousesTab';
+import { ConsumptionQuotasTab } from './tabs/ConsumptionQuotasTab';
+import { WorkShiftsTab } from './tabs/WorkShiftsTab';
+import { CostCategoriesTab } from './tabs/CostCategoriesTab';
 
-/**
- * Settings Page - Trung Tâm Cài Đặt Danh Mục Tĩnh (Mục 3.1 File 08)
- * 7 Tabs: Enterprises, Cycles, Warehouses, Materials, BOM Quotas, Shifts, Cost Categories.
- */
+const SETTINGS_TABS = [
+  {
+    id: 'enterprise',
+    label: '1. Hồ Sơ Pháp Nhân & VietQR',
+    icon: Building2,
+    desc: 'Hồ sơ doanh nghiệp, tài khoản Napas 24/7 và chứng chỉ chất lượng',
+  },
+  {
+    id: 'cycles-settings',
+    label: '2. Chu Kỳ & Ngưỡng Trang Trại',
+    icon: Calendar,
+    desc: 'Quản lý niên vụ và cấu hình ngưỡng tưới tự động, chấm công',
+  },
+  {
+    id: 'crop-types',
+    label: '3. Giống Cây Trồng',
+    icon: Sprout,
+    desc: 'Danh mục giống cây, ngày sinh trưởng chuẩn, nhu cầu nước',
+  },
+  {
+    id: 'livestock-breeds',
+    label: '4. Giống Vật Nuôi',
+    icon: PawPrint,
+    desc: 'Danh mục 6 loài vật nuôi, chu kỳ nuôi và trọng lượng xuất',
+  },
+  {
+    id: 'materials',
+    label: '5. Nhóm & Mặt Hàng Vật Tư',
+    icon: Package,
+    desc: 'Danh mục vật tư, bao bì đóng gói và hệ số quy đổi đơn vị',
+  },
+  {
+    id: 'warehouses',
+    label: '6. Hệ Thống Kho Bãi',
+    icon: Warehouse,
+    desc: '7 phân loại kho, dung tích chứa và điều kiện nhiệt độ bảo quản',
+  },
+  {
+    id: 'quotas',
+    label: '7. Định Mức Kỹ Thuật (BOM)',
+    icon: Layers,
+    desc: 'Định mức tiêu hao vật tư theo diện tích hoặc quy mô đàn',
+  },
+  {
+    id: 'shifts',
+    label: '8. Ca Làm Việc Chuẩn',
+    icon: Clock,
+    desc: 'Khung giờ làm việc, ca qua đêm và giờ công danh định',
+  },
+  {
+    id: 'cost-categories',
+    label: '9. Nhóm Chi Phí Kế Toán',
+    icon: Coins,
+    desc: '5 nhóm yếu tố chi phí phục vụ tính giá thành vụ mùa',
+  },
+];
+
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('ENTERPRISE');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'enterprise';
 
-  const tabs = [
-    { id: 'ENTERPRISE', label: '1. Hồ Sơ Pháp Nhân & VietQR', icon: Building },
-    { id: 'CYCLES', label: '2. Chu Kỳ Vận Hành', icon: Calendar },
-    { id: 'WAREHOUSES', label: '3. Danh Mục Kho Bãi', icon: Warehouse },
-    { id: 'MATERIALS', label: '4. Danh Mục Vật Tư & Quy Đổi', icon: Package },
-    { id: 'BOM', label: '5. Định Mức Vật Tư (BOM)', icon: Layers },
-    { id: 'SHIFTS', label: '6. Ca Làm Việc & Chấm Công', icon: Clock },
-    { id: 'COST_CATEGORIES', label: '7. Khoản Mục Chi Phí', icon: Coins },
-  ];
+  const handleTabChange = (tabId) => {
+    setSearchParams({ tab: tabId });
+  };
+
+  const currentTabObj = SETTINGS_TABS.find((t) => t.id === activeTab) || SETTINGS_TABS[0];
 
   return (
     <div className="space-y-6">
+      {/* Header Banner */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 ring-1 ring-slate-200">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20">
             <Settings className="h-6 w-6" />
           </div>
           <div>
@@ -31,40 +102,61 @@ export function SettingsPage() {
               Trung Tâm Cài Đặt Danh Mục Tĩnh
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Quản trị các bảng danh mục chuẩn hóa cấp Tenant với tần suất thay đổi thấp
+              Cấu hình chuẩn hóa cấp Tenant và Trang trại tác nghiệp theo quy tắc Module Master Data Agri-ERP
             </p>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Vertical Tabs Sidebar */}
-        <div className="w-full md:w-64 space-y-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-xs shrink-0">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-left transition-all ${
-                activeTab === tab.id
-                  ? 'bg-emerald-50 text-emerald-800 shadow-2xs font-bold ring-1 ring-emerald-600/20'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <tab.icon className={`h-4 w-4 shrink-0 ${activeTab === tab.id ? 'text-emerald-700' : 'text-slate-500'}`} />
-              <span className="truncate">{tab.label}</span>
-            </button>
-          ))}
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        {/* Navigation Sidebar */}
+        <div className="w-full lg:w-72 space-y-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-xs shrink-0 sticky top-20">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 py-1.5">
+            Phân khu Danh Mục Chuẩn
+          </div>
+          {SETTINGS_TABS.map((tab) => {
+            const isCurrent = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleTabChange(tab.id)}
+                className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-xs font-semibold text-left transition-all ${
+                  isCurrent
+                    ? 'bg-emerald-50 text-emerald-900 shadow-2xs font-bold ring-1 ring-emerald-600/20'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                }`}
+              >
+                <tab.icon
+                  className={`h-4 w-4 shrink-0 ${isCurrent ? 'text-emerald-700' : 'text-slate-400'}`}
+                />
+                <span className="truncate">{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Tab Detail Pane */}
-        <div className="flex-1 rounded-2xl border border-slate-200 bg-white p-6 shadow-xs min-h-[400px]">
-          <h2 className="text-base font-bold text-slate-900 mb-2">
-            {tabs.find((t) => t.id === activeTab)?.label}
-          </h2>
-          <p className="text-xs text-slate-500">
-            Bảng dữ liệu danh mục tĩnh cấu hình theo tiêu chuẩn Agri-ERP Module Master Data.
-          </p>
+        {/* Tab Content Pane */}
+        <div className="flex-1 w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-xs min-h-[500px]">
+          <div className="border-b border-slate-100 pb-4 mb-6">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <currentTabObj.icon className="h-5 w-5 text-emerald-700" />
+              <span>{currentTabObj.label}</span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">{currentTabObj.desc}</p>
+          </div>
+
+          {activeTab === 'enterprise' && <EnterpriseProfileTab />}
+          {activeTab === 'cycles-settings' && <CyclesAndFarmSettingsTab />}
+          {activeTab === 'crop-types' && <CropTypesTab />}
+          {activeTab === 'livestock-breeds' && <LivestockBreedsTab />}
+          {activeTab === 'materials' && <MaterialsTab />}
+          {activeTab === 'warehouses' && <WarehousesTab />}
+          {activeTab === 'quotas' && (
+            <ConsumptionQuotasTab onNavigateTab={(tab) => handleTabChange(tab)} />
+          )}
+          {activeTab === 'shifts' && <WorkShiftsTab />}
+          {activeTab === 'cost-categories' && <CostCategoriesTab />}
         </div>
       </div>
     </div>

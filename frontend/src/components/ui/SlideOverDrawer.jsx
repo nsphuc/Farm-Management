@@ -1,16 +1,19 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/utils/formatters';
+import { renderIcon } from '@/utils/iconHelper';
 
 /**
  * SlideOverDrawer Component - Khay trượt ngang từ cạnh phải
  * Phục vụ nhập liệu thực thể 360° (Hồ sơ nhân sự, lô hàng, phiếu kho)
+ * Hỗ trợ đa định dạng icon: JSX element hoặc component type cho cả Drawer header và Tabs.
  */
 export function SlideOverDrawer({
   isOpen,
   onClose,
   title,
   subtitle,
+  icon,
   children,
   footer,
   tabs = [],
@@ -58,14 +61,17 @@ export function SlideOverDrawer({
           {/* Header */}
           <div className="border-b border-slate-200 bg-slate-50/80 px-6 py-4">
             <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-                {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+              <div className="flex items-center gap-3">
+                {renderIcon(icon, 'h-5 w-5 text-emerald-600 shrink-0')}
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+                  {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+                </div>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 focus:outline-none"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 focus:outline-none transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -88,7 +94,7 @@ export function SlideOverDrawer({
                           : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                       )}
                     >
-                      {tab.icon && <tab.icon className="h-4 w-4" />}
+                      {renderIcon(tab.icon, 'h-4 w-4 shrink-0')}
                       <span>{tab.label}</span>
                       {tab.badge !== undefined && (
                         <span

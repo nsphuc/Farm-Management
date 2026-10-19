@@ -71,6 +71,12 @@ public class PartnerServiceImpl implements PartnerService {
                 .phone(request.getPhone())
                 .email(request.getEmail())
                 .address(request.getAddress())
+                .contactPerson(request.getContactPerson())
+                .bankBin(request.getBankBin())
+                .bankName(request.getBankName())
+                .bankAccountNo(request.getBankAccountNo())
+                .bankAccountName(request.getBankAccountName())
+                .bankAccountInfo(request.getNotes())
                 .creditLimit(request.getCreditLimit() != null ? request.getCreditLimit() : BigDecimal.ZERO)
                 .paymentTermDays(request.getPaymentTermDays() != null ? request.getPaymentTermDays() : 0)
                 .creditRating(request.getCreditRating() != null ? request.getCreditRating() : "A")
@@ -106,6 +112,12 @@ public class PartnerServiceImpl implements PartnerService {
         partner.setPhone(request.getPhone());
         partner.setEmail(request.getEmail());
         partner.setAddress(request.getAddress());
+        if (request.getContactPerson() != null) partner.setContactPerson(request.getContactPerson());
+        if (request.getBankBin() != null) partner.setBankBin(request.getBankBin());
+        if (request.getBankName() != null) partner.setBankName(request.getBankName());
+        if (request.getBankAccountNo() != null) partner.setBankAccountNo(request.getBankAccountNo());
+        if (request.getBankAccountName() != null) partner.setBankAccountName(request.getBankAccountName());
+        if (request.getNotes() != null) partner.setBankAccountInfo(request.getNotes());
         if (request.getCreditLimit() != null) partner.setCreditLimit(request.getCreditLimit());
         if (request.getPaymentTermDays() != null) partner.setPaymentTermDays(request.getPaymentTermDays());
         if (request.getCreditRating() != null) partner.setCreditRating(request.getCreditRating());
@@ -173,10 +185,16 @@ public class PartnerServiceImpl implements PartnerService {
                 .phone(p.getPhone())
                 .email(p.getEmail())
                 .address(p.getAddress())
+                .contactPerson(p.getContactPerson())
+                .bankBin(p.getBankBin())
+                .bankName(p.getBankName())
+                .bankAccountNo(p.getBankAccountNo())
+                .bankAccountName(p.getBankAccountName())
                 .creditLimit(p.getCreditLimit())
                 .paymentTermDays(p.getPaymentTermDays())
                 .creditRating(p.getCreditRating())
                 .status(p.getStatus())
+                .notes(p.getBankAccountInfo())
                 .currentDebt(currentDebt)
                 .createdAt(p.getCreatedAt())
                 .updatedAt(p.getUpdatedAt())

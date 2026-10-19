@@ -1,6 +1,10 @@
 import React from 'react';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/utils/formatters';
+import { renderIcon } from '@/utils/iconHelper';
+
+// Re-export để các UI components khác có thể import trực tiếp từ Button.jsx hoặc từ iconHelper
+export { renderIcon };
 
 const VARIANTS = {
   primary:
@@ -25,6 +29,7 @@ const SIZES = {
 
 /**
  * Button Component with Built-in Double-Submit Guard (Tiêu chí 1 File 10)
+ * Hỗ trợ đa định dạng icon: JSX Element (<Plus />), Lucide Component (Plus), leftIcon, rightIcon.
  * Tự động disabled + Spinner "Đang xử lý..." khi isLoading = true.
  */
 export const Button = React.forwardRef(
@@ -35,8 +40,10 @@ export const Button = React.forwardRef(
       size = 'md',
       isLoading = false,
       loadingText = 'Đang xử lý...',
-      icon: Icon,
-      iconRight: IconRight,
+      icon,
+      leftIcon,
+      rightIcon,
+      iconRight,
       disabled,
       className,
       type = 'button',
@@ -56,6 +63,16 @@ export const Button = React.forwardRef(
         onClick(e);
       }
     };
+
+    const iconSizeClass =
+      size === 'sm'
+        ? 'h-3.5 w-3.5 shrink-0'
+        : size === 'lg'
+        ? 'h-5 w-5 shrink-0'
+        : 'h-4 w-4 shrink-0';
+
+    const leadingIcon = leftIcon || icon;
+    const trailingIcon = rightIcon || iconRight;
 
     return (
       <button
@@ -80,9 +97,9 @@ export const Button = React.forwardRef(
           </>
         ) : (
           <>
-            {Icon && <Icon className="h-4 w-4 shrink-0" />}
+            {renderIcon(leadingIcon, iconSizeClass)}
             {children}
-            {IconRight && <IconRight className="h-4 w-4 shrink-0" />}
+            {renderIcon(trailingIcon, iconSizeClass)}
           </>
         )}
       </button>

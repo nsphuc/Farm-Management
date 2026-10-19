@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Can } from '@/components/common/Can';
 import { cn } from '@/utils/formatters';
+import { renderIcon } from '@/utils/iconHelper';
 
 // 9 Workspaces configuration (Khớp Điều 2 File 08)
 const WORKSPACES = [
@@ -195,12 +196,13 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
                     {({ isActive }) => (
                       <>
                         <div className="flex items-center gap-2.5 truncate">
-                          <item.icon
-                            className={cn(
+                          {renderIcon(
+                            item.icon,
+                            cn(
                               'h-4 w-4 shrink-0 transition-colors',
                               isActive ? 'text-emerald-700' : 'text-slate-500 group-hover:text-slate-700'
-                            )}
-                          />
+                            )
+                          )}
                           <span className="truncate">{item.label}</span>
                         </div>
                         {item.badge && (
@@ -249,12 +251,13 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
                   >
                     {({ isActive }) => (
                       <div className="flex items-center gap-2.5 truncate">
-                        <item.icon
-                          className={cn(
+                        {renderIcon(
+                          item.icon,
+                          cn(
                             'h-4 w-4 shrink-0 transition-colors',
                             isActive ? 'text-emerald-700' : 'text-slate-500 group-hover:text-slate-700'
-                          )}
-                        />
+                          )
+                        )}
                         <span className="truncate">{item.label}</span>
                       </div>
                     )}

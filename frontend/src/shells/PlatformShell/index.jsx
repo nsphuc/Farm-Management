@@ -13,6 +13,8 @@ import {
 import axios from 'axios';
 import { useAuthStore } from '@/store/useAuthStore';
 import { cn } from '@/utils/formatters';
+import { renderIcon } from '@/utils/iconHelper';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 const PLATFORM_NAV = [
   {
@@ -97,7 +99,7 @@ export function PlatformShell() {
                 )
               }
             >
-              <item.icon className="h-4 w-4" />
+              {renderIcon(item.icon, 'h-4 w-4 shrink-0')}
               <span>{item.label}</span>
             </NavLink>
           ))}
@@ -143,7 +145,9 @@ export function PlatformShell() {
 
         {/* Canvas */}
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

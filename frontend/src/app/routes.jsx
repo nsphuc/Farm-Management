@@ -129,7 +129,7 @@ export function AppRoutes() {
         <Route
           path="partners"
           element={
-            <PermissionGuard permission="PERM_FINANCE_SALES_ORDER">
+            <PermissionGuard anyPermissions={['PERM_FINANCE_SALES_ORDER', 'PERM_INVENTORY_RECEIPT', 'PERM_FARM_VIEW']}>
               <PartnersWorkspace />
             </PermissionGuard>
           }
@@ -179,7 +179,7 @@ export function AppRoutes() {
         <Route
           path="settings"
           element={
-            <PermissionGuard permission="PERM_TENANT_MANAGE">
+            <PermissionGuard anyPermissions={['PERM_TENANT_MANAGE', 'PERM_FARM_UPDATE', 'PERM_FARM_VIEW']}>
               <SettingsPage />
             </PermissionGuard>
           }

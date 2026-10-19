@@ -3,6 +3,7 @@ import { Bell, CheckCheck, ExternalLink, Info, AlertTriangle, AlertCircle, Check
 import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { formatDateTime, cn } from '@/utils/formatters';
+import { renderIcon } from '@/utils/iconHelper';
 
 const TYPE_ICONS = {
   INFO: { icon: Info, color: 'text-blue-500 bg-blue-50' },
@@ -157,7 +158,7 @@ export function NotificationBell() {
                         typeConfig.color
                       )}
                     >
-                      <IconComponent className="h-4 w-4" />
+                      {renderIcon(typeConfig.icon, 'h-4 w-4')}
                     </div>
 
                     <div className="flex-1 min-w-0">

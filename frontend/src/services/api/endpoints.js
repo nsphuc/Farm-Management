@@ -42,15 +42,24 @@ export const API_ENDPOINTS = {
     SETTINGS: (farmId) => `/farms/${farmId}/settings`,
   },
 
-  // 5. Master Data
+  // 5. Master Data & Enterprise
+  ENTERPRISE: {
+    PROFILE: '/enterprise/profile',
+  },
   MASTER_DATA: {
-    ENTERPRISES: '/master-data/enterprises',
-    CROP_TYPES: '/master-data/crop-types',
-    LIVESTOCK_BREEDS: '/master-data/livestock-breeds',
-    MATERIALS: '/master-data/materials',
-    MATERIAL_CONVERSIONS: (materialId) => `/master-data/materials/${materialId}/conversions`,
+    CROP_TYPES: '/master/crop-types',
+    LIVESTOCK_BREEDS: '/master/livestock-breeds',
+    MATERIAL_CATEGORIES: '/material-categories',
+    MATERIALS: '/materials',
+    MATERIAL_CONVERSIONS: (materialId) => `/materials/${materialId}/conversions`,
     MATERIAL_LOOKUP_BARCODE: (farmId, code) => `/farms/${farmId}/materials/lookup-barcode?code=${encodeURIComponent(code)}`,
-    COST_CATEGORIES: '/master-data/cost-categories',
+    CONSUMPTION_QUOTAS: '/quotas',
+    COST_CATEGORIES: '/cost-categories',
+  },
+  PARTNERS: {
+    LIST: '/partners',
+    DETAIL: (id) => `/partners/${id}`,
+    STATUS: (id) => `/partners/${id}/status`,
   },
 
   // 6. HR & Attendance
