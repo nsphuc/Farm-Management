@@ -3,8 +3,10 @@ import { MapPin, AlertTriangle } from 'lucide-react';
 import { geographyService } from '@/services/modules/geographyService';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
+import { FormField, Input, Select, Textarea, CodeInput } from '@/components/ui/FormControls';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 const LOCATION_STATUSES = [
   { value: 'ACTIVE', label: 'ACTIVE - Sẵn sàng canh tác' },
@@ -46,7 +48,7 @@ export function LocationFormModal({
       });
     } else {
       setFormData({
-        code: '',
+        code: generateEntityCode(CODE_PREFIXES.LOCATION),
         name: '',
         description: '',
         status: 'EMPTY',
@@ -101,9 +103,8 @@ export function LocationFormModal({
       onSuccess?.();
       onClose();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -134,13 +135,13 @@ export function LocationFormModal({
           </div>
         )}
 
-        <FormField label="Mã Vị Trí / Ô Đất / Chuồng" required error={fieldErrors.code}>
-          <Input
-            name="code"
+        <FormField label="Mã Vị Trí / Ô Đất / Chuồng" required error={fieldErrors.code} hint={editingItem ? 'Mã vị trí bất biến không thể sửa' : 'Hệ thống tự động sinh mã gợi ý'}>
+          <CodeInput
             value={formData.code}
-            onChange={handleChange}
-            placeholder="VD: LUONG-A1-01, CHUONG-HEO-03"
-            className="font-mono font-bold"
+            onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+            onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.LOCATION) }))}
+            isEditMode={Boolean(editingItem)}
+            error={fieldErrors.code}
           />
         </FormField>
 

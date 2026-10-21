@@ -12,9 +12,11 @@ import { masterDataService } from '@/services/modules/masterDataService';
 import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
+import { FormField, Input, Select, Textarea, CodeInput } from '@/components/ui/FormControls';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 const COST_TYPES = [
   { value: 'MATERIALS', label: 'MATERIALS - Chi phí Vật tư trực tiếp (621)' },
@@ -74,7 +76,7 @@ export function CostCategoriesTab() {
       });
     } else {
       setFormData({
-        code: '',
+        code: generateEntityCode(CODE_PREFIXES.COST_CATEGORY),
         name: '',
         costType: selectedCostType || 'MATERIALS',
         description: '',
@@ -115,9 +117,8 @@ export function CostCategoriesTab() {
       setModalOpen(false);
       fetchData();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -278,14 +279,17 @@ export function CostCategoriesTab() {
           </FormField>
 
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Mã Khoản Mục" required error={fieldErrors.code}>
-              <Input
+            <FormField label="Mã Khoản Mục" required error={fieldErrors.code} hint={editingItem ? 'Mã khoản mục chi phí bất biến' : 'Hệ thống tự động sinh mã gợi ý'}>
+              <CodeInput
                 value={formData.code}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
                 }
-                placeholder="VD: PHAN_NPK, NHAN_CONG_THU_HOACH"
-                className="font-mono font-bold"
+                onRegenerate={() =>
+                  setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.COST_CATEGORY) }))
+                }
+                isEditMode={Boolean(editingItem)}
+                error={fieldErrors.code}
               />
             </FormField>
 

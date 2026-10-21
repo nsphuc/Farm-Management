@@ -8,7 +8,12 @@ import org.springframework.data.domain.Pageable;
 
 public interface FarmTaskService {
     FarmTaskDetailResponse createTask(Long farmId, CreateFarmTaskRequest request);
+    FarmTaskDetailResponse updateTask(Long farmId, Long taskId, CreateFarmTaskRequest request);
+    void deleteTask(Long farmId, Long taskId);
     FarmTaskDetailResponse updateTaskStatus(Long id, UpdateTaskStatusRequest request);
     Page<FarmTaskDetailResponse> getTasks(Long farmId, Pageable pageable);
+    Page<FarmTaskDetailResponse> getTasks(Long farmId, String taskType, String status, Boolean isRoutine, Long zoneId, Long employeeId, String search, Pageable pageable);
     FarmTaskDetailResponse getTaskById(Long id);
+    java.util.List<FarmTaskDetailResponse> generateDailyRoutines(Long farmId);
+    int cancelPendingRoutineTasksForZone(Long farmId, Long zoneId, String reason);
 }

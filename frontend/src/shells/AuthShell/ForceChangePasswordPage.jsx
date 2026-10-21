@@ -6,6 +6,7 @@ import axios from 'axios';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input } from '@/components/ui/FormControls';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 // Chuẩn NIST Regex: 8-64 ký tự, gồm ít nhất 1 chữ thường, 1 chữ hoa, 1 số và 1 ký tự đặc biệt (@$!%*?&)
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,64}$/;
@@ -16,7 +17,8 @@ const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@
  */
 export function ForceChangePasswordPage() {
   const navigate = useNavigate();
-  const { accessToken, setMustChangePassword, isSuperAdmin } = useAuthStore();
+  const { accessToken, userInfo, setAuth, setMustChangePassword, isSuperAdmin } = useAuthStore();
+  const { syncFromAccessibleFarms } = useActiveFarmStore();
 
   const [showOldPass, setShowOldPass] = useState(false);
   const [showNewPass, setShowNewPass] = useState(false);
@@ -48,7 +50,7 @@ export function ForceChangePasswordPage() {
     }
 
     try {
-      await axios.post(
+      const response = await axios.post(
         '/api/v1/auth/change-password',
         {
           oldPassword: data.oldPassword,
@@ -60,8 +62,26 @@ export function ForceChangePasswordPage() {
         }
       );
 
-      // Cập nhật cờ mustChangePassword trong Store
-      setMustChangePassword(false);
+      const resData = response.data || {};
+      const newAccessToken = resData.accessToken || accessToken;
+      const newUserInfo = resData.userInfo
+        ? { ...resData.userInfo, mustChangePassword: false }
+        : userInfo
+        ? { ...userInfo, mustChangePassword: false }
+        : null;
+
+      // Cập nhật Auth Store với accessToken mới & userInfo đã gỡ cờ mustChangePassword
+      if (newAccessToken && newUserInfo) {
+        setAuth(newAccessToken, newUserInfo);
+      } else {
+        setMustChangePassword(false);
+      }
+
+      // Đồng bộ thông tin trang trại nếu có
+      if (newUserInfo?.accessibleFarms?.length) {
+        syncFromAccessibleFarms(newUserInfo.accessibleFarms);
+      }
+
       setIsSuccess(true);
 
       setTimeout(() => {
@@ -70,7 +90,7 @@ export function ForceChangePasswordPage() {
         } else {
           navigate('/app', { replace: true });
         }
-      }, 1500);
+      }, 1000);
     } catch (err) {
       const msg =
         err.response?.data?.message ||

@@ -47,6 +47,8 @@ import java.time.LocalTime;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.transaction.annotation.Transactional;
+
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -55,6 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("dev")
+@Transactional
 public class QualityAndHrIntegrationTest {
 
     @Autowired
@@ -558,6 +561,10 @@ public class QualityAndHrIntegrationTest {
                 .farmId(farmId)
                 .employeeCode(empCode)
                 .fullName("Trần Thị Chấm Công")
+                .phone("0912345678")
+                .email("chamcong@greenfarm.vn")
+                .idCardNumber("001096001234")
+                .position("FIELD_WORKER")
                 .dateOfBirth(LocalDate.of(1996, 8, 15))
                 .joinedDate(LocalDate.now().minusMonths(6))
                 .contractType("FULL_TIME")
@@ -582,6 +589,10 @@ public class QualityAndHrIntegrationTest {
                 .farmId(farmId)
                 .employeeCode("EMP-UNDERAGE-01")
                 .fullName("Nguyễn Vị Thành Niên")
+                .phone("0987654321")
+                .email("underage@greenfarm.vn")
+                .idCardNumber("001096005678")
+                .position("FIELD_WORKER")
                 .dateOfBirth(LocalDate.now().minusYears(16)) // 16 tuổi
                 .joinedDate(LocalDate.now())
                 .contractType("INTERN")

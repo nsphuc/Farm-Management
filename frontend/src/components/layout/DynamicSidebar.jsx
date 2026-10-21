@@ -1,130 +1,32 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
-import {
-  MapPin,
-  Users,
-  Warehouse,
-  Contact,
-  Sprout,
-  ShieldCheck,
-  CalendarCheck,
-  Calculator,
-  BadgeDollarSign,
-  Settings,
-  BarChart3,
-  Sliders,
-  Sparkles,
-  X,
-} from 'lucide-react';
+import { Sparkles, X, Shield } from 'lucide-react';
 import { Can } from '@/components/common/Can';
 import { cn } from '@/utils/formatters';
 import { renderIcon } from '@/utils/iconHelper';
-
-// 9 Workspaces configuration (Khớp Điều 2 File 08)
-const WORKSPACES = [
-  {
-    id: 'A_Geography',
-    label: 'WS-A: Mặt Bằng & Phân Công',
-    path: '/app/geography',
-    icon: MapPin,
-    permission: 'PERM_FARM_VIEW',
-    badge: 'Farms',
-  },
-  {
-    id: 'B_Personnel360',
-    label: 'WS-B: Nhân Sự 360° & SaaS',
-    path: '/app/hr',
-    icon: Users,
-    permission: 'PERM_HR_EMPLOYEE_MANAGE',
-    badge: 'HR',
-  },
-  {
-    id: 'C_InventoryHub',
-    label: 'WS-C: Kho Bãi & Mã Vạch',
-    path: '/app/inventory',
-    icon: Warehouse,
-    permission: 'PERM_INVENTORY_VIEW',
-    badge: 'Kho',
-  },
-  {
-    id: 'D_Partners',
-    label: 'WS-D: Danh Bạ Đối Tác',
-    path: '/app/partners',
-    icon: Contact,
-    permission: 'PERM_FINANCE_SALES_ORDER',
-  },
-  {
-    id: 'E_FarmingOps',
-    label: 'WS-E: Canh Tác & Chăn Nuôi',
-    path: '/app/farming-ops',
-    icon: Sprout,
-    anyPermissions: ['PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_CROP_LOG'],
-    badge: 'Hiện trường',
-  },
-  {
-    id: 'F_QaTraceability',
-    label: 'WS-F: Đường Ống QA & QR',
-    path: '/app/qa-traceability',
-    icon: ShieldCheck,
-    anyPermissions: ['PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_LABEL_PRINT'],
-    badge: 'Kanban',
-  },
-  {
-    id: 'G_EmployeeDailyOps',
-    label: 'WS-G: Chấm Công GPS / Daily',
-    path: '/app/daily-ops',
-    icon: CalendarCheck,
-    permission: 'PERM_HR_ATTENDANCE',
-    badge: 'Mobile',
-  },
-  {
-    id: 'H1_CostAccounting',
-    label: 'WS-H1: Giá Thành & Chi Phí',
-    path: '/app/cost-accounting',
-    icon: Calculator,
-    permission: 'PERM_FINANCE_EXPENSE',
-  },
-  {
-    id: 'H2_SalesCashflow',
-    label: 'WS-H2: Bán Hàng & VietQR',
-    path: '/app/sales-cashflow',
-    icon: BadgeDollarSign,
-    permission: 'PERM_FINANCE_SALES_ORDER',
-    badge: 'VietQR',
-  },
-];
-
-// 3 Independent Modules (Khớp Điều 3 File 08)
-const INDEPENDENT_MODULES = [
-  {
-    id: 'settings',
-    label: 'Cài Đặt Danh Mục Tĩnh',
-    path: '/app/settings',
-    icon: Settings,
-    permission: 'PERM_TENANT_MANAGE',
-  },
-  {
-    id: 'reports',
-    label: 'Báo Cáo & Phân Tích',
-    path: '/app/reports',
-    icon: BarChart3,
-    permission: 'PERM_FINANCE_REPORT',
-  },
-  {
-    id: 'system',
-    label: 'Quản Trị Hệ Thống & Audit',
-    path: '/app/system',
-    icon: Sliders,
-    permission: 'PERM_TENANT_MANAGE',
-  },
-];
+import { useAuthStore } from '@/store/useAuthStore';
+import { getSidebarMenuConfig } from '@/shells/TenantAppShell/menuConfig';
 
 /**
- * Dynamic Sidebar (Mục 1.1.3 File 08)
- * Tự động kiểm tra mảng 30 mã quyền của người dùng hiện tại thông qua component <Can>,
- * tự động ẩn/hiện từng mục trong 9 Workspaces và 3 Module bổ trợ.
+ * Dynamic Sidebar (Mục 1.1.3 File 08 & Nhiệm Vụ 2)
+ * Tự động cấu hình Menu riêng biệt cho từng Role vận hành ngoài thực địa:
+ * - Role 1 (Owner): ẨN HOÀN TOÀN WS-E & WS-G, hiển thị WS-A, B, C (read-only), D, F, H1, H2, Cài đặt, Báo cáo, Hệ thống.
+ * - Role 2 (Farm Manager): Đầy đủ bàn làm việc trại WS-G (GPS + Selfie), WS-A, B, C (xem kho), D, E, F, H1, H2, Báo cáo.
+ * - Role 3 (Technical Lead): WS-G (điểm danh tổ), WS-A, WS-E (tác nghiệp chính), WS-F.
+ * - Role 4 (Warehouse Keeper): WS-G (tổ bốc xếp), WS-C (thao tác độc quyền kho), WS-F (in tem QR), WS-H2 (giao hàng).
+ * - Role 5 (Farm Accountant): WS-G, WS-B (bảng công), WS-C (đối soát), WS-D, WS-H1 (giá thành), WS-H2 (kết toán lãi), Báo cáo.
+ * - Role 6A (Field Worker): Duy nhất WS-G (Bảng tác nghiệp di động & Chấm công GPS).
  */
 export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
+  const { getOperationalRole, getOperationalRoleInfo } = useAuthStore();
+  const operationalRole = getOperationalRole();
+  const roleInfo = getOperationalRoleInfo();
+
+  const { workspaces, independentModules, sectionTitle } = useMemo(
+    () => getSidebarMenuConfig(operationalRole),
+    [operationalRole]
+  );
+
   return (
     <>
       {/* Mobile Backdrop */}
@@ -167,15 +69,35 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
           </button>
         </div>
 
+        {/* Role Identity Banner */}
+        <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/40">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 truncate">
+              <Shield className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+              <span className="text-[11px] font-bold text-slate-700 truncate">
+                {roleInfo.title}
+              </span>
+            </div>
+            <span
+              className={cn(
+                'text-[9px] font-bold px-1.5 py-0.2 rounded border shrink-0 uppercase tracking-wide',
+                roleInfo.badgeColor
+              )}
+            >
+              {roleInfo.shortTitle}
+            </span>
+          </div>
+        </div>
+
         {/* Navigation Links Scrollable */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-5">
           {/* Workspaces Section */}
           <div>
-            <div className="px-3 pb-2 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-              9 Bàn Làm Việc Vận Hành (A → H2)
+            <div className="px-3 pb-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+              {sectionTitle}
             </div>
             <nav className="space-y-1">
-              {WORKSPACES.map((item) => (
+              {workspaces.map((item) => (
                 <Can
                   key={item.id}
                   permission={item.permission}
@@ -225,52 +147,54 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
             </nav>
           </div>
 
-          {/* Standalone Modules Section */}
-          <div className="pt-2 border-t border-slate-100">
-            <div className="px-3 pb-2 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-              Cài Đặt & Quản Trị
-            </div>
-            <nav className="space-y-1">
-              {INDEPENDENT_MODULES.map((item) => (
-                <Can
-                  key={item.id}
-                  permission={item.permission}
-                  anyPermissions={item.anyPermissions}
-                >
-                  <NavLink
-                    to={item.path}
-                    onClick={onCloseMobile}
-                    className={({ isActive }) =>
-                      cn(
-                        'group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all',
-                        isActive
-                          ? 'bg-emerald-50 text-emerald-800 shadow-2xs font-bold ring-1 ring-emerald-600/20'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      )
-                    }
+          {/* Standalone Modules Section (Chỉ hiển thị nếu role có module) */}
+          {independentModules && independentModules.length > 0 && (
+            <div className="pt-2 border-t border-slate-100">
+              <div className="px-3 pb-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                Cài Đặt & Quản Trị
+              </div>
+              <nav className="space-y-1">
+                {independentModules.map((item) => (
+                  <Can
+                    key={item.id}
+                    permission={item.permission}
+                    anyPermissions={item.anyPermissions}
                   >
-                    {({ isActive }) => (
-                      <div className="flex items-center gap-2.5 truncate">
-                        {renderIcon(
-                          item.icon,
-                          cn(
-                            'h-4 w-4 shrink-0 transition-colors',
-                            isActive ? 'text-emerald-700' : 'text-slate-500 group-hover:text-slate-700'
-                          )
-                        )}
-                        <span className="truncate">{item.label}</span>
-                      </div>
-                    )}
-                  </NavLink>
-                </Can>
-              ))}
-            </nav>
-          </div>
+                    <NavLink
+                      to={item.path}
+                      onClick={onCloseMobile}
+                      className={({ isActive }) =>
+                        cn(
+                          'group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+                          isActive
+                            ? 'bg-emerald-50 text-emerald-800 shadow-2xs font-bold ring-1 ring-emerald-600/20'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        )
+                      }
+                    >
+                      {({ isActive }) => (
+                        <div className="flex items-center gap-2.5 truncate">
+                          {renderIcon(
+                            item.icon,
+                            cn(
+                              'h-4 w-4 shrink-0 transition-colors',
+                              isActive ? 'text-emerald-700' : 'text-slate-500 group-hover:text-slate-700'
+                            )
+                          )}
+                          <span className="truncate">{item.label}</span>
+                        </div>
+                      )}
+                    </NavLink>
+                  </Can>
+                ))}
+              </nav>
+            </div>
+          )}
         </div>
 
         {/* Footer info */}
-        <div className="border-t border-slate-200 bg-slate-50 p-3 text-center text-[10px] text-slate-600">
-          Agri-ERP v2.0 • MySQL 72 Tables
+        <div className="border-t border-slate-200 bg-slate-50 p-3 text-center text-[10px] text-slate-500">
+          Agri-ERP v2.0 • {roleInfo.shortTitle} Mode
         </div>
       </aside>
     </>

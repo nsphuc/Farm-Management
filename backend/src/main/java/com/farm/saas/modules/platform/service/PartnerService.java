@@ -9,7 +9,11 @@ import org.springframework.data.domain.Pageable;
 
 public interface PartnerService {
 
-    Page<PartnerResponse> getPartners(String partnerType, String status, String keyword, Pageable pageable);
+    Page<PartnerResponse> getPartners(Long farmId, String partnerType, String status, String keyword, Pageable pageable);
+
+    default Page<PartnerResponse> getPartners(String partnerType, String status, String keyword, Pageable pageable) {
+        return getPartners(null, partnerType, status, keyword, pageable);
+    }
 
     PartnerResponse getPartnerById(Long id);
 

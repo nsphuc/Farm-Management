@@ -3,8 +3,12 @@ import { Contact, AlertTriangle, Building, CreditCard, Shield, QrCode } from 'lu
 import { partnerService } from '@/services/modules/partnerService';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
+import { FormField, Input, Select, Textarea, CodeInput } from '@/components/ui/FormControls';
 import { extractApiErrors, VIETNAM_BANKS } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 const PARTNER_TYPES = [
   { value: 'SUPPLIER', label: 'SUPPLIER - Nhà Cung Cấp Vật Tư / Giống' },
@@ -25,6 +29,10 @@ export function PartnerFormModal({
   editingItem = null,
   onSuccess,
 }) {
+  const { isOwner } = useAuthStore();
+  const { activeFarmId } = useActiveFarmStore();
+  const owner = isOwner();
+
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -76,7 +84,7 @@ export function PartnerFormModal({
       setIsDualRole(editingItem.partnerType === 'AGENT');
     } else {
       setFormData({
-        code: '',
+        code: generateEntityCode(CODE_PREFIXES.PARTNER),
         name: '',
         partnerType: 'SUPPLIER',
         taxCode: '',
@@ -178,9 +186,14 @@ export function PartnerFormModal({
 
       const payload = {
         ...formData,
+        farmId: editingItem?.farmId || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null),
         code: formData.code?.trim() ? formData.code.trim().toUpperCase() : null,
         name: formData.name.trim(),
-        creditLimit: Number(formData.creditLimit),
+        creditLimit: owner
+          ? Number(formData.creditLimit)
+          : editingItem
+          ? Number(editingItem.creditLimit) || 0
+          : 0,
         paymentTermDays: Number(formData.paymentTermDays),
         bankBin: formData.bankBin || null,
         bankName: formData.bankName || null,
@@ -198,9 +211,8 @@ export function PartnerFormModal({
       onSuccess?.();
       onClose();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -262,13 +274,13 @@ export function PartnerFormModal({
               />
             </FormField>
 
-            <FormField label="Mã Đối Tác (Để trống tự sinh)" error={fieldErrors.code}>
-              <Input
-                name="code"
+            <FormField label="Mã Đối Tác" error={fieldErrors.code} hint={editingItem ? 'Mã đối tác bất biến' : 'Hệ thống tự động sinh mã gợi ý'}>
+              <CodeInput
                 value={formData.code}
-                onChange={handleChange}
-                placeholder="VD: NCC-PHAN-01"
-                className="font-mono font-bold"
+                onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.PARTNER) }))}
+                isEditMode={Boolean(editingItem)}
+                error={fieldErrors.code}
               />
             </FormField>
 
@@ -340,15 +352,42 @@ export function PartnerFormModal({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <FormField label="Hạn Mức Tín Dụng (VNĐ)" error={fieldErrors.creditLimit}>
-              <Input
-                type="number"
-                min="0"
-                step="500000"
-                name="creditLimit"
-                value={formData.creditLimit}
-                onChange={handleChange}
-              />
+            <FormField
+              label="Hạn Mức Tín Dụng (VNĐ)"
+              error={fieldErrors.creditLimit}
+              hint={
+                !owner
+                  ? 'Chỉ Chủ đầu tư (Owner) mới có quyền duyệt hạn mức tín dụng'
+                  : 'Hạn mức công nợ tối đa cấp cho đối tác'
+              }
+            >
+              <div className="space-y-1.5">
+                <Input
+                  type="number"
+                  min="0"
+                  step="500000"
+                  name="creditLimit"
+                  value={formData.creditLimit}
+                  onChange={handleChange}
+                  disabled={!owner}
+                  className={!owner ? 'bg-slate-100 text-slate-500 cursor-not-allowed font-mono' : 'font-mono'}
+                />
+                {owner && (
+                  <div className="flex flex-wrap items-center gap-1 text-[11px] text-slate-600">
+                    <span className="font-semibold text-slate-500 text-[10px]">Duyệt nhanh:</span>
+                    {[0, 20000000, 50000000, 100000000, 500000000].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setFormData((prev) => ({ ...prev, creditLimit: val }))}
+                        className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100"
+                      >
+                        {val === 0 ? '0 ₫' : `${val / 1000000}M`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </FormField>
 
             <FormField label="Thời Hạn Nợ (Số Ngày)" error={fieldErrors.paymentTermDays}>

@@ -11,6 +11,8 @@ public interface FarmRepository extends JpaRepository<Farm, Long>, JpaSpecificat
     java.util.Optional<Farm> findByTenantIdAndId(Long tenantId, Long id);
     java.util.List<Farm> findByTenantId(Long tenantId);
     java.util.List<Farm> findByTenantIdAndIdIn(Long tenantId, java.util.Collection<Long> ids);
+    java.util.List<Farm> findByManagerUserId(Long managerUserId);
+    java.util.List<Farm> findByTenantIdAndManagerUserId(Long tenantId, Long managerUserId);
     boolean existsByTenantIdAndCode(Long tenantId, String code);
     long countByTenantIdAndStatusNot(Long tenantId, String status);
 }

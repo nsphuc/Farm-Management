@@ -1,23 +1,26 @@
 import React, { useState } from 'react';
-import { Users, Plus, Trash2, Calendar, ShieldCheck, UserCheck } from 'lucide-react';
+import { Users, Plus, Trash2, Calendar, ShieldCheck, UserCheck, Info } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Can } from '@/components/common/Can';
 import { formatDate } from '@/utils/formatters';
+import { useAuthStore } from '@/store/useAuthStore';
 
 const ROLE_BADGE_STYLES = {
   FARM_MANAGER: 'bg-purple-100 text-purple-800 border-purple-200',
   ZONE_MANAGER: 'bg-blue-100 text-blue-800 border-blue-200',
   TECHNICAL_LEAD: 'bg-amber-100 text-amber-800 border-amber-200',
-  AGRONOMIST: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  ACCOUNTANT: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  AGRONOMIST: 'bg-teal-100 text-teal-800 border-teal-200',
   VETERINARIAN: 'bg-rose-100 text-rose-800 border-rose-200',
-  WAREHOUSE_KEEPER: 'bg-slate-100 text-slate-800 border-slate-200',
-  FIELD_WORKER: 'bg-teal-100 text-teal-800 border-teal-200',
+  WAREHOUSE_KEEPER: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+  FIELD_WORKER: 'bg-slate-100 text-slate-800 border-slate-200',
 };
 
 const ROLE_LABELS = {
   FARM_MANAGER: 'Giám Đốc Trang Trại',
   ZONE_MANAGER: 'Trưởng Phân Khu',
   TECHNICAL_LEAD: 'Trưởng Kỹ Thuật',
+  ACCOUNTANT: 'Kế Toán Trang Trại',
   AGRONOMIST: 'Kỹ Sư Trồng Trọt',
   VETERINARIAN: 'Bác Sĩ Thú Y',
   WAREHOUSE_KEEPER: 'Thủ Kho',
@@ -30,11 +33,33 @@ export function StaffAssignmentPane({
   onOpenAssignModal,
   onDeleteAssignment,
 }) {
-  // Lọc phân công: nếu đang chọn zone thì hiển thị phân công của zone đó + farm manager chung
+  const { isOwner, isFarmManager, isTechnicalLead, isWarehouseKeeper } = useAuthStore();
+  const owner = isOwner();
+  const farmManager = isFarmManager();
+  const techLead = isTechnicalLead();
+  const whKeeper = isWarehouseKeeper();
+
+  // Đếm số lượng công nhân chi tiết
+  const totalWorkers = assignments.filter((a) => a.roleInFarm === 'FIELD_WORKER').length;
+
+  // Lọc phân công:
+  // - Nếu là Owner: ẩn bảng phân công công nhân chi tiết (FIELD_WORKER) để giao diện gọn nhẹ, chỉ xem ban quản trị & phụ trách
+  // - Nếu chọn zone: chỉ hiển thị cán bộ phân khu đó hoặc cán bộ quản lý
   const filteredAssignments = assignments.filter((a) => {
+    if (owner && a.roleInFarm === 'FIELD_WORKER') {
+      return false; // Ẩn công nhân chi tiết cho Owner
+    }
     if (!selectedZoneId) return true;
     return a.zoneId === selectedZoneId || !a.zoneId;
   });
+
+  const paneTitle = owner
+    ? 'Ban Quản Trị & Cán Bộ Chủ Chốt Trang Trại'
+    : farmManager
+    ? 'Phân Công Cấp 1: Phụ Trách Phân Khu / Kho / Kế Toán'
+    : techLead || whKeeper
+    ? 'Danh Sách Nhân Sự Thuộc Khu Vực / Kho'
+    : 'Phân Công Nhân Sự Hiện Trường';
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
@@ -42,7 +67,7 @@ export function StaffAssignmentPane({
         <div className="flex items-center gap-2">
           <Users className="h-4 w-4 text-emerald-700" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-            Phân Công Nhân Sự Hiện Trường ({filteredAssignments.length})
+            {paneTitle} ({filteredAssignments.length})
           </h3>
         </div>
 
@@ -118,6 +143,15 @@ export function StaffAssignmentPane({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {owner && totalWorkers > 0 && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-600">
+          <Info className="h-4 w-4 text-emerald-600 shrink-0" />
+          <span>
+            Trang trại hiện có <strong>{totalWorkers} công nhân hiện trường</strong> đang làm việc (đã thu gọn để giao diện Owner tinh gọn, phân công chi tiết do Farm Manager và Trưởng Phân Khu điều hành).
+          </span>
         </div>
       )}
     </div>

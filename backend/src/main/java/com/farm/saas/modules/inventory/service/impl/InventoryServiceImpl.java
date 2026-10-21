@@ -28,6 +28,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -72,7 +73,9 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         Specification<WarehouseInventory> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("farmId"), farmId));
+            if (farmId != null) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
@@ -103,6 +106,75 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
     @Override
     @Transactional(readOnly = true)
+    public InventorySummaryResponse getInventorySummary(Long farmId, Long warehouseId) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+
+        // 1. Tồn kho
+        Specification<WarehouseInventory> invSpec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (farmId != null) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
+            if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
+                predicates.add(cb.equal(root.get("tenantId"), tenantId));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        List<WarehouseInventory> inventories = inventoryRepository.findAll(invSpec);
+
+        BigDecimal totalValuation = BigDecimal.ZERO;
+        long nearExpiryCount = 0;
+        long lowStockCount = 0;
+
+        for (WarehouseInventory inv : inventories) {
+            BigDecimal qty = inv.getQuantityOnHand() != null ? inv.getQuantityOnHand() : BigDecimal.ZERO;
+            BigDecimal cost = inv.getUnitCost() != null ? inv.getUnitCost() : BigDecimal.ZERO;
+            totalValuation = totalValuation.add(qty.multiply(cost));
+
+            InventoryItemResponse itemDto = enrichInventoryItem(inv);
+            if (Boolean.TRUE.equals(itemDto.getIsNearExpiry())) {
+                nearExpiryCount++;
+            }
+            if (Boolean.TRUE.equals(itemDto.getIsLowStock())) {
+                lowStockCount++;
+            }
+        }
+
+        // 2. Tổng giá trị nhập mua (trừ phiếu CANCELLED)
+        Specification<WarehouseReceipt> receiptSpec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (farmId != null) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
+            if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
+                predicates.add(cb.equal(root.get("tenantId"), tenantId));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            predicates.add(cb.notEqual(root.get("status"), "CANCELLED"));
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        List<WarehouseReceipt> receipts = receiptRepository.findAll(receiptSpec);
+        BigDecimal totalPurchased = receipts.stream()
+                .map(r -> r.getTotalAmount() != null ? r.getTotalAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return InventorySummaryResponse.builder()
+                .totalInventoryValuation(totalValuation)
+                .totalPurchasedAmount(totalPurchased)
+                .nearExpiryCount(nearExpiryCount)
+                .lowStockCount(lowStockCount)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<InventoryTransactionResponse> getTransactions(
             Long farmId, Long warehouseId, Long materialId, String batchNumber,
             String transactionType, LocalDate fromDate, LocalDate toDate, Pageable pageable) {
@@ -111,7 +183,9 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         Specification<WarehouseInventoryTransaction> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("farmId"), farmId));
+            if (farmId != null) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
@@ -249,6 +323,47 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .build());
 
         return enrichReceiptDetail(receipt);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<WarehouseReceiptDetailResponse> getReceipts(
+            Long farmId, Long warehouseId, Long partnerId, String status,
+            LocalDate fromDate, LocalDate toDate, Pageable pageable) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+
+        Specification<WarehouseReceipt> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (farmId != null) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
+            if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
+                predicates.add(cb.equal(root.get("tenantId"), tenantId));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (partnerId != null) {
+                predicates.add(cb.equal(root.get("partnerId"), partnerId));
+            }
+            if (StringUtils.hasText(status)) {
+                predicates.add(cb.equal(root.get("status"), status.trim()));
+            }
+            if (fromDate != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("receiptDate"), fromDate));
+            }
+            if (toDate != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("receiptDate"), toDate));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        Page<WarehouseReceipt> page = receiptRepository.findAll(spec, pageable);
+        List<WarehouseReceiptDetailResponse> list = page.getContent().stream()
+                .map(this::enrichReceiptDetail)
+                .collect(Collectors.toList());
+
+        return new PageImpl<>(list, pageable, page.getTotalElements());
     }
 
     @Override
@@ -517,6 +632,44 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .build());
 
         return enrichIssueDetail(issue);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<WarehouseIssueDetailResponse> getIssues(
+            Long farmId, Long warehouseId, String status,
+            LocalDate fromDate, LocalDate toDate, Pageable pageable) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+
+        Specification<WarehouseIssue> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (farmId != null) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
+            if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
+                predicates.add(cb.equal(root.get("tenantId"), tenantId));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (StringUtils.hasText(status)) {
+                predicates.add(cb.equal(root.get("status"), status.trim()));
+            }
+            if (fromDate != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("issueDate"), fromDate));
+            }
+            if (toDate != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("issueDate"), toDate));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        Page<WarehouseIssue> page = issueRepository.findAll(spec, pageable);
+        List<WarehouseIssueDetailResponse> list = page.getContent().stream()
+                .map(this::enrichIssueDetail)
+                .collect(Collectors.toList());
+
+        return new PageImpl<>(list, pageable, page.getTotalElements());
     }
 
     @Override

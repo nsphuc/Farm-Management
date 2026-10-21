@@ -1,6 +1,7 @@
 package com.farm.saas.modules.inventory.controller;
 
 import com.farm.saas.modules.inventory.dto.response.InventoryItemResponse;
+import com.farm.saas.modules.inventory.dto.response.InventorySummaryResponse;
 import com.farm.saas.modules.inventory.dto.response.InventoryTransactionResponse;
 import com.farm.saas.modules.inventory.service.InventoryService;
 import lombok.RequiredArgsConstructor;
@@ -21,10 +22,18 @@ public class InventoryQueryController {
 
     private final InventoryService inventoryService;
 
-    @GetMapping("/api/v1/farms/{farmId}/inventory")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @GetMapping({"/api/v1/farms/{farmId}/inventory/summary", "/api/v1/inventory/summary"})
+    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW')")
+    public ResponseEntity<InventorySummaryResponse> getInventorySummary(
+            @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long warehouseId) {
+        return ResponseEntity.ok(inventoryService.getInventorySummary(farmId, warehouseId));
+    }
+
+    @GetMapping({"/api/v1/farms/{farmId}/inventory", "/api/v1/inventory"})
+    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW')")
     public ResponseEntity<Page<InventoryItemResponse>> getInventory(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
             @RequestParam(required = false) Long warehouseId,
             @RequestParam(required = false) Long materialId,
             @RequestParam(required = false) String batchNumber,
@@ -35,10 +44,10 @@ public class InventoryQueryController {
                 farmId, warehouseId, materialId, batchNumber, lowStock, nearExpiry, pageable));
     }
 
-    @GetMapping("/api/v1/farms/{farmId}/inventory/transactions")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @GetMapping({"/api/v1/farms/{farmId}/inventory/transactions", "/api/v1/inventory/transactions"})
+    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW')")
     public ResponseEntity<Page<InventoryTransactionResponse>> getTransactions(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
             @RequestParam(required = false) Long warehouseId,
             @RequestParam(required = false) Long materialId,
             @RequestParam(required = false) String batchNumber,

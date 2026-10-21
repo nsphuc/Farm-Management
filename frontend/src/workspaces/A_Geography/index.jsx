@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   MapPin,
   Plus,
@@ -10,6 +11,13 @@ import {
   Compass,
   Maximize2,
   ShieldCheck,
+  CheckCircle,
+  XCircle,
+  Lock,
+  Unlock,
+  AlertOctagon,
+  Phone,
+  UserCheck,
   RefreshCw,
   ExternalLink,
   Navigation,
@@ -17,6 +25,8 @@ import {
 import { geographyService } from '@/services/modules/geographyService';
 import { employeeService } from '@/services/modules/employeeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import { toast } from '@/store/useToastStore';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { SmartEmptyState } from '@/components/common/SmartEmptyState';
@@ -32,7 +42,13 @@ import { formatArea } from '@/utils/formatters';
 import { extractApiErrors } from '@/utils/apiHelpers';
 
 export function GeographyWorkspace() {
-  const { activeFarmId, setActiveFarmId, activeZoneId, setActiveZoneId } = useActiveFarmStore();
+  const navigate = useNavigate();
+  const { activeFarmId, setActiveFarmId, activeZoneId, setActiveZoneId, syncTrigger, notifyDataChanged } = useActiveFarmStore();
+  const { userInfo, isOwner, isFarmManager, isTechnicalLead, isWarehouseKeeper } = useAuthStore();
+  const owner = isOwner();
+  const farmManager = isFarmManager();
+  const techLead = isTechnicalLead();
+  const whKeeper = isWarehouseKeeper();
 
   const [farms, setFarms] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -95,16 +111,14 @@ export function GeographyWorkspace() {
       setFarms(fullFarms);
 
       // Default selection: if activeFarmId exists, find it, else take first farm
-      const currentFarm =
-        fullFarms.find((f) => f.id === activeFarmId) || fullFarms[0] || null;
+      const currentFarm = (activeFarmId && activeFarmId !== 'ALL')
+        ? fullFarms.find((f) => Number(f.id) === Number(activeFarmId)) || fullFarms[0] || null
+        : fullFarms[0] || null;
 
       if (currentFarm) {
         setSelectedFarm(currentFarm);
         if (!selectedNode || selectedNode.type === 'FARM') {
           setSelectedNode({ type: 'FARM', item: currentFarm });
-        }
-        if (!activeFarmId) {
-          setActiveFarmId(currentFarm.id, fullFarms);
         }
       }
     } catch (err) {
@@ -149,19 +163,31 @@ export function GeographyWorkspace() {
   useEffect(() => {
     fetchHierarchy();
     fetchEmployees();
-  }, []);
+  }, [syncTrigger?.farms, syncTrigger?.zones]);
+
+  // Tự động đồng bộ chọn farm trên giao diện khi activeFarmId thay đổi từ TopBar
+  useEffect(() => {
+    if (activeFarmId && activeFarmId !== 'ALL' && farms.length > 0) {
+      const match = farms.find((f) => Number(f.id) === Number(activeFarmId));
+      if (match && selectedFarm?.id !== match.id) {
+        setSelectedFarm(match);
+        setSelectedZone(null);
+        setSelectedNode({ type: 'FARM', item: match });
+      }
+    }
+  }, [activeFarmId, farms]);
 
   useEffect(() => {
     if (selectedFarm?.id) {
       fetchAssignments(selectedFarm.id);
     }
-  }, [selectedFarm?.id]);
+  }, [selectedFarm?.id, syncTrigger?.employees]);
 
   useEffect(() => {
     if (selectedFarm?.id && selectedZone?.id) {
       fetchLocations(selectedFarm.id, selectedZone.id);
     }
-  }, [selectedFarm?.id, selectedZone?.id]);
+  }, [selectedFarm?.id, selectedZone?.id, syncTrigger?.zones]);
 
   // Handle tree node selection
   const handleSelectNode = ({ type, item, farm, zone }) => {
@@ -178,17 +204,59 @@ export function GeographyWorkspace() {
     }
   };
 
-  // Delete farm
+  // Mở modal thêm trang trại mới (kèm kiểm tra hạn mức gói thuê bao)
+  const handleOpenCreateFarm = () => {
+    const maxFarms = userInfo?.maxFarms || userInfo?.subscription?.maxFarms;
+    if (maxFarms && farms.length >= maxFarms) {
+      toast.error(`Số lượng trang trại đã đạt hạn mức tối đa của gói dịch vụ (${farms.length}/${maxFarms}). Vui lòng nâng cấp gói thuê bao!`);
+      return;
+    }
+    setEditingFarm(null);
+    setFarmModalOpen(true);
+  };
+
+  // Tạm ngưng hoặc kích hoạt trang trại (thay cho xóa cứng)
+  const handleToggleFarmStatus = async (farm, newStatus) => {
+    const isActivating = newStatus === 'ACTIVE';
+    const actionLabel = isActivating ? 'Kích hoạt' : 'Tạm ngưng hoạt động';
+    if (!window.confirm(`Xác nhận ${actionLabel.toLowerCase()} trang trại "${farm.name}"?`)) {
+      return;
+    }
+    try {
+      await geographyService.updateFarm(farm.id, {
+        code: farm.code,
+        name: farm.name,
+        farmType: farm.farmType,
+        totalAreaM2: farm.totalAreaM2,
+        latitude: farm.latitude,
+        longitude: farm.longitude,
+        geofenceRadiusM: farm.geofenceRadiusM,
+        address: farm.address,
+        managerUserId: farm.managerUserId,
+        status: newStatus,
+      });
+      toast.success(`Đã ${actionLabel.toLowerCase()} trang trại "${farm.name}" thành công!`);
+      notifyDataChanged?.('farms');
+      await fetchHierarchy();
+      setSelectedFarm((prev) => (prev ? { ...prev, status: newStatus } : null));
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || `Không thể ${actionLabel.toLowerCase()} trang trại!`);
+    }
+  };
+
+  // Delete farm (chỉ dùng khi dự phòng)
   const handleDeleteFarm = async (farmId) => {
     if (!window.confirm('CẢNH BÁO: Xóa trang trại sẽ làm mất toàn bộ mặt bằng liên quan. Tiếp tục?')) {
       return;
     }
     try {
       await geographyService.deleteFarm?.(farmId);
+      notifyDataChanged?.('farms');
       fetchHierarchy();
     } catch (err) {
       const errInfo = extractApiErrors(err);
-      alert(errInfo.message || 'Không thể xóa trang trại đã phát sinh giao dịch!');
+      toast.error(errInfo.message || 'Không thể xóa trang trại đã phát sinh giao dịch!');
     }
   };
 
@@ -197,12 +265,13 @@ export function GeographyWorkspace() {
     if (!window.confirm('Bạn có chắc muốn xóa phân khu này?')) return;
     try {
       await geographyService.deleteZone(farmId, zoneId);
+      notifyDataChanged?.('zones');
       fetchHierarchy();
       setSelectedZone(null);
       setSelectedNode({ type: 'FARM', item: selectedFarm });
     } catch (err) {
       const errInfo = extractApiErrors(err);
-      alert(errInfo.message || 'Không thể xóa phân khu đã phát sinh dữ liệu!');
+      toast.error(errInfo.message || 'Không thể xóa phân khu đã phát sinh dữ liệu!');
     }
   };
 
@@ -211,11 +280,12 @@ export function GeographyWorkspace() {
     if (!window.confirm('Bạn có chắc muốn xóa vị trí / luống này?')) return;
     try {
       await geographyService.deleteLocation(selectedFarm.id, selectedZone.id, locId);
+      notifyDataChanged?.('zones');
       fetchLocations(selectedFarm.id, selectedZone.id);
       fetchHierarchy();
     } catch (err) {
       const errInfo = extractApiErrors(err);
-      alert(errInfo.message || 'Không thể xóa vị trí đã phát sinh lịch sử nhật ký!');
+      toast.error(errInfo.message || 'Không thể xóa vị trí đã phát sinh lịch sử nhật ký!');
     }
   };
 
@@ -224,10 +294,67 @@ export function GeographyWorkspace() {
     if (!window.confirm('Bạn có chắc muốn hủy phân công cán bộ này?')) return;
     try {
       await geographyService.deleteAssignment(selectedFarm.id, assignmentId);
+      notifyDataChanged?.('employees');
       fetchAssignments(selectedFarm.id);
     } catch (err) {
       const errInfo = extractApiErrors(err);
-      alert(errInfo.message || 'Không thể hủy phân công!');
+      toast.error(errInfo.message || 'Không thể hủy phân công!');
+    }
+  };
+
+  // Owner phê duyệt phân khu đề xuất (MAINTENANCE -> ACTIVE)
+  const handleApproveZone = async (farmId, zone, e) => {
+    e?.stopPropagation();
+    if (!window.confirm(`Xác nhận phê duyệt phân khu "${zone.name}" chuyển từ MAINTENANCE sang ACTIVE để đưa vào canh tác?`)) {
+      return;
+    }
+    try {
+      await geographyService.updateZone(farmId, zone.id, {
+        name: zone.name,
+        zoneType: zone.zoneType,
+        areaM2: zone.areaM2,
+        soilType: zone.soilType,
+        waterSource: zone.waterSource,
+        mapLayoutJson: zone.mapLayoutJson,
+        status: 'ACTIVE',
+      });
+      toast.success(`Đã phê duyệt và kích hoạt phân khu "${zone.name}" thành công!`);
+      notifyDataChanged?.('zones');
+      await fetchHierarchy();
+      if (selectedZone?.id === zone.id) {
+        setSelectedZone((prev) => ({ ...prev, status: 'ACTIVE' }));
+      }
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || 'Không thể phê duyệt phân khu!');
+    }
+  };
+
+  // Owner từ chối đề xuất phân khu (chuyển sang FALLOW hoặc hủy)
+  const handleRejectZone = async (farmId, zone, e) => {
+    e?.stopPropagation();
+    if (!window.confirm(`Xác nhận từ chối đề xuất phân khu "${zone.name}"? Phân khu sẽ chuyển về trạng thái FALLOW (đất nghỉ).`)) {
+      return;
+    }
+    try {
+      await geographyService.updateZone(farmId, zone.id, {
+        name: zone.name,
+        zoneType: zone.zoneType,
+        areaM2: zone.areaM2,
+        soilType: zone.soilType,
+        waterSource: zone.waterSource,
+        mapLayoutJson: zone.mapLayoutJson,
+        status: 'FALLOW',
+      });
+      toast.info(`Đã từ chối đề xuất phân khu "${zone.name}". Trạng thái chuyển thành FALLOW.`);
+      notifyDataChanged?.('zones');
+      await fetchHierarchy();
+      if (selectedZone?.id === zone.id) {
+        setSelectedZone((prev) => ({ ...prev, status: 'FALLOW' }));
+      }
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || 'Không thể từ chối phân khu!');
     }
   };
 
@@ -254,19 +381,18 @@ export function GeographyWorkspace() {
             Làm mới
           </Button>
 
-          <Can permission="PERM_FARM_CREATE">
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<Plus className="h-4 w-4" />}
-              onClick={() => {
-                setEditingFarm(null);
-                setFarmModalOpen(true);
-              }}
-            >
-              + Thêm Trang Trại
-            </Button>
-          </Can>
+          {owner && (
+            <Can permission="PERM_FARM_CREATE">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={handleOpenCreateFarm}
+              >
+                + Thêm Trang Trại Mới
+              </Button>
+            </Can>
+          )}
         </div>
       </div>
 
@@ -314,7 +440,7 @@ export function GeographyWorkspace() {
                         }}
                         icon={<Plus className="h-4 w-4" />}
                       >
-                        + Thêm Phân Khu
+                        {farmManager && !owner ? '+ Đề Xuất Thêm Phân Khu Mới' : '+ Thêm Phân Khu Mới'}
                       </Button>
                     </Can>
 
@@ -329,11 +455,99 @@ export function GeographyWorkspace() {
                         }}
                         icon={<Edit2 className="h-4 w-4" />}
                       >
-                        Sửa Trang Trại
+                        [✏️ Chỉnh Sửa Trang Trại]
                       </Button>
                     </Can>
+
+                    {owner && (
+                      <Can permission="PERM_FARM_UPDATE">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleToggleFarmStatus(selectedFarm, selectedFarm.status === 'ACTIVE' ? 'MAINTENANCE' : 'ACTIVE')}
+                          className={selectedFarm.status === 'ACTIVE' ? 'text-amber-700 border-amber-300 hover:bg-amber-50 font-bold' : 'text-emerald-700 border-emerald-300 hover:bg-emerald-50 font-bold'}
+                          icon={selectedFarm.status === 'ACTIVE' ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                        >
+                          {selectedFarm.status === 'ACTIVE' ? '[🔒 Tạm Ngưng Trang Trại]' : '[🔓 Kích Hoạt Trang Trại]'}
+                        </Button>
+                      </Can>
+                    )}
                   </div>
                 </div>
+
+                {/* Banner Thông Tin Giám Đốc Trang Trại (FARM_MANAGER) - Liên kết WS-B */}
+                {(() => {
+                  const farmManagerEmp = employees.find(
+                    (e) => Number(e.userId || e.id) === Number(selectedFarm.managerUserId)
+                  );
+                  const managerName = farmManagerEmp?.fullName || selectedFarm.managerFullName;
+                  const managerCode = farmManagerEmp?.employeeCode || selectedFarm.managerEmployeeCode;
+                  const managerPhone = farmManagerEmp?.phone || selectedFarm.managerPhone;
+
+                  return (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/80 p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-700 shrink-0">
+                          <ShieldCheck className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-purple-900 uppercase tracking-wider">
+                            Giám Đốc Điều Hành Trại (FARM_MANAGER)
+                          </div>
+                          {selectedFarm.managerUserId ? (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-slate-700">
+                              <span className="font-bold text-slate-900 text-sm">
+                                {managerName || `Cán bộ ID #${selectedFarm.managerUserId}`}
+                              </span>
+                              <span className="font-mono text-purple-800 bg-purple-100 px-2 py-0.5 rounded text-[11px] font-semibold">
+                                Mã NV: {managerCode || 'Đã cấp quyền'}
+                              </span>
+                              {managerPhone && (
+                                <span className="text-slate-600 flex items-center gap-1 font-mono text-[11px]">
+                                  <Phone className="h-3 w-3 text-slate-400" />
+                                  {managerPhone}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 italic mt-0.5">
+                              Chưa có Giám đốc trại phụ trách cơ sở này
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {owner && (
+                        <div className="shrink-0">
+                          {selectedFarm.managerUserId ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              className="border-purple-300 text-purple-800 hover:bg-purple-100 font-semibold"
+                              onClick={() => navigate(`/app/hr?action=appoint&farmId=${selectedFarm.id}`)}
+                              icon={<UserCheck className="h-3.5 w-3.5" />}
+                            >
+                              Thay Đổi / Bổ Nhiệm Lại
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="primary"
+                              size="xs"
+                              className="bg-purple-700 hover:bg-purple-800 text-white font-bold shadow-xs"
+                              onClick={() => navigate(`/app/hr?action=appoint&farmId=${selectedFarm.id}`)}
+                              icon={<UserCheck className="h-3.5 w-3.5" />}
+                            >
+                              [👉 Bổ Nhiệm Giám Đốc Trại Ngay]
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
@@ -377,6 +591,75 @@ export function GeographyWorkspace() {
                 </div>
               </div>
 
+              {/* KHUNG NỔI BẬT DÀNH CHO OWNER: Yêu cầu mở Phân khu mới từ Giám đốc trại */}
+              {owner && selectedFarm.zones?.some((z) => z.status === 'MAINTENANCE') && (
+                <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/95 p-5 shadow-xs space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-800 ring-1 ring-amber-300">
+                      <AlertOctagon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-amber-950">
+                        Yêu Cầu Mở Phân Khu Mới Từ Giám Đốc Trại ({selectedFarm.zones.filter((z) => z.status === 'MAINTENANCE').length} đề xuất đang chờ Owner duyệt)
+                      </h3>
+                      <p className="text-xs text-amber-800 mt-0.5">
+                        Giám đốc điều hành trại đề xuất tạo phân khu mới. Chủ đầu tư (Owner) kiểm tra thông số và quyết định phê duyệt hoặc từ chối:
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {selectedFarm.zones
+                      .filter((z) => z.status === 'MAINTENANCE')
+                      .map((zone) => (
+                        <div
+                          key={zone.id}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white p-4 shadow-2xs"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-slate-900">{zone.name}</span>
+                              <span className="font-mono text-xs text-slate-400">({zone.code})</span>
+                              <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                                Chờ Owner duyệt
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-600 flex flex-wrap gap-x-3 gap-y-1">
+                              <span>Loại hình: <strong className="text-slate-800">{zone.zoneType}</strong></span>
+                              <span>Diện tích: <strong className="text-emerald-700 font-mono">{formatArea(zone.areaM2)}</strong></span>
+                              {zone.soilType && <span>Chất đất: <strong className="text-slate-700">{zone.soilType}</strong></span>}
+                              {zone.waterSource && <span>Nước cấp: <strong className="text-slate-700">{zone.waterSource}</strong></span>}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="text-rose-700 border-rose-300 hover:bg-rose-50 font-bold"
+                              icon={<XCircle className="h-4 w-4" />}
+                              onClick={(e) => handleRejectZone(selectedFarm.id, zone, e)}
+                            >
+                              [❌ Từ Chối Đề Xuất]
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="primary"
+                              size="sm"
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                              icon={<CheckCircle className="h-4 w-4" />}
+                              onClick={(e) => handleApproveZone(selectedFarm.id, zone, e)}
+                            >
+                              [✅ Phê Duyệt Mở Phân Khu]
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
               {/* Danh sách phân khu nhanh của Trang trại */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -418,7 +701,14 @@ export function GeographyWorkspace() {
                           <span className="font-bold text-xs text-slate-900 group-hover:text-emerald-700 transition-colors">
                             {zone.name}
                           </span>
-                          <StatusBadge status={zone.status} size="xs" />
+                          <div className="flex items-center gap-1.5">
+                            {zone.status === 'MAINTENANCE' && (
+                              <span className="inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                                Chờ Owner duyệt
+                              </span>
+                            )}
+                            <StatusBadge status={zone.status} size="xs" />
+                          </div>
                         </div>
                         <div className="flex items-center justify-between text-xs text-slate-500">
                           <span className="font-mono text-[11px] text-slate-400">{zone.code}</span>
@@ -427,19 +717,35 @@ export function GeographyWorkspace() {
                         <div className="text-[11px] text-slate-500 truncate">
                           Loại: <strong className="text-slate-700">{zone.zoneType}</strong> • {zone.locations?.length || 0} vị trí
                         </div>
+
+                        {/* Nút phê duyệt nhanh cho Owner */}
+                        {owner && zone.status === 'MAINTENANCE' && (
+                          <div className="pt-2 border-t border-slate-200/80 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={(e) => handleApproveZone(selectedFarm.id, zone, e)}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-700 shadow-2xs transition-colors"
+                            >
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              [ Phê Duyệt Mở Phân Khu ]
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
 
-              {/* Panel Phân Công Nhân Sự Trang Trại */}
-              <StaffAssignmentPane
-                assignments={assignments}
-                selectedZoneId={null}
-                onOpenAssignModal={() => setAssignModalOpen(true)}
-                onDeleteAssignment={handleDeleteAssignment}
-              />
+              {/* Panel Phân Công Nhân Sự Trang Trại (Ẩn đối với Owner để giao diện sạch gọn) */}
+              {!owner && (
+                <StaffAssignmentPane
+                  assignments={assignments}
+                  selectedZoneId={null}
+                  onOpenAssignModal={() => setAssignModalOpen(true)}
+                  onDeleteAssignment={handleDeleteAssignment}
+                />
+              )}
             </div>
           )}
 
@@ -465,6 +771,31 @@ export function GeographyWorkspace() {
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {owner && selectedZone.status === 'MAINTENANCE' && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => handleRejectZone(selectedFarm.id, selectedZone, e)}
+                          className="text-rose-700 border-rose-300 hover:bg-rose-50 font-bold"
+                          icon={<XCircle className="h-4 w-4" />}
+                        >
+                          [❌ Từ Chối Đề Xuất]
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={(e) => handleApproveZone(selectedFarm.id, selectedZone, e)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                          icon={<CheckCircle className="h-4 w-4" />}
+                        >
+                          [✅ Phê Duyệt Mở Phân Khu]
+                        </Button>
+                      </div>
+                    )}
+
                     <Can permission="PERM_ZONE_MANAGE">
                       <Button
                         type="button"
@@ -503,6 +834,47 @@ export function GeographyWorkspace() {
                     </Can>
                   </div>
                 </div>
+
+                {/* Banner trạng thái phê duyệt phân khu */}
+                {selectedZone.status === 'MAINTENANCE' && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/90 p-4 text-xs">
+                    <div className="flex items-center gap-2.5">
+                      <ShieldCheck className="h-5 w-5 text-amber-700 shrink-0" />
+                      <div>
+                        <strong className="font-bold text-amber-950">Phân khu đang ở trạng thái MAINTENANCE (Chờ Chủ đầu tư phê duyệt):</strong>
+                        <p className="text-amber-800 mt-0.5">
+                          {owner
+                            ? 'Phân khu do Farm Manager đề xuất nâng cấp/mở rộng. Nhấn nút [ Phê Duyệt Mở Phân Khu ] để kích hoạt sang ACTIVE hoặc [ Từ Chối ] để chuyển sang FALLOW.'
+                            : 'Đề xuất nâng cấp phân khu đã được gửi đến Chủ đầu tư (Owner). Đang chờ phê duyệt để đưa vào canh tác.'}
+                        </p>
+                      </div>
+                    </div>
+                    {owner && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          onClick={(e) => handleRejectZone(selectedFarm.id, selectedZone, e)}
+                          className="text-rose-700 border-rose-300 hover:bg-rose-50 font-bold"
+                          icon={<XCircle className="h-3.5 w-3.5" />}
+                        >
+                          [❌ Từ Chối]
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="xs"
+                          onClick={(e) => handleApproveZone(selectedFarm.id, selectedZone, e)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 font-bold"
+                          icon={<CheckCircle className="h-3.5 w-3.5" />}
+                        >
+                          [✅ Phê Duyệt]
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
@@ -611,13 +983,15 @@ export function GeographyWorkspace() {
                 )}
               </div>
 
-              {/* Phân Công Nhân Sự Tại Phân Khu */}
-              <StaffAssignmentPane
-                assignments={assignments}
-                selectedZoneId={selectedZone.id}
-                onOpenAssignModal={() => setAssignModalOpen(true)}
-                onDeleteAssignment={handleDeleteAssignment}
-              />
+              {/* Phân Công Nhân Sự Tại Phân Khu (Ẩn đối với Owner để giao diện sạch gọn) */}
+              {!owner && (
+                <StaffAssignmentPane
+                  assignments={assignments}
+                  selectedZoneId={selectedZone.id}
+                  onOpenAssignModal={() => setAssignModalOpen(true)}
+                  onDeleteAssignment={handleDeleteAssignment}
+                />
+              )}
             </div>
           )}
 
@@ -642,7 +1016,10 @@ export function GeographyWorkspace() {
         onClose={() => setFarmModalOpen(false)}
         editingItem={editingFarm}
         employees={employees}
-        onSuccess={() => fetchHierarchy()}
+        onSuccess={() => {
+          fetchHierarchy();
+          notifyDataChanged?.('farms');
+        }}
       />
 
       {/* Modal Zone */}
@@ -654,7 +1031,10 @@ export function GeographyWorkspace() {
           farmTotalAreaM2={selectedFarm.totalAreaM2}
           farmCenter={selectedFarm}
           editingItem={editingZone}
-          onSuccess={() => fetchHierarchy()}
+          onSuccess={() => {
+            fetchHierarchy();
+            notifyDataChanged?.('zones');
+          }}
         />
       )}
 
@@ -666,7 +1046,10 @@ export function GeographyWorkspace() {
           farmId={selectedFarm.id}
           zoneId={selectedZone.id}
           editingItem={editingLocation}
-          onSuccess={() => fetchLocations(selectedFarm.id, selectedZone.id)}
+          onSuccess={() => {
+            fetchLocations(selectedFarm.id, selectedZone.id);
+            notifyDataChanged?.('zones');
+          }}
         />
       )}
 
@@ -680,7 +1063,10 @@ export function GeographyWorkspace() {
           farmName={selectedFarm.name}
           zoneName={selectedZone?.name || ''}
           employees={employees}
-          onSuccess={() => fetchAssignments(selectedFarm.id)}
+          onSuccess={() => {
+            fetchAssignments(selectedFarm.id);
+            notifyDataChanged?.('employees');
+          }}
         />
       )}
     </div>

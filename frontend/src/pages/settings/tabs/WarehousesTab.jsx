@@ -15,11 +15,13 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
+import { FormField, Input, Select, Textarea, CodeInput } from '@/components/ui/FormControls';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { SmartEmptyState } from '@/components/common/SmartEmptyState';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 const WAREHOUSE_TYPES = [
   { value: 'FERTILIZER', label: 'FERTILIZER - Kho Phân bón' },
@@ -112,7 +114,7 @@ export function WarehousesTab() {
       });
     } else {
       setFormData({
-        code: '',
+        code: generateEntityCode(CODE_PREFIXES.WAREHOUSE),
         name: '',
         warehouseType: 'GENERAL',
         capacityM3: 0,
@@ -170,9 +172,8 @@ export function WarehousesTab() {
       setModalOpen(false);
       fetchWarehouses();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -366,14 +367,17 @@ export function WarehousesTab() {
           )}
 
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Mã Kho" required error={fieldErrors.code}>
-              <Input
+            <FormField label="Mã Kho" required error={fieldErrors.code} hint={editingItem ? 'Mã kho bất biến' : 'Hệ thống tự động sinh mã gợi ý'}>
+              <CodeInput
                 value={formData.code}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
                 }
-                placeholder="VD: KHO-PB-01"
-                className="font-mono font-bold"
+                onRegenerate={() =>
+                  setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.WAREHOUSE) }))
+                }
+                isEditMode={Boolean(editingItem)}
+                error={fieldErrors.code}
               />
             </FormField>
 

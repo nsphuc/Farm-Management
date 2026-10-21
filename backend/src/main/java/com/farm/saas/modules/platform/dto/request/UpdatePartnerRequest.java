@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class UpdatePartnerRequest {
 
+    private Long farmId;
+
     @NotBlank(message = "Tên đối tác không được để trống")
     @Size(max = 150, message = "Tên đối tác tối đa 150 ký tự")
     private String name;

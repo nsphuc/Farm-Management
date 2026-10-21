@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { FormField, Input, Select } from '@/components/ui/FormControls';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 const SPECIES_OPTIONS = [
   { value: 'CATTLE', label: 'CATTLE - Bò / Trâu' },
@@ -114,8 +115,8 @@ export function LivestockBreedsTab() {
       setModalOpen(false);
       fetchData();
     } catch (err) {
+      applyServerFieldErrors(err, setFieldErrors);
       const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
       setGeneralError(errInfo.message);
     } finally {
       setSaving(false);

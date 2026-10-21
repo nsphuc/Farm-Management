@@ -43,8 +43,9 @@ public class EmployeeController {
             @RequestParam(required = false) Long farmId,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String search,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(employeeService.getEmployees(farmId, department, status, pageable));
+        return ResponseEntity.ok(employeeService.getEmployees(farmId, department, status, search, pageable));
     }
 
     @GetMapping("/{id}")

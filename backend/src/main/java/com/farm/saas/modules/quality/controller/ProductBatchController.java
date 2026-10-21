@@ -33,8 +33,10 @@ public class ProductBatchController {
     @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Page<ProductBatchDetailResponse>> getProductBatches(
             @PathVariable Long farmId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(productBatchService.getProductBatches(farmId, pageable));
+        return ResponseEntity.ok(productBatchService.getProductBatches(farmId, status, keyword, pageable));
     }
 
     @GetMapping("/{id}")

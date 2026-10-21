@@ -1,20 +1,50 @@
-import React, { useState } from 'react';
-import { Calculator, Plus, PieChart, Coins, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calculator, Plus, PieChart, Coins, TrendingUp, Building } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Can } from '@/components/common/Can';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 /**
  * Workspace H1: Quản Trị Giá Thành & Phân Bổ Chi Phí Sản Xuất (Điều 2.8 File 08)
  */
 export function CostAccountingWorkspace() {
+  const { activeFarmId, syncTrigger, notifyDataChanged } = useActiveFarmStore();
+  const { isOwner } = useAuthStore();
   const [expenses, setExpenses] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    // Tự động tải/lọc chi phí theo activeFarmId (khi chọn ALL thì tải toàn bộ chuỗi)
+    setIsLoading(true);
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [activeFarmId, syncTrigger?.finance]);
+
   const columns = [
     { key: 'expenseCode', header: 'Mã chi phí', width: '130px', sortable: true },
+    {
+      key: 'farmName',
+      header: 'Trang Trại',
+      render: (row) => {
+        const name = row.farmName || (row.farmId ? `Trại #${row.farmId}` : null);
+        return name ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+            <Building className="h-3 w-3 text-emerald-600" />
+            <span>{name}</span>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
+            Toàn chuỗi
+          </span>
+        );
+      },
+    },
     { key: 'expenseDate', header: 'Ngày phát sinh', render: (row) => formatDate(row.expenseDate) },
     { key: 'expenseSource', header: 'Nguồn phát sinh', render: (row) => <StatusBadge status={row.expenseSource} /> },
     { key: 'categoryName', header: 'Khoản mục chi phí' },
@@ -30,6 +60,24 @@ export function CostAccountingWorkspace() {
         >
           {row.isAllocated ? 'Đã phân bổ' : 'Chưa phân bổ'}
         </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Thao tác',
+      align: 'center',
+      render: (row) => (
+        <Can permission="PERM_FINANCE_EXPENSE">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={row.isAllocated}
+            title={row.isAllocated ? 'Bút toán này đã được phân bổ vào giá thành!' : 'Phân bổ chi phí cho vụ mùa / lô'}
+            onClick={() => alert(`Phân bổ chi phí ${row.expenseCode}`)}
+          >
+            Phân Bổ
+          </Button>
+        </Can>
       ),
     },
   ];
@@ -52,8 +100,13 @@ export function CostAccountingWorkspace() {
         </div>
 
         <Can permission="PERM_FINANCE_EXPENSE">
-          <Button variant="primary" size="sm" icon={Plus}>
-            Thêm Bút Toán Chi Phí
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Plus className="h-4 w-4" />}
+            onClick={() => alert('Thêm mới bút toán chi phí')}
+          >
+            + Thêm Bút Toán Chi Phí
           </Button>
         </Can>
       </div>

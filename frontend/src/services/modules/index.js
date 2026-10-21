@@ -3,3 +3,6 @@ export * from './masterDataService';
 export * from './geographyService';
 export * from './partnerService';
 export * from './employeeService';
+export * from './hrService';
+export * from './inventoryService';
+export * from './qaService';

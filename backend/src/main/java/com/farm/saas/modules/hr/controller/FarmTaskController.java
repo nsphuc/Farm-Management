@@ -14,6 +14,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequiredArgsConstructor
 public class FarmTaskController {
@@ -21,7 +23,7 @@ public class FarmTaskController {
     private final FarmTaskService farmTaskService;
 
     @PostMapping("/api/v1/farms/{farmId}/tasks")
-    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or hasAuthority('PERM_TASK_ASSIGN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<FarmTaskDetailResponse> createTask(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateFarmTaskRequest request) {
@@ -29,12 +31,43 @@ public class FarmTaskController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    @PostMapping("/api/v1/farms/{farmId}/tasks/generate-daily-routines")
+    @PreAuthorize("(hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or hasAuthority('PERM_TASK_ASSIGN')) and @farmSecurity.canAccessFarm(#farmId)")
+    public ResponseEntity<List<FarmTaskDetailResponse>> generateDailyRoutines(
+            @PathVariable Long farmId) {
+        return ResponseEntity.ok(farmTaskService.generateDailyRoutines(farmId));
+    }
+
+    @PutMapping("/api/v1/farms/{farmId}/tasks/{id}")
+    @PreAuthorize("(hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or hasAuthority('PERM_TASK_ASSIGN')) and @farmSecurity.canAccessFarm(#farmId)")
+    public ResponseEntity<FarmTaskDetailResponse> updateTask(
+            @PathVariable Long farmId,
+            @PathVariable Long id,
+            @Valid @RequestBody CreateFarmTaskRequest request) {
+        return ResponseEntity.ok(farmTaskService.updateTask(farmId, id, request));
+    }
+
+    @DeleteMapping("/api/v1/farms/{farmId}/tasks/{id}")
+    @PreAuthorize("(hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or hasAuthority('PERM_TASK_ASSIGN')) and @farmSecurity.canAccessFarm(#farmId)")
+    public ResponseEntity<Void> deleteTask(
+            @PathVariable Long farmId,
+            @PathVariable Long id) {
+        farmTaskService.deleteTask(farmId, id);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/api/v1/farms/{farmId}/tasks")
-    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("isAuthenticated() and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Page<FarmTaskDetailResponse>> getTasks(
             @PathVariable Long farmId,
-            @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(farmTaskService.getTasks(farmId, pageable));
+            @RequestParam(required = false) String taskType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean isRoutine,
+            @RequestParam(required = false) Long zoneId,
+            @RequestParam(required = false) Long employeeId,
+            @RequestParam(required = false) String search,
+            @PageableDefault(size = 50) Pageable pageable) {
+        return ResponseEntity.ok(farmTaskService.getTasks(farmId, taskType, status, isRoutine, zoneId, employeeId, search, pageable));
     }
 
     @GetMapping("/api/v1/farms/{farmId}/tasks/{id}")

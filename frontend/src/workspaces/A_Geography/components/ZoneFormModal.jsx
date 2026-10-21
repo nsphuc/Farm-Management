@@ -3,9 +3,13 @@ import { Layers, AlertTriangle } from 'lucide-react';
 import { geographyService } from '@/services/modules/geographyService';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { FormField, Input, Select } from '@/components/ui/FormControls';
+import { FormField, Input, Select, CodeInput } from '@/components/ui/FormControls';
 import { GeoJsonPolygonEditor } from './GeoJsonPolygonEditor';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
+
+import { useAuthStore } from '@/store/useAuthStore';
 
 const ZONE_TYPES = [
   { value: 'GREENHOUSE', label: 'GREENHOUSE - Nhà Màng / Nhà Kính Công Nghệ Cao' },
@@ -20,7 +24,7 @@ const ZONE_STATUSES = [
   { value: 'ACTIVE', label: 'ACTIVE - Đang Canh Tác / Nuôi Trồng' },
   { value: 'FALLOW', label: 'FALLOW - Đang Để Đất Nghỉ / Cải Tạo Đất' },
   { value: 'QUARANTINE', label: 'QUARANTINE - Đang Cách Ly Kiểm Dịch Dịch Bệnh' },
-  { value: 'MAINTENANCE', label: 'MAINTENANCE - Đang Bảo Trì / Sửa Chữa Nhà Màng' },
+  { value: 'MAINTENANCE', label: 'MAINTENANCE - Chờ Phê Duyệt / Bảo Trì' },
 ];
 
 export function ZoneFormModal({
@@ -32,6 +36,11 @@ export function ZoneFormModal({
   editingItem = null,
   onSuccess,
 }) {
+  const { isOwner, isFarmManager } = useAuthStore();
+  const owner = isOwner();
+  const farmManager = isFarmManager();
+  const isProposalMode = !owner && farmManager && !editingItem;
+
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -65,17 +74,17 @@ export function ZoneFormModal({
       });
     } else {
       setFormData({
-        code: '',
+        code: generateEntityCode(CODE_PREFIXES.ZONE),
         name: '',
         zoneType: 'GREENHOUSE',
         areaM2: 1000,
         soilType: 'Đất đỏ bazan',
         waterSource: 'Hệ thống giếng khoan tầng sâu',
-        status: 'ACTIVE',
+        status: isProposalMode ? 'MAINTENANCE' : 'ACTIVE',
         mapLayoutJson: null,
       });
     }
-  }, [isOpen, editingItem]);
+  }, [isOpen, editingItem, isProposalMode]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -126,14 +135,16 @@ export function ZoneFormModal({
         await geographyService.updateZone(farmId, editingItem.id, payload);
       } else {
         await geographyService.createZone(farmId, payload);
+        if (isProposalMode) {
+          alert('Đã gửi đề xuất mở phân khu mới đến Chủ đầu tư phê duyệt! (Trạng thái: MAINTENANCE - Chờ phê duyệt)');
+        }
       }
 
       onSuccess?.();
       onClose();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -143,7 +154,13 @@ export function ZoneFormModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={editingItem ? 'Chỉnh Sửa Phân Khu Canh Tác' : 'Thêm Mới Phân Khu Canh Tác'}
+      title={
+        editingItem
+          ? 'Chỉnh Sửa Phân Khu Canh Tác'
+          : isProposalMode
+          ? 'Đề Xuất Thêm Phân Khu Mới (Chờ Owner Phê Duyệt)'
+          : 'Thêm Mới Phân Khu Canh Tác'
+      }
       size="lg"
       footer={
         <div className="flex justify-end gap-2">
@@ -151,12 +168,27 @@ export function ZoneFormModal({
             Hủy
           </Button>
           <Button type="button" variant="primary" size="sm" isLoading={saving} onClick={handleSubmit}>
-            {editingItem ? 'Lưu Thay Đổi' : 'Tạo Phân Khu'}
+            {editingItem ? 'Lưu Thay Đổi' : isProposalMode ? 'Gửi Đề Xuất Mở Phân Khu' : 'Tạo Phân Khu'}
           </Button>
         </div>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {isProposalMode && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+            <div>
+              <strong className="font-bold">Đề xuất nâng cấp / mở rộng phân khu:</strong>
+              <p className="mt-0.5 text-amber-800 leading-relaxed">
+                Phân khu do Quản lý trang trại đề xuất sẽ được khởi tạo ở trạng thái{' '}
+                <span className="font-bold font-mono text-amber-900">MAINTENANCE (Bảo trì / Chờ duyệt)</span>.
+                Hệ thống sẽ gửi thông báo đến Chủ đầu tư (Owner) để phê duyệt và kích hoạt sang{' '}
+                <span className="font-bold font-mono text-emerald-800">ACTIVE</span> trước khi phân công sản xuất.
+              </p>
+            </div>
+          </div>
+        )}
+
         {generalError && (
           <div className="flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs font-semibold text-rose-800">
             <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
@@ -165,13 +197,13 @@ export function ZoneFormModal({
         )}
 
         <div className="grid grid-cols-2 gap-4">
-          <FormField label="Mã Phân Khu" required error={fieldErrors.code}>
-            <Input
-              name="code"
+          <FormField label="Mã Phân Khu" required error={fieldErrors.code} hint={editingItem ? 'Mã phân khu bất biến không thể sửa' : 'Hệ thống tự động sinh mã gợi ý'}>
+            <CodeInput
               value={formData.code}
-              onChange={handleChange}
-              placeholder="VD: ZONE-A-GREENHOUSE"
-              className="font-mono font-bold"
+              onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+              onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.ZONE) }))}
+              isEditMode={Boolean(editingItem)}
+              error={fieldErrors.code}
             />
           </FormField>
 
@@ -195,12 +227,18 @@ export function ZoneFormModal({
             />
           </FormField>
 
-          <FormField label="Trạng Thái Vận Hành" required error={fieldErrors.status}>
+          <FormField
+            label="Trạng Thái Vận Hành"
+            required
+            error={fieldErrors.status}
+            hint={isProposalMode ? 'Cố định MAINTENANCE khi gửi đề xuất' : undefined}
+          >
             <Select
               name="status"
               value={formData.status}
               onChange={handleChange}
               options={ZONE_STATUSES}
+              disabled={isProposalMode}
             />
           </FormField>
         </div>

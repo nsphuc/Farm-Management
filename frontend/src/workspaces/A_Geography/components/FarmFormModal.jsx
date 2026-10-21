@@ -3,8 +3,10 @@ import { Building, AlertTriangle } from 'lucide-react';
 import { geographyService } from '@/services/modules/geographyService';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
+import { FormField, Input, Select, Textarea, CodeInput } from '@/components/ui/FormControls';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 const FARM_TYPES = [
   { value: 'CROP', label: 'CROP - Chuyên Trồng Trọt' },
@@ -55,7 +57,7 @@ export function FarmFormModal({
       });
     } else {
       setFormData({
-        code: '',
+        code: generateEntityCode(CODE_PREFIXES.FARM),
         name: '',
         farmType: 'MIXED',
         totalAreaM2: 10000,
@@ -121,9 +123,8 @@ export function FarmFormModal({
       onSuccess?.();
       onClose();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -155,13 +156,13 @@ export function FarmFormModal({
         )}
 
         <div className="grid grid-cols-2 gap-4">
-          <FormField label="Mã Trang Trại" required error={fieldErrors.code}>
-            <Input
-              name="code"
+          <FormField label="Mã Trang Trại" required error={fieldErrors.code} hint={editingItem ? 'Mã trang trại bất biến không thể sửa' : 'Hệ thống tự động sinh mã gợi ý'}>
+            <CodeInput
               value={formData.code}
-              onChange={handleChange}
-              placeholder="VD: FARM-DALAT-01"
-              className="font-mono font-bold"
+              onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+              onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.FARM) }))}
+              isEditMode={Boolean(editingItem)}
+              error={fieldErrors.code}
             />
           </FormField>
 

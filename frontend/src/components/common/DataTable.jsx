@@ -25,6 +25,7 @@ export function DataTable({
   totalPages = 1,
   onPageChange,
   onPageSizeChange,
+  onRowClick,
   sortField,
   sortDirection,
   onSort,
@@ -49,7 +50,14 @@ export function DataTable({
 
   return (
     <div className={cn('flex flex-col rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden', className)}>
-      <div className="overflow-x-auto">
+      {/* Sleek Loading Indicator Bar */}
+      <div className="h-0.5 w-full bg-slate-100 overflow-hidden relative">
+        {isLoading && (
+          <div className="h-full bg-emerald-500 animate-pulse w-full transition-all duration-300" />
+        )}
+      </div>
+
+      <div className="overflow-x-auto min-h-[220px]">
         <table className="w-full text-left text-sm text-slate-600">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
             <tr>
@@ -75,7 +83,7 @@ export function DataTable({
                         col.align === 'center' && 'justify-center'
                       )}
                     >
-                      <span>{col.header}</span>
+                      <span>{col.header || col.title}</span>
                       {col.sortable && (
                         <span className="text-slate-400">
                           {isSorted && sortDirection === 'asc' && <ArrowUp className="h-3.5 w-3.5 text-emerald-600" />}
@@ -90,11 +98,16 @@ export function DataTable({
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-slate-100 bg-white">
-            {isLoading ? (
-              // Skeleton Loading Rows
-              Array.from({ length: Math.min(pageSize, 5) }).map((_, rIdx) => (
-                <tr key={`skeleton-${rIdx}`} className="animate-pulse">
+          <tbody
+            className={cn(
+              'divide-y divide-slate-100 bg-white transition-opacity duration-200',
+              isLoading && data && data.length > 0 && 'opacity-50 pointer-events-none'
+            )}
+          >
+            {isLoading && (!data || data.length === 0) ? (
+              // Skeleton Loading Rows (Only when there is no data at all yet!)
+              Array.from({ length: Math.min(pageSize, 6) }).map((_, rIdx) => (
+                <tr key={`skeleton-${rIdx}`} className="animate-pulse h-14">
                   {columns.map((col, cIdx) => (
                     <td key={`sk-cell-${cIdx}`} className="px-4 py-3.5">
                       <div className="h-4 w-3/4 rounded bg-slate-200" />
@@ -106,7 +119,11 @@ export function DataTable({
               data.map((row, index) => (
                 <tr
                   key={keyExtractor(row, index)}
-                  className="hover:bg-slate-50/80 transition-colors group"
+                  onClick={() => onRowClick?.(row, index)}
+                  className={cn(
+                    'transition-colors duration-150 group h-14',
+                    onRowClick ? 'cursor-pointer hover:bg-emerald-50/40' : 'hover:bg-slate-50/80'
+                  )}
                 >
                   {columns.map((col) => (
                     <td

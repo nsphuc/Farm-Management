@@ -641,6 +641,13 @@ public class FinanceCommercialAndReportsIntegrationTest {
         assertEquals(0, BigDecimal.ZERO.compareTo(finalDebt.getRemainingDebt()), "Dư nợ còn lại phải bằng 0.00");
         assertEquals(0, new BigDecimal("20000000.00").compareTo(finalDebt.getPaidAmount()), "Tổng đã trả phải chính xác 20,000,000");
         assertEquals("SETTLED", finalDebt.getStatus(), "Trạng thái khoản nợ phải là SETTLED");
+
+        // Dọn dẹp an toàn dữ liệu test đồng thời chống ô nhiễm DB
+        try {
+            paymentTransactionRepository.deleteAllById(paymentIds);
+            debtRecordRepository.deleteById(debtId);
+            partnerRepository.deleteById(partner.getId());
+        } catch (Exception ignored) {}
     }
 
     @Test

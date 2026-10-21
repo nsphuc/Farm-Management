@@ -163,6 +163,8 @@ export function MasterGeographicTree({
             const isFarmSelected =
               selectedNode?.type === 'FARM' && selectedNode?.item?.id === farm.id;
 
+            const pendingZonesCount = (farm.zones || []).filter((z) => z.status === 'MAINTENANCE').length;
+
             return (
               <div key={farm.id} className="space-y-0.5">
                 {/* Node Tầng 1: Farm */}
@@ -188,6 +190,12 @@ export function MasterGeographicTree({
                     </button>
                     <Building className={`h-4 w-4 shrink-0 ${isFarmSelected ? 'text-emerald-700' : 'text-slate-500'}`} />
                     <span className="truncate">{farm.name}</span>
+                    {pendingZonesCount > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.2 text-[9px] font-bold text-amber-800 border border-amber-300 shrink-0">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                        <span>{pendingZonesCount} duyệt</span>
+                      </span>
+                    )}
                   </div>
 
                   <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
@@ -203,6 +211,7 @@ export function MasterGeographicTree({
                       const isZoneExpanded = expandedNodes[zoneKey] ?? false;
                       const isZoneSelected =
                         selectedNode?.type === 'ZONE' && selectedNode?.item?.id === zone.id;
+                      const isMaintenance = zone.status === 'MAINTENANCE';
 
                       return (
                         <div key={zone.id} className="space-y-0.5">
@@ -226,8 +235,13 @@ export function MasterGeographicTree({
                                   <ChevronRight className="h-3 w-3" />
                                 )}
                               </button>
-                              <Layers className={`h-3.5 w-3.5 shrink-0 ${isZoneSelected ? 'text-blue-700' : 'text-slate-400'}`} />
+                              <Layers className={`h-3.5 w-3.5 shrink-0 ${isZoneSelected ? 'text-blue-700' : isMaintenance ? 'text-amber-600' : 'text-slate-400'}`} />
                               <span className="truncate">{zone.name}</span>
+                              {isMaintenance && (
+                                <span className="rounded bg-amber-100 px-1 py-0.2 text-[9px] font-bold text-amber-800 border border-amber-300 shrink-0">
+                                  Chờ duyệt
+                                </span>
+                              )}
                             </div>
 
                             <span className="text-[10px] text-slate-400 font-mono">

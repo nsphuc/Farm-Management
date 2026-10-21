@@ -47,6 +47,17 @@ public class ProductBatchDetailResponse {
     private String recallerFullName;
     private Instant recalledAt;
     private String recallReason;
+    private Long inspectorUserId;
+    private String inspectorFullName;
+    private BigDecimal soldQuantity;
+    private Long scanCount;
+    private String snapshotHash;
+    private String enterpriseInfoJson;
+    private String vietgapCertJson;
+    private String farmingTimelineJson;
+    private String harvestInfoJson;
+    private String qcInspectionJson;
+    private String qcInspectionCode;
     private List<ProductBatchSourceResponse> sources;
     private Instant createdAt;
     private Instant updatedAt;

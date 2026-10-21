@@ -24,6 +24,10 @@ public class UserInfoDto {
     private List<RoleDto> roles;
     private List<String> permissions;
     private List<AccessibleFarmDto> accessibleFarms;
+    private List<FarmAssignmentDto> farmAssignments;
+    private String operationalRole;
+    private Integer maxFarms;
+    private String planType;
 
     @Data
     @Builder
@@ -46,5 +50,20 @@ public class UserInfoDto {
         private String farmName;
         private String farmType;
         private String assignedRole;
+        private Boolean isManager;
+        private Long managerUserId;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FarmAssignmentDto {
+        private Long id;
+        private Long farmId;
+        private String farmName;
+        private Long zoneId;
+        private String roleInFarm;
+        private Boolean isActive;
     }
 }

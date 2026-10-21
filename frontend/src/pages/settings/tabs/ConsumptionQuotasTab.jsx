@@ -16,6 +16,7 @@ import { FormField, Input, Select } from '@/components/ui/FormControls';
 import { SmartEmptyState } from '@/components/common/SmartEmptyState';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 const UNIT_OF_MEASURE_OPTIONS = [
   { value: 'PER_HECTARE', label: 'PER_HECTARE - Cho 1 Hecta (ha)' },
@@ -194,8 +195,8 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
       setModalOpen(false);
       fetchQuotas();
     } catch (err) {
+      applyServerFieldErrors(err, setFieldErrors);
       const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
       setGeneralError(errInfo.message);
     } finally {
       setSaving(false);

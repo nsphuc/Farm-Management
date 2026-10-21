@@ -26,6 +26,8 @@ public class FarmDetailResponse {
     private String address;
     private Long managerUserId;
     private String managerFullName;
+    private String managerEmployeeCode;
+    private String managerPhone;
     private String status;
     private Long activeZonesCount;
     private Long activeEmployeesCount;

@@ -11,9 +11,11 @@ import {
 import { masterDataService } from '@/services/modules/masterDataService';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
+import { FormField, Input, Select, Textarea, CodeInput } from '@/components/ui/FormControls';
 import { BarcodeScannerInput } from '@/components/common/BarcodeScannerInput';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 const STANDARD_UNITS = [
   { value: 'KG', label: 'KG - Kilogram' },
@@ -97,7 +99,7 @@ export function MaterialFormModal({
     } else {
       setFormData({
         categoryId: categories[0]?.id || '',
-        skuCode: '',
+        skuCode: generateEntityCode(CODE_PREFIXES.MATERIAL),
         barcode: '',
         name: '',
         standardUnit: 'KG',
@@ -220,9 +222,8 @@ export function MaterialFormModal({
       onSuccess?.();
       onClose();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -272,16 +273,17 @@ export function MaterialFormModal({
             </FormField>
 
             <FormField
-              label="Mã SKU (Tự in hoa)"
+              label="Mã SKU Vật Tư"
               required
               error={fieldErrors.skuCode}
+              hint={editingItem ? 'Mã SKU bất biến' : 'Hệ thống tự động sinh mã gợi ý'}
             >
-              <Input
-                name="skuCode"
+              <CodeInput
                 value={formData.skuCode}
-                onChange={handleChange}
-                placeholder="VD: PHAN-NPK-16168"
-                className="font-mono font-bold"
+                onChange={(e) => setFormData((prev) => ({ ...prev, skuCode: e.target.value.toUpperCase() }))}
+                onRegenerate={() => setFormData((prev) => ({ ...prev, skuCode: generateEntityCode(CODE_PREFIXES.MATERIAL) }))}
+                isEditMode={Boolean(editingItem)}
+                error={fieldErrors.skuCode}
               />
             </FormField>
 

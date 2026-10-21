@@ -1,18 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { Users, AlertTriangle } from 'lucide-react';
+import { Users, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { geographyService } from '@/services/modules/geographyService';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select } from '@/components/ui/FormControls';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore } from '@/store/useAuthStore';
 
-const ROLES_IN_FARM = [
+const FARM_MANAGER_ROLES = [
+  { value: 'ZONE_MANAGER', label: 'ZONE_MANAGER - Trưởng Phân Khu / Trưởng Nhà Màng' },
+  { value: 'TECHNICAL_LEAD', label: 'TECHNICAL_LEAD - Trưởng Bộ Phận Kỹ Thuật' },
+  { value: 'WAREHOUSE_KEEPER', label: 'WAREHOUSE_KEEPER - Thủ Kho Trang Trại' },
+  { value: 'ACCOUNTANT', label: 'ACCOUNTANT - Kế Toán Trang Trại' },
+];
+
+const TECH_LEAD_ROLES = [
+  { value: 'AGRONOMIST', label: 'AGRONOMIST - Kỹ Sư Nông Nghiệp / Trồng Trọt' },
+  { value: 'VETERINARIAN', label: 'VETERINARIAN - Bác Sĩ Thú Y / Chăn Nuôi' },
+  { value: 'FIELD_WORKER', label: 'FIELD_WORKER - Công Nhân Canh Tác / Nuôi Trồng' },
+];
+
+const WAREHOUSE_ROLES = [
+  { value: 'FIELD_WORKER', label: 'FIELD_WORKER - Nhân Viên Bốc Xếp / Phụ Kho' },
+];
+
+const ALL_ROLES = [
   { value: 'FARM_MANAGER', label: 'FARM_MANAGER - Giám Đốc / Quản Lý Trang Trại' },
   { value: 'ZONE_MANAGER', label: 'ZONE_MANAGER - Trưởng Phân Khu / Trưởng Nhà Màng' },
   { value: 'TECHNICAL_LEAD', label: 'TECHNICAL_LEAD - Trưởng Bộ Phận Kỹ Thuật' },
+  { value: 'ACCOUNTANT', label: 'ACCOUNTANT - Kế Toán Trang Trại' },
+  { value: 'WAREHOUSE_KEEPER', label: 'WAREHOUSE_KEEPER - Thủ Kho Vật Tư / Nông Sản' },
   { value: 'AGRONOMIST', label: 'AGRONOMIST - Kỹ Sư Nông Nghiệp / Trồng Trọt' },
   { value: 'VETERINARIAN', label: 'VETERINARIAN - Bác Sĩ Thú Y / Chăn Nuôi' },
-  { value: 'WAREHOUSE_KEEPER', label: 'WAREHOUSE_KEEPER - Thủ Kho Vật Tư / Nông Sản' },
   { value: 'FIELD_WORKER', label: 'FIELD_WORKER - Công Nhân Nông Nghiệp Hiện Trường' },
 ];
 
@@ -26,9 +47,30 @@ export function AssignmentModal({
   employees = [],
   onSuccess,
 }) {
+  const navigate = useNavigate();
+  const { isOwner, isFarmManager, isTechnicalLead, isWarehouseKeeper } = useAuthStore();
+  const owner = isOwner();
+  const farmManager = isFarmManager();
+  const techLead = isTechnicalLead();
+  const whKeeper = isWarehouseKeeper();
+
+  let availableRoles = ALL_ROLES;
+  let roleHelperText = 'Chọn vai trò phụ trách phù hợp với vị trí công việc.';
+
+  if (farmManager && !owner) {
+    availableRoles = FARM_MANAGER_ROLES;
+    roleHelperText = 'Phân công Cấp 1 (Quản lý trại): Bổ nhiệm Trưởng Phân Khu, Trưởng Kỹ Thuật, Thủ Kho hoặc Kế Toán Trại.';
+  } else if (techLead && !owner) {
+    availableRoles = TECH_LEAD_ROLES;
+    roleHelperText = 'Phân công Cấp 2 (Kỹ thuật/Trưởng khu): Phân công kỹ sư nông nghiệp hoặc công nhân canh tác tại phân khu.';
+  } else if (whKeeper && !owner) {
+    availableRoles = WAREHOUSE_ROLES;
+    roleHelperText = 'Phân công Cấp 2 (Kho): Phân công nhân sự bốc xếp / phụ kho.';
+  }
+
   const [formData, setFormData] = useState({
     userId: '',
-    roleInFarm: 'FIELD_WORKER',
+    roleInFarm: availableRoles[0]?.value || 'FIELD_WORKER',
     assignedFrom: new Date().toISOString().substring(0, 10),
     assignedTo: '',
   });
@@ -41,9 +83,10 @@ export function AssignmentModal({
     if (!isOpen) return;
     setFieldErrors({});
     setGeneralError('');
+    const defaultRole = availableRoles[0]?.value || (zoneId ? 'ZONE_MANAGER' : 'FIELD_WORKER');
     setFormData({
       userId: employees[0]?.userId || employees[0]?.id || '',
-      roleInFarm: zoneId ? 'ZONE_MANAGER' : 'FIELD_WORKER',
+      roleInFarm: defaultRole,
       assignedFrom: new Date().toISOString().substring(0, 10),
       assignedTo: '',
     });
@@ -80,9 +123,8 @@ export function AssignmentModal({
       onSuccess?.();
       onClose();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -128,24 +170,42 @@ export function AssignmentModal({
         </div>
 
         <FormField label="Nhân Sự Phụ Trách" required error={fieldErrors.userId}>
-          <Select
-            value={formData.userId}
-            onChange={(e) => setFormData((prev) => ({ ...prev, userId: e.target.value }))}
-            options={[
-              { value: '', label: '-- Chọn nhân sự --' },
-              ...employees.map((emp) => ({
-                value: String(emp.userId || emp.id),
-                label: `${emp.fullName} (${emp.employeeCode || 'NV'} - ${emp.position || 'Nhân viên'})`,
-              })),
-            ]}
-          />
+          {employees.length === 0 ? (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 space-y-2">
+              <p>Chưa có hồ sơ nhân sự nào thuộc trang trại này.</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full text-xs font-bold text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                onClick={() => {
+                  onClose();
+                  navigate('/app/hr');
+                }}
+              >
+                + Tiếp Nhận Nhân Sự Mới (Workspace B)
+              </Button>
+            </div>
+          ) : (
+            <Select
+              value={formData.userId}
+              onChange={(e) => setFormData((prev) => ({ ...prev, userId: e.target.value }))}
+              options={[
+                { value: '', label: '-- Chọn nhân sự --' },
+                ...employees.map((emp) => ({
+                  value: String(emp.userId || emp.id),
+                  label: `${emp.fullName} (${emp.employeeCode || 'NV'} - ${emp.position || 'Nhân viên'})`,
+                })),
+              ]}
+            />
+          )}
         </FormField>
 
-        <FormField label="Vai Trò Tại Hiện Trường (7 vị trí chuẩn)" required error={fieldErrors.roleInFarm}>
+        <FormField label="Vai Trò Tại Hiện Trường (Phân cấp vận hành)" required error={fieldErrors.roleInFarm} hint={roleHelperText}>
           <Select
             value={formData.roleInFarm}
             onChange={(e) => setFormData((prev) => ({ ...prev, roleInFarm: e.target.value }))}
-            options={ROLES_IN_FARM}
+            options={availableRoles}
           />
         </FormField>
 

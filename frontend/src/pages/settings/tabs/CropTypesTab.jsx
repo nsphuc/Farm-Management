@@ -4,9 +4,11 @@ import { masterDataService } from '@/services/modules/masterDataService';
 import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { FormField, Input } from '@/components/ui/FormControls';
+import { FormField, Input, CodeInput } from '@/components/ui/FormControls';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 export function CropTypesTab() {
   const [data, setData] = useState([]);
@@ -71,7 +73,7 @@ export function CropTypesTab() {
     } else {
       setFormData({
         name: '',
-        varietyCode: '',
+        varietyCode: generateEntityCode(CODE_PREFIXES.VARIETY),
         growthDaysStandard: 90,
         waterNeedM3Day: 0,
         optimalTempMin: 20,
@@ -118,9 +120,8 @@ export function CropTypesTab() {
       setModalOpen(false);
       fetchData();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -272,18 +273,21 @@ export function CropTypesTab() {
           </FormField>
 
           <FormField
-            label="Mã Giống (Variety Code)"
+            label="Mã Giống Cây Trồng (Variety Code)"
             required
             error={fieldErrors.varietyCode}
-            hint="Tự động in hoa, từ 2-50 ký tự (A-Z, 0-9, _, -)"
+            hint={editingItem ? 'Mã giống bất biến' : 'Hệ thống tự động sinh mã gợi ý'}
           >
-            <Input
+            <CodeInput
               value={formData.varietyCode}
               onChange={(e) =>
                 setFormData((prev) => ({ ...prev, varietyCode: e.target.value.toUpperCase() }))
               }
-              placeholder="VD: TOMATO_CHERRY_F1"
-              className="font-mono"
+              onRegenerate={() =>
+                setFormData((prev) => ({ ...prev, varietyCode: generateEntityCode(CODE_PREFIXES.VARIETY) }))
+              }
+              isEditMode={Boolean(editingItem)}
+              error={fieldErrors.varietyCode}
             />
           </FormField>
 

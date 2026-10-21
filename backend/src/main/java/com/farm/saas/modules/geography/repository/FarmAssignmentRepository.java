@@ -10,4 +10,6 @@ public interface FarmAssignmentRepository extends JpaRepository<FarmAssignment, 
     java.util.List<FarmAssignment> findByFarmIdAndIsActiveTrue(Long farmId);
     java.util.List<FarmAssignment> findByFarmId(Long farmId);
     java.util.Optional<FarmAssignment> findByFarmIdAndId(Long farmId, Long id);
+    java.util.List<FarmAssignment> findByUserIdAndIsActiveTrue(Long userId);
+    java.util.List<FarmAssignment> findByUserId(Long userId);
 }

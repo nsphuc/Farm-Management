@@ -24,6 +24,7 @@ import { Can } from '@/components/common/Can';
 import { VietQRModal } from '@/components/common/VietQRModal';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { useAuthStore } from '@/store/useAuthStore';
 
 export function PartnerDetailDrawer({
   isOpen,
@@ -32,14 +33,40 @@ export function PartnerDetailDrawer({
   onEdit,
   onStatusChanged,
 }) {
+  const { isOwner } = useAuthStore();
+  const owner = isOwner();
+
   const [activeTab, setActiveTab] = useState('overview');
   const [statusLoading, setStatusLoading] = useState(false);
   const [vietQrOpen, setVietQrOpen] = useState(false);
   const [copiedAccount, setCopiedAccount] = useState(false);
 
+  // Quick Credit Approval by Owner
+  const [editingCreditLimit, setEditingCreditLimit] = useState(false);
+  const [creditInput, setCreditInput] = useState(partner?.creditLimit || 0);
+  const [creditSaving, setCreditSaving] = useState(false);
+
+  // Sync creditInput when partner changes
+  React.useEffect(() => {
+    if (partner) {
+      setCreditInput(partner.creditLimit || 0);
+      setEditingCreditLimit(false);
+    }
+  }, [partner]);
+
   if (!partner) return null;
 
   const handleToggleStatus = async (newStatus) => {
+    if (!owner) {
+      alert('Chỉ Chủ đầu tư (Owner) mới có quyền đưa đối tác vào danh sách đen / mở khóa!');
+      return;
+    }
+    const confirmMsg =
+      newStatus === 'BLACKLISTED'
+        ? `Xác nhận KHÓA ĐEN (BLACKLISTED) đối tác "${partner.name}"? Mọi đơn hàng và xuất nhập kho của đối tác này sẽ bị chặn toàn hệ thống.`
+        : `Xác nhận mở khóa đối tác "${partner.name}" sang trạng thái ACTIVE?`;
+    if (!window.confirm(confirmMsg)) return;
+
     try {
       setStatusLoading(true);
       await partnerService.updatePartnerStatus(partner.id, newStatus);
@@ -49,6 +76,37 @@ export function PartnerDetailDrawer({
       alert(errInfo.message || 'Không thể thay đổi trạng thái đối tác!');
     } finally {
       setStatusLoading(false);
+    }
+  };
+
+  const handleApproveCreditLimit = async () => {
+    try {
+      setCreditSaving(true);
+      await partnerService.updatePartner(partner.id, {
+        name: partner.name,
+        partnerType: partner.partnerType,
+        taxCode: partner.taxCode,
+        phone: partner.phone,
+        email: partner.email,
+        address: partner.address,
+        contactPerson: partner.contactPerson,
+        bankBin: partner.bankBin,
+        bankName: partner.bankName,
+        bankAccountNo: partner.bankAccountNo,
+        bankAccountName: partner.bankAccountName,
+        notes: partner.notes,
+        creditLimit: Number(creditInput),
+        paymentTermDays: partner.paymentTermDays,
+        creditRating: partner.creditRating,
+      });
+      alert(`Đã duyệt hạn mức tín dụng ${formatCurrency(creditInput)} cho đối tác ${partner.name}!`);
+      setEditingCreditLimit(false);
+      onStatusChanged?.();
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      alert(errInfo.message || 'Không thể cập nhật hạn mức tín dụng!');
+    } finally {
+      setCreditSaving(false);
     }
   };
 
@@ -74,34 +132,40 @@ export function PartnerDetailDrawer({
   const footer = (
     <div className="flex items-center justify-between w-full">
       <div className="flex items-center gap-2">
-        {partner.status === 'ACTIVE' ? (
-          <Can permission="PERM_FINANCE_SALES_ORDER">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              isLoading={statusLoading}
-              onClick={() => handleToggleStatus('BLACKLISTED')}
-              className="text-rose-600 border-rose-200 hover:bg-rose-50"
-              icon={<Lock className="h-3.5 w-3.5" />}
-            >
-              Khóa Giao Dịch
-            </Button>
-          </Can>
+        {owner ? (
+          partner.status === 'ACTIVE' ? (
+            <Can permission="PERM_FINANCE_SALES_ORDER">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                isLoading={statusLoading}
+                onClick={() => handleToggleStatus('BLACKLISTED')}
+                className="text-rose-600 border-rose-200 hover:bg-rose-50 font-bold"
+                icon={<Lock className="h-3.5 w-3.5" />}
+              >
+                [ Khóa Đen (BLACKLISTED) ]
+              </Button>
+            </Can>
+          ) : (
+            <Can permission="PERM_FINANCE_SALES_ORDER">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                isLoading={statusLoading}
+                onClick={() => handleToggleStatus('ACTIVE')}
+                className="text-emerald-700 border-emerald-200 hover:bg-emerald-50 font-bold"
+                icon={<Unlock className="h-3.5 w-3.5" />}
+              >
+                Mở Khóa Đối Tác
+              </Button>
+            </Can>
+          )
         ) : (
-          <Can permission="PERM_FINANCE_SALES_ORDER">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              isLoading={statusLoading}
-              onClick={() => handleToggleStatus('ACTIVE')}
-              className="text-emerald-700 border-emerald-200 hover:bg-emerald-50"
-              icon={<Unlock className="h-3.5 w-3.5" />}
-            >
-              Mở Khóa Giao Dịch
-            </Button>
-          </Can>
+          <span className="text-[11px] text-slate-400 italic">
+            (Quyền Khóa Đen thuộc Chủ đầu tư)
+          </span>
         )}
       </div>
 
@@ -251,6 +315,88 @@ export function PartnerDetailDrawer({
                   <span>{formatCurrency(partner.creditLimit)}</span>
                 </div>
               </div>
+
+              {/* Thẩm quyền duyệt hạn mức của Owner */}
+              {owner && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-emerald-700" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-950">
+                        Thẩm Quyền Duyệt Hạn Mức Tín Dụng (Owner)
+                      </span>
+                    </div>
+                    {!editingCreditLimit && (
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="xs"
+                        onClick={() => setEditingCreditLimit(true)}
+                        className="bg-emerald-600 hover:bg-emerald-700 font-bold"
+                      >
+                        [ Duyệt Hạn Mức Tín Dụng ]
+                      </Button>
+                    )}
+                  </div>
+
+                  {editingCreditLimit ? (
+                    <div className="space-y-3 pt-1 border-t border-emerald-200/80">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-700 block mb-1">
+                          Số tiền hạn mức mới (VNĐ):
+                        </label>
+                        <input
+                          type="number"
+                          step="500000"
+                          min="0"
+                          value={creditInput}
+                          onChange={(e) => setCreditInput(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-sm font-bold text-emerald-900 focus:outline-emerald-500"
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] text-slate-500 font-semibold">Gợi ý:</span>
+                        {[0, 20000000, 50000000, 100000000, 200000000, 500000000].map((val) => (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() => setCreditInput(val)}
+                            className="rounded border border-emerald-300 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-100"
+                          >
+                            {val === 0 ? '0 ₫' : `${val / 1000000}M`}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          onClick={() => setEditingCreditLimit(false)}
+                        >
+                          Hủy
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="xs"
+                          isLoading={creditSaving}
+                          onClick={handleApproveCreditLimit}
+                          className="bg-emerald-600 hover:bg-emerald-700 font-bold"
+                        >
+                          Xác Nhận Cấp Hạn Mức
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-emerald-900 leading-relaxed">
+                      Chỉ Chủ đầu tư mới có quyền tăng hoặc điều chỉnh hạn mức công nợ cho đối tác. Quản lý trại và Kế toán không thể tự ý cấp tín dụng.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

@@ -21,6 +21,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { SmartEmptyState } from '@/components/common/SmartEmptyState';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { formatDate } from '@/utils/formatters';
 
 export function CyclesAndFarmSettingsTab() {
@@ -166,8 +167,7 @@ export function CyclesAndFarmSettingsTab() {
       setCycleModalOpen(false);
       fetchCycles();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setCycleErrors(errInfo.fieldErrors);
+      applyServerFieldErrors(err, setCycleErrors);
     } finally {
       setCycleSaving(false);
     }
@@ -190,8 +190,7 @@ export function CyclesAndFarmSettingsTab() {
       setSettingsSuccess('Đã lưu cấu hình ngưỡng vận hành trang trại thành công!');
       setTimeout(() => setSettingsSuccess(''), 4000);
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setSettingsErrors(errInfo.fieldErrors);
+      applyServerFieldErrors(err, setSettingsErrors);
     } finally {
       setSettingsSaving(false);
     }

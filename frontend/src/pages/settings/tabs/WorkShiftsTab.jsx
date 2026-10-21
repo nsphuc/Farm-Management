@@ -14,9 +14,11 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { FormField, Input, Switch } from '@/components/ui/FormControls';
+import { FormField, Input, Switch, CodeInput } from '@/components/ui/FormControls';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 export function WorkShiftsTab() {
   const { activeFarmId, activeFarm } = useActiveFarmStore();
@@ -109,7 +111,7 @@ export function WorkShiftsTab() {
     } else {
       setScopeType('ENTERPRISE');
       setFormData({
-        shiftCode: '',
+        shiftCode: generateEntityCode(CODE_PREFIXES.SHIFT),
         name: '',
         startTime: '08:00',
         endTime: '17:00',
@@ -165,9 +167,8 @@ export function WorkShiftsTab() {
       setModalOpen(false);
       fetchShifts();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setFieldErrors(errInfo.fieldErrors);
-      setGeneralError(errInfo.message);
+      const errMsg = applyServerFieldErrors(err, setFieldErrors);
+      setGeneralError(errMsg);
     } finally {
       setSaving(false);
     }
@@ -394,14 +395,17 @@ export function WorkShiftsTab() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Mã Ca Làm Việc" required error={fieldErrors.shiftCode}>
-              <Input
+            <FormField label="Mã Ca Làm Việc" required error={fieldErrors.shiftCode} hint={editingItem ? 'Mã ca làm việc bất biến' : 'Hệ thống tự động sinh mã gợi ý'}>
+              <CodeInput
                 value={formData.shiftCode}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, shiftCode: e.target.value.toUpperCase() }))
                 }
-                placeholder="VD: CA_SANG, CA_DEM"
-                className="font-mono font-bold"
+                onRegenerate={() =>
+                  setFormData((prev) => ({ ...prev, shiftCode: generateEntityCode(CODE_PREFIXES.SHIFT) }))
+                }
+                isEditMode={Boolean(editingItem)}
+                error={fieldErrors.shiftCode}
               />
             </FormField>
 

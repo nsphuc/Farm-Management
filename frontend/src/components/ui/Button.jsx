@@ -5,6 +5,7 @@ import { renderIcon } from '@/utils/iconHelper';
 
 // Re-export để các UI components khác có thể import trực tiếp từ Button.jsx hoặc từ iconHelper
 export { renderIcon };
+export const renderSafeIcon = renderIcon;
 
 const VARIANTS = {
   primary:

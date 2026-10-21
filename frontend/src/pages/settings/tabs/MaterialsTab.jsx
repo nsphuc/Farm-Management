@@ -14,11 +14,13 @@ import { masterDataService } from '@/services/modules/masterDataService';
 import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { FormField, Input, Textarea } from '@/components/ui/FormControls';
+import { FormField, Input, Textarea, CodeInput } from '@/components/ui/FormControls';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Can } from '@/components/common/Can';
 import { MaterialFormModal } from './MaterialFormModal';
 import { extractApiErrors } from '@/utils/apiHelpers';
+import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { CODE_PREFIXES, generateEntityCode } from '@/utils/codeGenerator';
 import { formatCurrency } from '@/utils/formatters';
 
 export function MaterialsTab() {
@@ -107,8 +109,7 @@ export function MaterialsTab() {
       setCatModalOpen(false);
       fetchCategories();
     } catch (err) {
-      const errInfo = extractApiErrors(err);
-      setCatErrors(errInfo.fieldErrors);
+      applyServerFieldErrors(err, setCatErrors);
     } finally {
       setCatSaving(false);
     }
@@ -251,7 +252,11 @@ export function MaterialsTab() {
               type="button"
               onClick={() => {
                 setEditingCat(null);
-                setCatForm({ code: '', name: '', description: '' });
+                setCatForm({
+                  code: generateEntityCode(CODE_PREFIXES.MATERIAL_CATEGORY),
+                  name: '',
+                  description: '',
+                });
                 setCatErrors({});
                 setCatModalOpen(true);
               }}
@@ -400,14 +405,21 @@ export function MaterialsTab() {
         }
       >
         <form onSubmit={handleSaveCategory} className="space-y-4">
-          <FormField label="Mã Nhóm" required error={catErrors.code}>
-            <Input
+          <FormField label="Mã Nhóm Vật Tư" required error={catErrors.code}>
+            <CodeInput
               value={catForm.code}
               onChange={(e) =>
                 setCatForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
               }
-              placeholder="VD: PHAN_BON, THUOC_BVTV"
-              className="font-mono font-bold"
+              onRegenerate={() =>
+                setCatForm((prev) => ({
+                  ...prev,
+                  code: generateEntityCode(CODE_PREFIXES.MATERIAL_CATEGORY),
+                }))
+              }
+              isEditMode={Boolean(editingCat)}
+              prefix="MCT"
+              placeholder="VD: MCT-2610-0001"
             />
           </FormField>
 

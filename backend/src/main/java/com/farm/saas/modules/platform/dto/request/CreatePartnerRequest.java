@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class CreatePartnerRequest {
 
+    private Long farmId;
+
     @Size(max = 50, message = "Mã đối tác tối đa 50 ký tự")
     private String code;
 

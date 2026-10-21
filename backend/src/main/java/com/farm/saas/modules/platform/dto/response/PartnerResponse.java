@@ -16,6 +16,8 @@ public class PartnerResponse {
 
     private Long id;
     private Long tenantId;
+    private Long farmId;
+    private String farmName;
     private String code;
     private String name;
     private String partnerType;
@@ -34,6 +36,8 @@ public class PartnerResponse {
     private String bankAccountName;
     private String notes;
     private BigDecimal currentDebt;
+    private BigDecimal currentReceivableDebt;
+    private BigDecimal currentPayableDebt;
     private Instant createdAt;
     private Instant updatedAt;
 }

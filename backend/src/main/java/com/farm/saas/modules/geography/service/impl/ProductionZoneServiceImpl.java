@@ -98,6 +98,14 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                             newTotal, farm.getTotalAreaM2()));
         }
 
+        String initialStatus = "ACTIVE";
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            String candidate = request.getStatus().trim().toUpperCase();
+            if (VALID_ZONE_STATUSES.contains(candidate)) {
+                initialStatus = candidate;
+            }
+        }
+
         ProductionZone zone = ProductionZone.builder()
                 .tenantId(farm.getTenantId())
                 .farmId(farmId)
@@ -108,7 +116,7 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                 .soilType(request.getSoilType())
                 .waterSource(request.getWaterSource())
                 .mapLayoutJson(request.getMapLayoutJson())
-                .status("ACTIVE")
+                .status(initialStatus)
                 .createdAt(Instant.now())
                 .createdBy(SecurityUtils.getCurrentUserId())
                 .build();

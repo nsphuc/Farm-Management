@@ -1,7 +1,8 @@
 import React from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import { cn } from '@/utils/formatters';
 import { renderIcon } from '@/utils/iconHelper';
+import { Button } from './Button';
 
 /**
  * FormField wrapper with Label, Asterisk, and Inline Field Error (Tiêu chí 4 File 10)
@@ -286,3 +287,71 @@ export const Switch = React.forwardRef(
   }
 );
 Switch.displayName = 'Switch';
+
+/**
+ * Standardized CodeInput (Mục 1 Chặng Chuẩn Hóa Frontend)
+ * - Create Mode:
+ *   - Master entity: Input tự động điền mã, kèm nút phụ [🔄 Tự sinh] bên cạnh
+ *   - Transaction entity: readOnly={true}, tự động sinh mã
+ * - Edit Mode:
+ *   - BẮT BUỘC: disabled={true} / readOnly={true} (nền xám bg-slate-100 cursor-not-allowed)
+ *     Tuyệt đối không cho phép sửa mã định danh sau khi đã tạo!
+ */
+export const CodeInput = React.forwardRef(
+  (
+    {
+      value,
+      onChange,
+      onRegenerate,
+      prefix = 'FRM',
+      isEditMode = false,
+      isTransaction = false,
+      placeholder = 'VD: FRM-2610-0001',
+      className,
+      error,
+      disabled,
+      readOnly,
+      ...props
+    },
+    ref
+  ) => {
+    // In edit mode, lock completely
+    const isLocked = Boolean(isEditMode || disabled || readOnly);
+    const showRegenerateBtn = !isEditMode && !isTransaction && typeof onRegenerate === 'function';
+
+    return (
+      <div className="flex items-center gap-2 w-full">
+        <Input
+          ref={ref}
+          value={value}
+          onChange={onChange}
+          disabled={isLocked}
+          readOnly={isTransaction || isLocked}
+          placeholder={placeholder}
+          error={error}
+          className={cn(
+            'font-mono uppercase tracking-wider',
+            isLocked && 'bg-slate-100 text-slate-500 cursor-not-allowed select-none font-semibold',
+            isTransaction && !isLocked && 'bg-slate-50 text-slate-700 font-bold',
+            className
+          )}
+          {...props}
+        />
+        {showRegenerateBtn && (
+          <Button
+            type="button"
+            variant="outline"
+            size="md"
+            icon={<RefreshCw className="h-4 w-4 text-emerald-600" />}
+            onClick={onRegenerate}
+            title="Tự động sinh mã mới"
+            className="shrink-0 text-xs font-semibold px-3"
+          >
+            Tự sinh
+          </Button>
+        )}
+      </div>
+    );
+  }
+);
+CodeInput.displayName = 'CodeInput';

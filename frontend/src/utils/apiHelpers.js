@@ -1,3 +1,7 @@
+import { applyServerFieldErrors } from './errorHandler';
+
+export { applyServerFieldErrors };
+
 /**
  * API Error parser for Spring Boot ApiErrorResponse
  * Maps fieldErrors to an object { [field]: errorMessage }
