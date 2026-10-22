@@ -14,17 +14,25 @@ public interface InventoryService {
             Long farmId, Long warehouseId, Long materialId, String batchNumber,
             Boolean lowStock, Boolean nearExpiry, Pageable pageable);
 
+    InventorySummaryResponse getInventorySummary(Long farmId, Long warehouseId);
+
     Page<InventoryTransactionResponse> getTransactions(
             Long farmId, Long warehouseId, Long materialId, String batchNumber,
             String transactionType, LocalDate fromDate, LocalDate toDate, Pageable pageable);
 
     // --- 2. Warehouse Receipts ---
+    Page<WarehouseReceiptDetailResponse> getReceipts(
+            Long farmId, Long warehouseId, Long partnerId, String status,
+            LocalDate fromDate, LocalDate toDate, Pageable pageable);
     WarehouseReceiptDetailResponse createReceipt(Long farmId, CreateWarehouseReceiptRequest request);
     WarehouseReceiptDetailResponse getReceiptById(Long farmId, Long id);
     WarehouseReceiptDetailResponse completeReceipt(Long farmId, Long id);
     WarehouseReceiptDetailResponse cancelReceipt(Long farmId, Long id, CancelWarehouseReceiptRequest request);
 
     // --- 3. Warehouse Issues ---
+    Page<WarehouseIssueDetailResponse> getIssues(
+            Long farmId, Long warehouseId, String status,
+            LocalDate fromDate, LocalDate toDate, Pageable pageable);
     WarehouseIssueDetailResponse createIssue(Long farmId, CreateWarehouseIssueRequest request);
     WarehouseIssueDetailResponse getIssueById(Long farmId, Long id);
     WarehouseIssueDetailResponse completeIssue(Long farmId, Long id);

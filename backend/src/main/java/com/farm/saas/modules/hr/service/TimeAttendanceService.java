@@ -15,4 +15,5 @@ public interface TimeAttendanceService {
     TimeAttendanceDetailResponse adjustAttendance(Long id, AdjustAttendanceRequest request);
     List<TimeAttendanceDetailResponse> getAttendances(Long farmId, LocalDate workDate);
     TimeAttendanceDetailResponse getAttendanceById(Long id);
+    com.farm.saas.modules.hr.dto.response.BatchRollCallResponse batchRollCall(com.farm.saas.modules.hr.dto.request.BatchRollCallRequest request);
 }

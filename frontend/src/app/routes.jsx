@@ -6,6 +6,7 @@ import { AuthGuard } from './guards/AuthGuard';
 import { MustChangePasswordGuard } from './guards/MustChangePasswordGuard';
 import { RoleScopeGuard } from './guards/RoleScopeGuard';
 import { PermissionGuard } from './guards/PermissionGuard';
+import { OwnerRestrictedGuard } from './guards/OwnerRestrictedGuard';
 
 // Shells
 import { AuthShell } from '@/shells/AuthShell';
@@ -36,6 +37,30 @@ import { ReportsPage } from '@/pages/reports';
 import { SystemPage } from '@/pages/system';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
+import { useAuthStore } from '@/store/useAuthStore';
+
+/**
+ * Điều hướng trang đích ban đầu dựa theo 6 Vai trò Vận hành thực tế
+ */
+function TenantIndexRedirect() {
+  const { isOwner, isFieldWorker, isWarehouseKeeper, isFarmAccountant, isTechnicalLead } = useAuthStore();
+  if (isOwner()) {
+    return <Navigate to="/app/geography" replace />;
+  }
+  if (isFieldWorker()) {
+    return <Navigate to="/app/my-dashboard" replace />;
+  }
+  if (isWarehouseKeeper()) {
+    return <Navigate to="/app/inventory" replace />;
+  }
+  if (isFarmAccountant()) {
+    return <Navigate to="/app/sales-cashflow" replace />;
+  }
+  if (isTechnicalLead()) {
+    return <Navigate to="/app/farming-ops" replace />;
+  }
+  return <Navigate to="/app/geography" replace />;
+}
 
 /**
  * Master Application Routing System v2.0 (Khớp Điều 1 File 08 & Mục 3 File 11)
@@ -99,7 +124,7 @@ export function AppRoutes() {
           </AuthGuard>
         }
       >
-        <Route index element={<Navigate to="/app/geography" replace />} />
+        <Route index element={<TenantIndexRedirect />} />
 
         {/* 9 Workspaces */}
         <Route
@@ -129,7 +154,7 @@ export function AppRoutes() {
         <Route
           path="partners"
           element={
-            <PermissionGuard permission="PERM_FINANCE_SALES_ORDER">
+            <PermissionGuard anyPermissions={['PERM_FINANCE_SALES_ORDER', 'PERM_INVENTORY_RECEIPT', 'PERM_FARM_VIEW']}>
               <PartnersWorkspace />
             </PermissionGuard>
           }
@@ -137,9 +162,19 @@ export function AppRoutes() {
         <Route
           path="farming-ops"
           element={
-            <PermissionGuard anyPermissions={['PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_CROP_LOG']}>
-              <FarmingOpsWorkspace />
-            </PermissionGuard>
+            <OwnerRestrictedGuard>
+              <PermissionGuard anyPermissions={['PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_CROP_LOG']}>
+                <FarmingOpsWorkspace />
+              </PermissionGuard>
+            </OwnerRestrictedGuard>
+          }
+        />
+        <Route
+          path="farming"
+          element={
+            <OwnerRestrictedGuard>
+              <Navigate to="/app/farming-ops" replace />
+            </OwnerRestrictedGuard>
           }
         />
         <Route
@@ -151,11 +186,23 @@ export function AppRoutes() {
           }
         />
         <Route
+          path="my-dashboard"
+          element={
+            <OwnerRestrictedGuard>
+              <PermissionGuard anyPermissions={['PERM_HR_ATTENDANCE', 'PERM_TASK_ASSIGN', 'PERM_INVENTORY_VIEW', 'PERM_FINANCE_EXPENSE', 'PERM_CROP_LOG', 'PERM_FARM_VIEW']}>
+                <EmployeeDailyOpsWorkspace />
+              </PermissionGuard>
+            </OwnerRestrictedGuard>
+          }
+        />
+        <Route
           path="daily-ops"
           element={
-            <PermissionGuard permission="PERM_HR_ATTENDANCE">
-              <EmployeeDailyOpsWorkspace />
-            </PermissionGuard>
+            <OwnerRestrictedGuard>
+              <PermissionGuard anyPermissions={['PERM_HR_ATTENDANCE', 'PERM_TASK_ASSIGN', 'PERM_INVENTORY_VIEW', 'PERM_FINANCE_EXPENSE', 'PERM_CROP_LOG', 'PERM_FARM_VIEW']}>
+                <EmployeeDailyOpsWorkspace />
+              </PermissionGuard>
+            </OwnerRestrictedGuard>
           }
         />
         <Route
@@ -179,7 +226,7 @@ export function AppRoutes() {
         <Route
           path="settings"
           element={
-            <PermissionGuard permission="PERM_TENANT_MANAGE">
+            <PermissionGuard anyPermissions={['PERM_TENANT_MANAGE', 'PERM_FARM_UPDATE', 'PERM_FARM_VIEW']}>
               <SettingsPage />
             </PermissionGuard>
           }

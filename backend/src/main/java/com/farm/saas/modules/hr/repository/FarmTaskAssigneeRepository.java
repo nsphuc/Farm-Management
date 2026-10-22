@@ -9,5 +9,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface FarmTaskAssigneeRepository extends JpaRepository<FarmTaskAssignee, FarmTaskAssigneeId>, JpaSpecificationExecutor<FarmTaskAssignee> {
     java.util.List<FarmTaskAssignee> findByTaskId(Long taskId);
+    java.util.List<FarmTaskAssignee> findByEmployeeId(Long employeeId);
     void deleteByTaskId(Long taskId);
 }

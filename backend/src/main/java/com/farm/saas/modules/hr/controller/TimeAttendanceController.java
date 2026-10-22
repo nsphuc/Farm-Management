@@ -38,6 +38,14 @@ public class TimeAttendanceController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/batch-roll-call")
+    @PreAuthorize("hasAnyAuthority('PERM_HR_ATTENDANCE', 'PERM_HR_EMPLOYEE_MANAGE')")
+    public ResponseEntity<com.farm.saas.modules.hr.dto.response.BatchRollCallResponse> batchRollCall(
+            @Valid @RequestBody com.farm.saas.modules.hr.dto.request.BatchRollCallRequest request) {
+        com.farm.saas.modules.hr.dto.response.BatchRollCallResponse response = timeAttendanceService.batchRollCall(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
     @PutMapping("/{id}/adjust")
     @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
     public ResponseEntity<TimeAttendanceDetailResponse> adjustAttendance(

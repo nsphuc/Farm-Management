@@ -42,15 +42,24 @@ export const API_ENDPOINTS = {
     SETTINGS: (farmId) => `/farms/${farmId}/settings`,
   },
 
-  // 5. Master Data
+  // 5. Master Data & Enterprise
+  ENTERPRISE: {
+    PROFILE: '/enterprise/profile',
+  },
   MASTER_DATA: {
-    ENTERPRISES: '/master-data/enterprises',
-    CROP_TYPES: '/master-data/crop-types',
-    LIVESTOCK_BREEDS: '/master-data/livestock-breeds',
-    MATERIALS: '/master-data/materials',
-    MATERIAL_CONVERSIONS: (materialId) => `/master-data/materials/${materialId}/conversions`,
+    CROP_TYPES: '/master/crop-types',
+    LIVESTOCK_BREEDS: '/master/livestock-breeds',
+    MATERIAL_CATEGORIES: '/material-categories',
+    MATERIALS: '/materials',
+    MATERIAL_CONVERSIONS: (materialId) => `/materials/${materialId}/conversions`,
     MATERIAL_LOOKUP_BARCODE: (farmId, code) => `/farms/${farmId}/materials/lookup-barcode?code=${encodeURIComponent(code)}`,
-    COST_CATEGORIES: '/master-data/cost-categories',
+    CONSUMPTION_QUOTAS: '/quotas',
+    COST_CATEGORIES: '/cost-categories',
+  },
+  PARTNERS: {
+    LIST: '/partners',
+    DETAIL: (id) => `/partners/${id}`,
+    STATUS: (id) => `/partners/${id}/status`,
   },
 
   // 6. HR & Attendance
@@ -59,14 +68,25 @@ export const API_ENDPOINTS = {
     EMPLOYEE_DETAIL: (id) => `/hr/employees/${id}`,
     PROVISION_ACCOUNT: (id) => `/hr/employees/${id}/provision-account`,
     WORK_SHIFTS: '/hr/shifts',
-    SHIFT_ASSIGNMENTS: '/hr/shift-assignments',
+    WORK_SHIFT_DETAIL: (id) => `/hr/shifts/${id}`,
+    SHIFT_ASSIGN: '/hr/shifts/assign',
+    SHIFT_ASSIGNMENTS: '/hr/shifts/assignments',
     ATTENDANCE: '/hr/attendance',
+    ATTENDANCE_DETAIL: (id) => `/hr/attendance/${id}`,
     CHECK_IN: '/hr/attendance/check-in',
     CHECK_OUT: '/hr/attendance/check-out',
+    BATCH_ROLL_CALL: '/hr/attendance/batch-roll-call',
     ADJUST_ATTENDANCE: (id) => `/hr/attendance/${id}/adjust`,
     LEAVE_REQUESTS: '/hr/leaves',
+    LEAVE_DETAIL: (id) => `/hr/leaves/${id}`,
+    LEAVE_APPROVE: (id) => `/hr/leaves/${id}/approve`,
     OVERTIME_REQUESTS: '/hr/overtime',
+    OVERTIME_DETAIL: (id) => `/hr/overtime/${id}`,
+    OVERTIME_APPROVE: (id) => `/hr/overtime/${id}/approve`,
     TASKS: (farmId) => `/farms/${farmId}/tasks`,
+    TASK_DETAIL: (farmId, id) => `/farms/${farmId}/tasks/${id}`,
+    TASK_STATUS: (id) => `/tasks/${id}/status`,
+    TASK_GENERATE_DAILY_ROUTINES: (farmId) => `/farms/${farmId}/tasks/generate-daily-routines`,
   },
 
   // 7. Inventory

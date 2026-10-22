@@ -70,6 +70,12 @@ public class InventoryConcurrencyStressTest {
     @Autowired
     private WarehouseInventoryTransactionRepository transactionRepository;
 
+    @Autowired
+    private com.farm.saas.modules.inventory.repository.WarehouseIssueRepository issueRepository;
+
+    @Autowired
+    private com.farm.saas.modules.inventory.repository.WarehouseIssueItemRepository issueItemRepository;
+
     private Long farmId;
     private Long warehouseId;
     private Material testMaterial;
@@ -248,5 +254,18 @@ public class InventoryConcurrencyStressTest {
                 .filter(t -> testMaterial.getId().equals(t.getMaterialId()) && CONC_BATCH.equals(t.getBatchNumber()) && "OUT".equals(t.getDirection()))
                 .toList();
         assertEquals(10, txs.size(), "Số lượng giao dịch OUTWARD trong sổ cái thẻ kho bất biến phải đúng bằng 10!");
+
+        // Dọn dẹp an toàn chống ô nhiễm DB dev
+        try {
+            transactionRepository.deleteAll(txs);
+            inventoryRepository.findByWarehouseIdAndMaterialIdAndBatchNumber(warehouseId, testMaterial.getId(), CONC_BATCH)
+                    .ifPresent(inventoryRepository::delete);
+            for (Long iId : issueIds) {
+                try {
+                    issueItemRepository.deleteAll(issueItemRepository.findByIssueId(iId));
+                    issueRepository.deleteById(iId);
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
     }
 }

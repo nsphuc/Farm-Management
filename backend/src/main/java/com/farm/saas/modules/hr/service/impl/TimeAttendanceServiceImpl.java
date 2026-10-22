@@ -7,9 +7,12 @@ import com.farm.saas.common.util.GeoDistanceUtils;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.common.security.CustomUserDetails;
 import com.farm.saas.modules.hr.dto.request.AdjustAttendanceRequest;
+import com.farm.saas.modules.hr.dto.request.BatchRollCallRequest;
 import com.farm.saas.modules.hr.dto.request.CheckInAttendanceRequest;
 import com.farm.saas.modules.hr.dto.request.CheckOutAttendanceRequest;
+import com.farm.saas.modules.hr.dto.response.BatchRollCallResponse;
 import com.farm.saas.modules.hr.dto.response.CheckInAttendanceResponse;
 import com.farm.saas.modules.hr.dto.response.TimeAttendanceDetailResponse;
 import com.farm.saas.modules.hr.entity.Employee;
@@ -31,7 +34,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -262,6 +267,218 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
         TimeAttendance attendance = timeAttendanceRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("TimeAttendance", "id", id));
         return enrichDetailResponse(attendance);
+    }
+
+    @Override
+    @Transactional
+    public BatchRollCallResponse batchRollCall(BatchRollCallRequest request) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+
+        if (currentUser == null) {
+            throw new BusinessException("UNAUTHORIZED", "Người dùng chưa đăng nhập");
+        }
+
+        // 1. Kiểm tra quyền: Người gọi phải là FARM_MANAGER, ROLE_TECHNICAL_STAFF hoặc ROLE_WAREHOUSE_STAFF (hoặc Owner/SuperAdmin)
+        boolean isAllowedRole = currentUser.isSuperAdmin()
+                || currentUser.getRoles().contains("ROLE_SUPER_ADMIN")
+                || currentUser.getRoles().contains("ROLE_FARM_OWNER")
+                || currentUser.getRoles().contains("ROLE_FARM_MANAGER")
+                || currentUser.getRoles().contains("ROLE_TECHNICAL_STAFF")
+                || currentUser.getRoles().contains("ROLE_WAREHOUSE_STAFF");
+
+        if (!isAllowedRole) {
+            throw new BusinessException("FORBIDDEN",
+                    "Chỉ Quản lý trang trại, Trưởng phân khu / Kỹ thuật hoặc Thủ kho mới có quyền điểm danh tập thể");
+        }
+
+        // Kiểm tra quyền truy cập farmId
+        if (!currentUser.isSuperAdmin()
+                && !currentUser.getRoles().contains("ROLE_SUPER_ADMIN")
+                && !currentUser.getRoles().contains("ROLE_FARM_OWNER")) {
+            if (!currentUser.getAccessibleFarmIds().contains(request.getFarmId())) {
+                throw new BusinessException("FARM_ACCESS_DENIED",
+                        "Bạn không có quyền tác nghiệp tại trang trại #" + request.getFarmId());
+            }
+        }
+
+        Farm farm = farmRepository.findById(request.getFarmId())
+                .filter(f -> f.getTenantId().equals(tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.getFarmId()));
+
+        WorkShift shift = workShiftRepository.findById(request.getShiftId())
+                .filter(s -> s.getTenantId().equals(tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("WorkShift", "id", request.getShiftId()));
+
+        // 2. Tính khoảng cách Haversine từ (latitude, longitude) tới tâm trang trại và đối chiếu geofence_radius_m
+        double farmLat = farm.getLatitude() != null ? farm.getLatitude().doubleValue() : 0.0;
+        double farmLon = farm.getLongitude() != null ? farm.getLongitude().doubleValue() : 0.0;
+        double distanceM = GeoDistanceUtils.calculateDistanceMeters(
+                request.getLatitude().doubleValue(),
+                request.getLongitude().doubleValue(),
+                farmLat,
+                farmLon
+        );
+
+        double radiusM = farm.getGeofenceRadiusM() != null ? farm.getGeofenceRadiusM() : 200.0;
+        boolean withinGeofence = distanceM <= radiusM;
+        if (!withinGeofence) {
+            log.warn("GPS_OUTSIDE_GEOFENCE in batch roll call: distance {}m > radius {}m for farm {}", distanceM, radiusM, farm.getId());
+            throw new BusinessException("GPS_OUTSIDE_GEOFENCE",
+                    String.format("Tọa độ điểm danh tập thể nằm ngoài phạm vi trang trại (Khoảng cách: %.1fm > Cho phép: %.1fm)", distanceM, radiusM));
+        }
+
+        Instant now = Instant.now();
+        LocalDate targetWorkDate = request.getWorkDate() != null
+                ? request.getWorkDate()
+                : LocalDate.ofInstant(now, VN_ZONE);
+
+        String action = request.getActionType().trim().toUpperCase();
+        if (!"CHECK_IN".equals(action) && !"CHECK_OUT".equals(action)) {
+            throw new BusinessException("INVALID_ACTION_TYPE", "actionType phải là 'CHECK_IN' hoặc 'CHECK_OUT'");
+        }
+
+        List<TimeAttendanceDetailResponse> resultList = new ArrayList<>();
+
+        for (Long empId : request.getEmployeeIds()) {
+            Employee emp = employeeRepository.findById(empId)
+                    .filter(e -> e.getTenantId().equals(tenantId))
+                    .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", empId));
+
+            if (emp.getFarmId() == null || !emp.getFarmId().equals(farm.getId())) {
+                throw new BusinessException("EMPLOYEE_NOT_IN_FARM",
+                        String.format("Nhân viên %s (%s) không thuộc biên chế trang trại này", emp.getFullName(), emp.getEmployeeCode()));
+            }
+
+            if ("CHECK_IN".equals(action)) {
+                // Kiểm tra xem đã chấm công ca này trong ngày chưa
+                Optional<TimeAttendance> existingOpt = timeAttendanceRepository
+                        .findByEmployeeIdAndWorkDateAndShiftId(emp.getId(), targetWorkDate, shift.getId());
+
+                TimeAttendance attendance;
+                LocalTime inTime = LocalTime.ofInstant(now, VN_ZONE);
+                long diffMinutes = ChronoUnit.MINUTES.between(shift.getStartTime(), inTime);
+                int grace = shift.getGraceLateMinutes() != null ? shift.getGraceLateMinutes() : 0;
+                int lateMinutes = (int) Math.max(0, diffMinutes - grace);
+                String status = lateMinutes > 0 ? "LATE" : "VALID";
+
+                if (existingOpt.isPresent()) {
+                    attendance = existingOpt.get();
+                    attendance.setCheckInTime(now);
+                    attendance.setGpsLatitude(request.getLatitude());
+                    attendance.setGpsLongitude(request.getLongitude());
+                    attendance.setGpsDistanceM(BigDecimal.valueOf(distanceM).setScale(2, RoundingMode.HALF_UP));
+                    attendance.setCheckInPhotoUrl(request.getPhotoUrl());
+                    attendance.setLateMinutes(lateMinutes);
+                    attendance.setStatus(status);
+                    if (request.getNotes() != null) {
+                        attendance.setNotes(request.getNotes());
+                    }
+                    attendance.setUpdatedAt(now);
+                    attendance.setUpdatedBy(currentUserId);
+                } else {
+                    attendance = TimeAttendance.builder()
+                            .tenantId(tenantId)
+                            .farmId(farm.getId())
+                            .employeeId(emp.getId())
+                            .shiftId(shift.getId())
+                            .workDate(targetWorkDate)
+                            .checkInTime(now)
+                            .gpsLatitude(request.getLatitude())
+                            .gpsLongitude(request.getLongitude())
+                            .gpsDistanceM(BigDecimal.valueOf(distanceM).setScale(2, RoundingMode.HALF_UP))
+                            .checkInPhotoUrl(request.getPhotoUrl())
+                            .workingHours(BigDecimal.ZERO)
+                            .lateMinutes(lateMinutes)
+                            .earlyLeaveMinutes(0)
+                            .status(status)
+                            .notes(request.getNotes())
+                            .isAdjusted(false)
+                            .createdAt(now)
+                            .createdBy(currentUserId)
+                            .build();
+                }
+
+                attendance = timeAttendanceRepository.save(attendance);
+                resultList.add(mapToDetailResponse(attendance, emp, shift, farm));
+
+            } else { // CHECK_OUT
+                TimeAttendance attendance = timeAttendanceRepository
+                        .findByEmployeeIdAndWorkDateAndShiftId(emp.getId(), targetWorkDate, shift.getId())
+                        .orElseGet(() -> timeAttendanceRepository
+                                .findTopByEmployeeIdAndWorkDateOrderByCheckInTimeDesc(emp.getId(), targetWorkDate)
+                                .orElse(null));
+
+                if (attendance == null) {
+                    // Nếu chưa có lượt check-in, tạo bản ghi với check_in_time giả định là shift.startTime
+                    LocalTime startTime = shift.getStartTime() != null ? shift.getStartTime() : LocalTime.of(7, 0);
+                    Instant assumedCheckIn = targetWorkDate.atTime(startTime).atZone(VN_ZONE).toInstant();
+                    attendance = TimeAttendance.builder()
+                            .tenantId(tenantId)
+                            .farmId(farm.getId())
+                            .employeeId(emp.getId())
+                            .shiftId(shift.getId())
+                            .workDate(targetWorkDate)
+                            .checkInTime(assumedCheckIn)
+                            .gpsLatitude(request.getLatitude())
+                            .gpsLongitude(request.getLongitude())
+                            .gpsDistanceM(BigDecimal.valueOf(distanceM).setScale(2, RoundingMode.HALF_UP))
+                            .checkInPhotoUrl(request.getPhotoUrl())
+                            .workingHours(BigDecimal.ZERO)
+                            .lateMinutes(0)
+                            .earlyLeaveMinutes(0)
+                            .status("VALID")
+                            .notes(request.getNotes())
+                            .isAdjusted(false)
+                            .createdAt(now)
+                            .createdBy(currentUserId)
+                            .build();
+                }
+
+                long totalMinutes = ChronoUnit.MINUTES.between(attendance.getCheckInTime(), now);
+                int breakMinutes = shift.getBreakMinutes() != null ? shift.getBreakMinutes() : 0;
+                long netMinutes = Math.max(0, totalMinutes - breakMinutes);
+                BigDecimal workingHours = BigDecimal.valueOf(netMinutes).divide(BigDecimal.valueOf(60), 2, RoundingMode.HALF_UP);
+
+                LocalTime outTime = LocalTime.ofInstant(now, VN_ZONE);
+                long earlyDiff = ChronoUnit.MINUTES.between(outTime, shift.getEndTime());
+                int earlyLeaveMinutes = (int) Math.max(0, earlyDiff);
+
+                attendance.setCheckOutTime(now);
+                attendance.setCheckOutLatitude(request.getLatitude());
+                attendance.setCheckOutLongitude(request.getLongitude());
+                attendance.setCheckOutDistanceM(BigDecimal.valueOf(distanceM).setScale(2, RoundingMode.HALF_UP));
+                attendance.setCheckOutPhotoUrl(request.getPhotoUrl());
+                attendance.setWorkingHours(workingHours);
+                attendance.setEarlyLeaveMinutes(earlyLeaveMinutes);
+                if (request.getNotes() != null) {
+                    attendance.setNotes(request.getNotes());
+                }
+                attendance.setUpdatedAt(now);
+                attendance.setUpdatedBy(currentUserId);
+
+                attendance = timeAttendanceRepository.save(attendance);
+                resultList.add(mapToDetailResponse(attendance, emp, shift, farm));
+            }
+        }
+
+        log.info("Completed batchRollCall: action={}, farmId={}, total={}, distance={}m",
+                action, farm.getId(), resultList.size(), distanceM);
+
+        return BatchRollCallResponse.builder()
+                .totalEmployees(request.getEmployeeIds().size())
+                .successCount(resultList.size())
+                .actionType(action)
+                .farmId(farm.getId())
+                .farmName(farm.getName())
+                .shiftId(shift.getId())
+                .shiftName(shift.getName())
+                .workDate(targetWorkDate)
+                .gpsDistanceM(BigDecimal.valueOf(distanceM).setScale(2, RoundingMode.HALF_UP))
+                .isWithinGeofence(true)
+                .attendances(resultList)
+                .build();
     }
 
     private Employee resolveEmployee(Long tenantId, Long currentUserId, Long requestedEmployeeId) {

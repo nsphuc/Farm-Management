@@ -14,6 +14,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { cn } from '@/utils/formatters';
+import { renderIcon } from '@/utils/iconHelper';
 
 /**
  * Standard Status Configuration mapping SQL Enums to 5 Semantic Color Families
@@ -96,8 +97,9 @@ const COLOR_CLASSES = {
  * @param {string} className - Tùy biến class thêm
  * @param {boolean} showIcon - Hiển thị icon (mặc định true)
  * @param {string} size - 'sm' | 'md'
+ * @param {any} icon - Icon tuỳ chọn (hỗ trợ JSX element hoặc Component type)
  */
-export function StatusBadge({ status, label, className, showIcon = true, size = 'md' }) {
+export function StatusBadge({ status, label, className, showIcon = true, size = 'md', icon }) {
   if (!status) return <span className="text-slate-400">—</span>;
 
   const normalizedKey = String(status).toUpperCase();
@@ -107,7 +109,7 @@ export function StatusBadge({ status, label, className, showIcon = true, size = 
     icon: FileText,
   };
 
-  const IconComponent = config.icon;
+  const targetIcon = icon || config.icon;
   const colorStyle = COLOR_CLASSES[config.group] || COLOR_CLASSES.NEUTRAL;
   const displayLabel = label || config.label;
 
@@ -116,7 +118,7 @@ export function StatusBadge({ status, label, className, showIcon = true, size = 
       ? 'px-2 py-0.5 text-xs gap-1'
       : 'px-2.5 py-1 text-xs gap-1.5 font-medium';
 
-  const iconSizes = size === 'sm' ? 'w-3 h-3' : 'w-3.5 h-3.5';
+  const iconSizes = size === 'sm' ? 'w-3 h-3 shrink-0' : 'w-3.5 h-3.5 shrink-0';
 
   return (
     <span
@@ -127,7 +129,7 @@ export function StatusBadge({ status, label, className, showIcon = true, size = 
         className
       )}
     >
-      {showIcon && <IconComponent className={cn('shrink-0', iconSizes)} />}
+      {showIcon && renderIcon(targetIcon, iconSizes)}
       <span className="truncate">{displayLabel}</span>
     </span>
   );

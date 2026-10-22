@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 import { BarcodeScannerInput } from '@/components/common/BarcodeScannerInput';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { cn } from '@/utils/formatters';
 
 /**
  * Global TopBar for TenantAppShell (Mục 1.1.3 File 08)
@@ -24,10 +25,12 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
  */
 export function TopBar({ onMobileMenuToggle }) {
   const navigate = useNavigate();
-  const { userInfo, clearAuth } = useAuthStore();
+  const { userInfo, clearAuth, getOperationalRoleInfo, isOwner } = useAuthStore();
   const { clearActiveContext } = useActiveFarmStore();
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+
+  const roleInfo = getOperationalRoleInfo();
 
   const handleLogout = async () => {
     try {
@@ -40,11 +43,6 @@ export function TopBar({ onMobileMenuToggle }) {
       navigate('/login');
     }
   };
-
-  const primaryRole =
-    userInfo?.roles?.[0]?.name ||
-    (typeof userInfo?.roles?.[0] === 'string' ? userInfo?.roles?.[0] : null) ||
-    'Nhân viên';
 
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur-md sm:px-6 shadow-2xs">
@@ -94,21 +92,21 @@ export function TopBar({ onMobileMenuToggle }) {
               <span className="font-bold text-slate-900 leading-tight">
                 {userInfo?.fullName || userInfo?.username || 'Người dùng'}
               </span>
-              <span className="text-[10px] text-emerald-700 font-medium">
-                {primaryRole}
+              <span className={cn('text-[10px] font-semibold mt-0.5 px-1.5 py-0.2 rounded border w-fit', roleInfo.badgeColor)}>
+                {roleInfo.shortTitle}
               </span>
             </div>
           </button>
 
           {/* User Dropdown */}
           {isProfileMenuOpen && (
-            <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl ring-1 ring-black/5 z-50 animate-in fade-in zoom-in-95 duration-150">
+            <div className="absolute right-0 mt-2 w-60 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl ring-1 ring-black/5 z-50 animate-in fade-in zoom-in-95 duration-150">
               <div className="px-3 py-2 border-b border-slate-100 mb-1">
                 <p className="font-bold text-slate-900 text-xs truncate">{userInfo?.fullName}</p>
                 <p className="text-[11px] text-slate-500 truncate">{userInfo?.email || userInfo?.username}</p>
-                <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md w-fit">
+                <div className={cn('mt-1.5 flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-md border w-fit', roleInfo.badgeColor)}>
                   <Shield className="h-3 w-3" />
-                  <span>{primaryRole}</span>
+                  <span>{roleInfo.title}</span>
                 </div>
               </div>
 

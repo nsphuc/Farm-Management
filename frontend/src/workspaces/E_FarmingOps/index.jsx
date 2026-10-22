@@ -86,6 +86,19 @@ export function FarmingOpsWorkspace() {
             🐄 CHĂN NUÔI
           </button>
         </div>
+        {/* Top Actions */}
+        <div className="flex items-center gap-2">
+          <Can permission="PERM_CROP_PLAN">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => alert(`Khởi tạo ${sector === 'CROP' ? 'vụ mùa' : 'đàn nuôi'} mới`)}
+            >
+              {sector === 'CROP' ? '+ Mở Vụ Mùa Mới' : '+ Nhập Đàn Mới'}
+            </Button>
+          </Can>
+        </div>
       </div>
 
       {/* Main Table */}
@@ -117,8 +130,61 @@ export function FarmingOpsWorkspace() {
           { id: 'harvest', label: 'Ghi Nhận Thu Hoạch', icon: Apple },
         ]}
       >
-        <div className="p-4 text-xs text-slate-600">
-          Nội dung nhật ký canh tác, trừ kho Auto-Backflush và cảnh báo an toàn sinh học PHI.
+        <div className="p-5 space-y-5 text-xs text-slate-600">
+          {/* Chốt chặn PHI & Dịch tễ (Mục 3 Chặng Chuẩn Hóa) */}
+          {selectedSeason?.isInPhiQuarantine || selectedSeason?.status === 'QUARANTINED' ? (
+            <div className="rounded-2xl border border-rose-300 bg-rose-50 p-4 text-xs text-rose-800 space-y-1.5 animate-pulse">
+              <div className="flex items-center gap-2 font-black text-rose-900 text-sm">
+                <ShieldAlert className="h-5 w-5 text-rose-600 shrink-0" />
+                <span>CẢNH BÁO AN TOÀN SINH HỌC & CÁCH LY PHI</span>
+              </div>
+              <p className="leading-relaxed">
+                Khu vực/Đàn này đang trong thời gian cách ly hoạt chất thuốc BVTV (PHI) hoặc kiểm dịch thú y.
+                <strong className="block text-rose-900 mt-0.5">Khóa cứng toàn bộ quyền thu hoạch cho đến khi hết thời gian cách ly an toàn!</strong>
+              </p>
+            </div>
+          ) : null}
+
+          {/* Action buttons inside drawer */}
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+            <Can anyPermissions={['PERM_CROP_LOG', 'PERM_LIVESTOCK_VET']}>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<BookOpen className="h-4 w-4" />}
+                onClick={() => alert('Ghi nhận nhật ký vật tư tiêu hao tự động trừ kho FEFO')}
+              >
+                Ghi Nhật Ký Trừ Kho
+              </Button>
+            </Can>
+
+            <Can permission="PERM_HARVEST_MANAGE">
+              <Button
+                variant="success"
+                size="sm"
+                icon={<Apple className="h-4 w-4" />}
+                disabled={Boolean(selectedSeason?.isInPhiQuarantine || selectedSeason?.status === 'QUARANTINED')}
+                title={
+                  selectedSeason?.isInPhiQuarantine || selectedSeason?.status === 'QUARANTINED'
+                    ? 'Bị khóa do đang trong thời gian cách ly an toàn sinh học PHI!'
+                    : 'Ghi nhận sản lượng thu hoạch'
+                }
+                onClick={() => alert('Mở form ghi nhận thu hoạch nông sản')}
+              >
+                Ghi Nhận Thu Hoạch
+              </Button>
+            </Can>
+
+            <Can permission="PERM_CROP_PLAN">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => alert(`Thay đổi trạng thái vụ mùa ${selectedSeason?.seasonCode}`)}
+              >
+                {selectedSeason?.status === 'CLOSED' ? 'Mở Lại Mùa Vụ' : 'Đóng Vụ Mùa'}
+              </Button>
+            </Can>
+          </div>
         </div>
       </SlideOverDrawer>
     </div>

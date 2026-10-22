@@ -32,4 +32,5 @@ public class CreateProductionZoneRequest {
     private String soilType;
     private String waterSource;
     private String mapLayoutJson;
+    private String status;
 }

@@ -28,6 +28,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import jakarta.persistence.criteria.Predicate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -226,14 +228,51 @@ public class ProductBatchServiceImpl implements ProductBatchService {
     @Override
     @Transactional(readOnly = true)
     public Page<ProductBatchDetailResponse> getProductBatches(Long farmId, Pageable pageable) {
-        return productBatchRepository.findByFarmId(farmId, pageable).map(this::mapToDetailResponse);
+        return getProductBatches(farmId, null, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ProductBatchDetailResponse> getProductBatches(Long farmId, String status, String keyword, Pageable pageable) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+
+        Specification<ProductBatch> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("tenantId"), tenantId));
+
+            if (farmId != null) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
+
+            if (StringUtils.hasText(status)) {
+                if ("MARKET_ACTIVE".equalsIgnoreCase(status) || "PRINTED_OR_SELLING".equalsIgnoreCase(status)) {
+                    predicates.add(root.get("status").in("PRINTED", "SELLING"));
+                } else {
+                    predicates.add(cb.equal(root.get("status"), status));
+                }
+            }
+
+            if (StringUtils.hasText(keyword)) {
+                String pattern = "%" + keyword.trim().toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("batchCode")), pattern),
+                        cb.like(cb.lower(root.get("productName")), pattern),
+                        cb.like(cb.lower(root.get("traceabilityCode")), pattern)
+                ));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return productBatchRepository.findAll(spec, pageable).map(this::mapToDetailResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
     public ProductBatchDetailResponse getProductBatchById(Long farmId, Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         ProductBatch batch = productBatchRepository.findById(id)
-                .filter(b -> b.getFarmId().equals(farmId))
+                .filter(b -> b.getTenantId().equals(tenantId) && (farmId == null || b.getFarmId().equals(farmId)))
                 .orElseThrow(() -> new ResourceNotFoundException("ProductBatch", "id", id));
         return mapToDetailResponse(batch);
     }
@@ -311,9 +350,10 @@ public class ProductBatchServiceImpl implements ProductBatchService {
     @Transactional
     public ProductBatchDetailResponse recallBatch(Long farmId, Long id, RecallProductBatchRequest request) {
         Long currentUserId = SecurityUtils.getCurrentUserId();
+        Long tenantId = SecurityUtils.getCurrentTenantId();
 
         ProductBatch batch = productBatchRepository.findByIdForUpdate(id)
-                .filter(b -> b.getFarmId().equals(farmId))
+                .filter(b -> b.getTenantId().equals(tenantId) && (farmId == null || b.getFarmId().equals(farmId)))
                 .orElseThrow(() -> new ResourceNotFoundException("ProductBatch", "id", id));
 
         batch.setStatus("RECALLED");
@@ -530,6 +570,47 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                     .map(u -> u.getFullName() != null ? u.getFullName() : u.getUsername()).orElse(null);
         }
 
+        // Inspector & QC Inspection code lookup
+        Long inspectorId = null;
+        String inspectorName = null;
+        String inspectionCode = null;
+        Optional<QcInspection> qcOpt = qcInspectionRepository.findTopByProductBatchIdOrderByCreatedAtDesc(batch.getId());
+        if (qcOpt.isPresent()) {
+            QcInspection qc = qcOpt.get();
+            inspectorId = qc.getInspectorUserId();
+            inspectionCode = qc.getInspectionCode();
+            if (inspectorId != null) {
+                inspectorName = userRepository.findById(inspectorId)
+                        .map(u -> u.getFullName() != null ? u.getFullName() : u.getUsername()).orElse(null);
+            }
+        }
+
+        // Traceability snapshot lookup
+        Long scanCount = 0L;
+        String snapshotHash = null;
+        String enterpriseJson = null;
+        String certJson = null;
+        String timelineJson = null;
+        String harvestJson = null;
+        String qcJson = null;
+        Optional<TraceabilitySnapshot> snapOpt = traceabilitySnapshotRepository.findByProductBatchId(batch.getId());
+        if (snapOpt.isPresent()) {
+            TraceabilitySnapshot snap = snapOpt.get();
+            scanCount = snap.getScanCount() != null ? snap.getScanCount() : 0L;
+            snapshotHash = snap.getSnapshotHash();
+            enterpriseJson = snap.getEnterpriseInfoJson();
+            certJson = snap.getVietgapCertJson();
+            timelineJson = snap.getFarmingTimelineJson();
+            harvestJson = snap.getHarvestInfoJson();
+            qcJson = snap.getQcInspectionJson();
+        }
+
+        // Calculate sold quantity
+        BigDecimal soldQuantity = BigDecimal.ZERO;
+        if (batch.getInitialQuantity() != null && batch.getRemainingQuantity() != null) {
+            soldQuantity = batch.getInitialQuantity().subtract(batch.getRemainingQuantity()).max(BigDecimal.ZERO);
+        }
+
         List<ProductBatchDetailResponse.ProductBatchSourceResponse> sourceResponses = new ArrayList<>();
         List<ProductBatchSource> sources = productBatchSourceRepository.findByProductBatchId(batch.getId());
         for (ProductBatchSource src : sources) {
@@ -582,10 +663,14 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 .initialQuantity(batch.getInitialQuantity())
                 .remainingQuantity(batch.getRemainingQuantity())
                 .reservedQuantity(batch.getReservedQuantity())
+                .soldQuantity(soldQuantity)
                 .unit(batch.getUnit())
                 .qualityGrade(batch.getQualityGrade())
                 .qrImageUrl(batch.getQrImageUrl())
                 .status(batch.getStatus())
+                .inspectorUserId(inspectorId)
+                .inspectorFullName(inspectorName)
+                .qcInspectionCode(inspectionCode)
                 .approvedByUserId(batch.getApprovedByUserId())
                 .approverFullName(approverName)
                 .approvedAt(batch.getApprovedAt())
@@ -597,6 +682,13 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 .recallerFullName(recallerName)
                 .recalledAt(batch.getRecalledAt())
                 .recallReason(batch.getRecallReason())
+                .scanCount(scanCount)
+                .snapshotHash(snapshotHash)
+                .enterpriseInfoJson(enterpriseJson)
+                .vietgapCertJson(certJson)
+                .farmingTimelineJson(timelineJson)
+                .harvestInfoJson(harvestJson)
+                .qcInspectionJson(qcJson)
                 .sources(sourceResponses)
                 .createdAt(batch.getCreatedAt())
                 .updatedAt(batch.getUpdatedAt())

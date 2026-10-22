@@ -35,9 +35,9 @@ public class PartnerServiceImpl implements PartnerService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<PartnerResponse> getPartners(String partnerType, String status, String keyword, Pageable pageable) {
+    public Page<PartnerResponse> getPartners(Long farmId, String partnerType, String status, String keyword, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
-        Page<Partner> page = partnerRepository.searchPartners(tenantId, partnerType, status, keyword, pageable);
+        Page<Partner> page = partnerRepository.searchPartners(tenantId, farmId, partnerType, status, keyword, pageable);
         return page.map(this::toPartnerResponse);
     }
 
@@ -64,6 +64,7 @@ public class PartnerServiceImpl implements PartnerService {
 
         Partner partner = Partner.builder()
                 .tenantId(tenantId)
+                .farmId(request.getFarmId())
                 .code(code)
                 .name(request.getName().trim())
                 .partnerType(request.getPartnerType())
@@ -71,6 +72,12 @@ public class PartnerServiceImpl implements PartnerService {
                 .phone(request.getPhone())
                 .email(request.getEmail())
                 .address(request.getAddress())
+                .contactPerson(request.getContactPerson())
+                .bankBin(request.getBankBin())
+                .bankName(request.getBankName())
+                .bankAccountNo(request.getBankAccountNo())
+                .bankAccountName(request.getBankAccountName())
+                .bankAccountInfo(request.getNotes())
                 .creditLimit(request.getCreditLimit() != null ? request.getCreditLimit() : BigDecimal.ZERO)
                 .paymentTermDays(request.getPaymentTermDays() != null ? request.getPaymentTermDays() : 0)
                 .creditRating(request.getCreditRating() != null ? request.getCreditRating() : "A")
@@ -100,12 +107,19 @@ public class PartnerServiceImpl implements PartnerService {
         Partner partner = partnerRepository.findByTenantIdAndId(tenantId, id)
                 .orElseThrow(() -> new ResourceNotFoundException("Đối tác", id));
 
+        if (request.getFarmId() != null) partner.setFarmId(request.getFarmId());
         partner.setName(request.getName().trim());
         partner.setPartnerType(request.getPartnerType());
         partner.setTaxCode(request.getTaxCode());
         partner.setPhone(request.getPhone());
         partner.setEmail(request.getEmail());
         partner.setAddress(request.getAddress());
+        if (request.getContactPerson() != null) partner.setContactPerson(request.getContactPerson());
+        if (request.getBankBin() != null) partner.setBankBin(request.getBankBin());
+        if (request.getBankName() != null) partner.setBankName(request.getBankName());
+        if (request.getBankAccountNo() != null) partner.setBankAccountNo(request.getBankAccountNo());
+        if (request.getBankAccountName() != null) partner.setBankAccountName(request.getBankAccountName());
+        if (request.getNotes() != null) partner.setBankAccountInfo(request.getNotes());
         if (request.getCreditLimit() != null) partner.setCreditLimit(request.getCreditLimit());
         if (request.getPaymentTermDays() != null) partner.setPaymentTermDays(request.getPaymentTermDays());
         if (request.getCreditRating() != null) partner.setCreditRating(request.getCreditRating());
@@ -153,19 +167,39 @@ public class PartnerServiceImpl implements PartnerService {
     }
 
     private PartnerResponse toPartnerResponse(Partner p) {
-        BigDecimal currentDebt = BigDecimal.ZERO;
+        BigDecimal currentReceivableDebt = BigDecimal.ZERO;
+        BigDecimal currentPayableDebt = BigDecimal.ZERO;
         try {
-            BigDecimal debt = jdbcTemplate.queryForObject(
-                    "SELECT COALESCE(SUM(remaining_amount), 0.00) FROM debt_records WHERE partner_id = ? AND status IN ('PENDING', 'PARTIAL')",
+            BigDecimal rec = jdbcTemplate.queryForObject(
+                    "SELECT COALESCE(SUM(remaining_debt), 0.00) FROM debt_records WHERE partner_id = ? AND debt_type = 'RECEIVABLE' AND status != 'PAID'",
                     BigDecimal.class, p.getId());
-            if (debt != null) currentDebt = debt;
+            if (rec != null) currentReceivableDebt = rec;
         } catch (Exception ex) {
-            log.debug("No debt found for partner {}: {}", p.getId(), ex.getMessage());
+            log.debug("No receivable debt found for partner {}: {}", p.getId(), ex.getMessage());
+        }
+
+        try {
+            BigDecimal pay = jdbcTemplate.queryForObject(
+                    "SELECT COALESCE(SUM(remaining_debt), 0.00) FROM debt_records WHERE partner_id = ? AND debt_type = 'PAYABLE' AND status != 'PAID'",
+                    BigDecimal.class, p.getId());
+            if (pay != null) currentPayableDebt = pay;
+        } catch (Exception ex) {
+            log.debug("No payable debt found for partner {}: {}", p.getId(), ex.getMessage());
+        }
+
+        String farmName = null;
+        if (p.getFarmId() != null) {
+            try {
+                farmName = jdbcTemplate.queryForObject(
+                        "SELECT name FROM farms WHERE id = ?", String.class, p.getFarmId());
+            } catch (Exception ignored) {}
         }
 
         return PartnerResponse.builder()
                 .id(p.getId())
                 .tenantId(p.getTenantId())
+                .farmId(p.getFarmId())
+                .farmName(farmName)
                 .code(p.getCode())
                 .name(p.getName())
                 .partnerType(p.getPartnerType())
@@ -173,11 +207,19 @@ public class PartnerServiceImpl implements PartnerService {
                 .phone(p.getPhone())
                 .email(p.getEmail())
                 .address(p.getAddress())
+                .contactPerson(p.getContactPerson())
+                .bankBin(p.getBankBin())
+                .bankName(p.getBankName())
+                .bankAccountNo(p.getBankAccountNo())
+                .bankAccountName(p.getBankAccountName())
                 .creditLimit(p.getCreditLimit())
                 .paymentTermDays(p.getPaymentTermDays())
                 .creditRating(p.getCreditRating())
                 .status(p.getStatus())
-                .currentDebt(currentDebt)
+                .notes(p.getBankAccountInfo())
+                .currentDebt(currentReceivableDebt.subtract(currentPayableDebt))
+                .currentReceivableDebt(currentReceivableDebt)
+                .currentPayableDebt(currentPayableDebt)
                 .createdAt(p.getCreatedAt())
                 .updatedAt(p.getUpdatedAt())
                 .build();

@@ -4,6 +4,7 @@ import com.farm.saas.common.audit.AuditTrailEvent;
 import com.farm.saas.common.exception.ApiException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
+import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.geography.dto.request.CreateFarmRequest;
 import com.farm.saas.modules.geography.dto.request.UpdateFarmRequest;
@@ -246,10 +247,24 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
 
     private FarmDetailResponse enrichFarmDetail(Farm farm) {
         String managerFullName = null;
+        String managerEmployeeCode = null;
+        String managerPhone = null;
         if (farm.getManagerUserId() != null) {
-            managerFullName = userRepository.findById(farm.getManagerUserId())
-                    .map(u -> u.getFullName())
-                    .orElse(null);
+            User mgrUser = userRepository.findById(farm.getManagerUserId()).orElse(null);
+            if (mgrUser != null) {
+                managerFullName = mgrUser.getFullName();
+                managerPhone = mgrUser.getPhone();
+            }
+            try {
+                List<String> codes = jdbcTemplate.query(
+                        "SELECT employee_code FROM employee_profiles WHERE user_id = ? LIMIT 1",
+                        (rs, rowNum) -> rs.getString("employee_code"),
+                        farm.getManagerUserId());
+                if (!codes.isEmpty()) {
+                    managerEmployeeCode = codes.get(0);
+                }
+            } catch (Exception ignored) {
+            }
         }
 
         Long activeZonesCount = 0L;
@@ -291,6 +306,8 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
                 .address(farm.getAddress())
                 .managerUserId(farm.getManagerUserId())
                 .managerFullName(managerFullName)
+                .managerEmployeeCode(managerEmployeeCode)
+                .managerPhone(managerPhone)
                 .status(farm.getStatus())
                 .activeZonesCount(activeZonesCount)
                 .activeEmployeesCount(activeEmployeesCount)

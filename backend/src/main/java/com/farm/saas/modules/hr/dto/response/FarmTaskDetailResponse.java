@@ -22,6 +22,8 @@ public class FarmTaskDetailResponse {
     private String status;
     private Long assignedToEmployeeId;
     private String assignedToEmployeeName;
+    private Boolean assignedToHasAccount;
+    private Long assignedToUserId;
     private Long assignedByUserId;
     private String assignedByName;
     private Instant deadline;
@@ -40,6 +42,8 @@ public class FarmTaskDetailResponse {
         private Long employeeId;
         private String employeeName;
         private String employeeCode;
+        private Boolean hasUserAccount;
+        private Long userId;
         private String roleInTask;
         private Instant assignedAt;
     }

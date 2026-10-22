@@ -24,5 +24,7 @@ public class UserDetailResponse {
     private Boolean mustChangePassword;
     private List<UserInfoDto.RoleDto> roles;
     private List<UserInfoDto.AccessibleFarmDto> accessibleFarms;
+    private List<UserInfoDto.FarmAssignmentDto> farmAssignments;
+    private String operationalRole;
     private Instant createdAt;
 }

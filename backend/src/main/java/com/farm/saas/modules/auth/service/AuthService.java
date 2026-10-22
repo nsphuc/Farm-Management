@@ -12,8 +12,9 @@ import java.util.List;
 public interface AuthService {
     AuthResponse login(LoginRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse);
     AuthResponse refreshToken(String refreshToken, HttpServletRequest httpRequest, HttpServletResponse httpResponse);
-    void logout(String refreshToken, HttpServletResponse httpResponse);
+    AuthResponse changePassword(ChangePasswordRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse);
     void changePassword(ChangePasswordRequest request);
+    void logout(String refreshToken, HttpServletResponse httpResponse);
     UserInfoDto getMe();
     List<String> getMyPermissions();
 }

@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 public interface ProductBatchService {
     ProductBatchDetailResponse createProductBatch(Long farmId, CreateProductBatchRequest request);
     Page<ProductBatchDetailResponse> getProductBatches(Long farmId, Pageable pageable);
+    Page<ProductBatchDetailResponse> getProductBatches(Long farmId, String status, String keyword, Pageable pageable);
     ProductBatchDetailResponse getProductBatchById(Long farmId, Long id);
     ProductBatchDetailResponse approveBatch(Long farmId, Long id, ApproveProductBatchRequest request);
     ProductBatchDetailResponse rejectBatch(Long farmId, Long id, RejectProductBatchRequest request);

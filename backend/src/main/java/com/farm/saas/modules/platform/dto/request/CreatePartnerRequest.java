@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class CreatePartnerRequest {
 
+    private Long farmId;
+
     @Size(max = 50, message = "Mã đối tác tối đa 50 ký tự")
     private String code;
 
@@ -49,6 +51,21 @@ public class CreatePartnerRequest {
     @Pattern(regexp = "^(A|B|C)$", message = "Xếp hạng tín dụng phải là A, B hoặc C")
     @Builder.Default
     private String creditRating = "A";
+
+    @Size(max = 150, message = "Người liên hệ tối đa 150 ký tự")
+    private String contactPerson;
+
+    @Size(max = 20, message = "Mã định danh ngân hàng (BIN) tối đa 20 ký tự")
+    private String bankBin;
+
+    @Size(max = 100, message = "Tên ngân hàng tối đa 100 ký tự")
+    private String bankName;
+
+    @Size(max = 50, message = "Số tài khoản ngân hàng tối đa 50 ký tự")
+    private String bankAccountNo;
+
+    @Size(max = 150, message = "Tên chủ tài khoản tối đa 150 ký tự")
+    private String bankAccountName;
 
     @Size(max = 500, message = "Ghi chú tối đa 500 ký tự")
     private String notes;

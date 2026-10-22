@@ -22,6 +22,9 @@ public class Partner {
     @Column(name = "tenant_id", nullable = false)
     private Long tenantId;
 
+    @Column(name = "farm_id")
+    private Long farmId;
+
     @Column(name = "code", nullable = false, length = 50)
     private String code;
 

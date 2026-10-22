@@ -21,11 +21,15 @@ import com.farm.saas.modules.auth.repository.RoleRepository;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.auth.repository.UserRoleRepository;
 import com.farm.saas.modules.geography.entity.Farm;
+import com.farm.saas.modules.geography.entity.FarmAssignment;
 import com.farm.saas.modules.geography.entity.UserFarmAccess;
+import com.farm.saas.modules.geography.repository.FarmAssignmentRepository;
 import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.geography.repository.UserFarmAccessRepository;
 import com.farm.saas.modules.platform.entity.Tenant;
+import com.farm.saas.modules.platform.entity.TenantSubscription;
 import com.farm.saas.modules.platform.repository.TenantRepository;
+import com.farm.saas.modules.platform.repository.TenantSubscriptionRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -55,8 +59,10 @@ public class AuthServiceImpl implements AuthService {
     private final RolePermissionRepository rolePermissionRepository;
     private final PermissionRepository permissionRepository;
     private final UserFarmAccessRepository userFarmAccessRepository;
+    private final FarmAssignmentRepository farmAssignmentRepository;
     private final FarmRepository farmRepository;
     private final TenantRepository tenantRepository;
+    private final TenantSubscriptionRepository tenantSubscriptionRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
@@ -233,7 +239,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     @Transactional
-    public void changePassword(ChangePasswordRequest request) {
+    public AuthResponse changePassword(ChangePasswordRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         Long currentUserId = SecurityUtils.getCurrentUserId();
         if (currentUserId == null) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Chưa đăng nhập.");
@@ -255,8 +261,29 @@ public class AuthServiceImpl implements AuthService {
         user.setUpdatedAt(Instant.now());
         userRepository.saveAndFlush(user);
 
-        // Thu hồi toàn bộ refresh token cũ để ép đăng nhập lại nếu muốn hoặc bảo mật
+        // Thu hồi toàn bộ refresh token cũ
         refreshTokenRepository.revokeAllByUserId(user.getId(), Instant.now());
+
+        // Sinh cặp Token mới với mustChangePassword = false để người dùng tiếp tục phiên làm việc mượt mà
+        String newRefreshTokenStr = UUID.randomUUID().toString();
+        RefreshToken newToken = RefreshToken.builder()
+                .userId(user.getId())
+                .token(newRefreshTokenStr)
+                .expiresAt(Instant.now().plusSeconds(7 * 24 * 3600))
+                .revoked(false)
+                .createdAt(Instant.now())
+                .createdByIp(getClientIp(httpRequest))
+                .userAgent(httpRequest != null ? httpRequest.getHeader("User-Agent") : null)
+                .build();
+        refreshTokenRepository.save(newToken);
+
+        if (httpResponse != null) {
+            setRefreshTokenCookie(httpResponse, newRefreshTokenStr, 7 * 24 * 3600);
+        }
+
+        UserInfoDto userInfo = buildUserInfoDto(user);
+        CustomUserDetails userDetails = buildUserDetails(user, userInfo);
+        String accessToken = jwtTokenProvider.generateAccessToken(userDetails);
 
         eventPublisher.publishEvent(AuditTrailEvent.builder()
                 .tenantId(user.getTenantId())
@@ -265,7 +292,23 @@ public class AuthServiceImpl implements AuthService {
                 .module("AUTH")
                 .endpoint("/api/v1/auth/change-password")
                 .method("POST")
+                .ipAddress(getClientIp(httpRequest))
+                .userAgent(httpRequest != null ? httpRequest.getHeader("User-Agent") : null)
                 .build());
+
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .tokenType("Bearer")
+                .expiresIn(1800L)
+                .mustChangePassword(false)
+                .userInfo(userInfo)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(ChangePasswordRequest request) {
+        changePassword(request, null, null);
     }
 
     @Override
@@ -310,20 +353,125 @@ public class AuthServiceImpl implements AuthService {
                     .collect(Collectors.toList());
         }
 
-        // Fetch accessible farms
+        boolean isSuperAdmin = Boolean.TRUE.equals(user.getIsSuperAdmin()) || roles.stream().anyMatch(r -> "ROLE_SUPER_ADMIN".equals(r.getCode()));
+        boolean isOwnerTenantScope = roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equals(r.getCode()) && "TENANT".equalsIgnoreCase(r.getScopeLevel()));
+        boolean hasOwnerRole = roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equals(r.getCode()));
+        boolean hasAccountantRole = roles.stream().anyMatch(r -> "ROLE_ACCOUNTANT".equals(r.getCode()));
+        boolean hasTechRole = roles.stream().anyMatch(r -> "ROLE_TECHNICAL_STAFF".equals(r.getCode()));
+        boolean hasWarehouseRole = roles.stream().anyMatch(r -> "ROLE_WAREHOUSE_STAFF".equals(r.getCode()));
+        boolean hasFieldStaffRole = roles.stream().anyMatch(r -> "ROLE_FIELD_STAFF".equals(r.getCode()));
+
+        // Fetch Farm Assignments
+        List<FarmAssignment> activeAssignments = farmAssignmentRepository.findByUserIdAndIsActiveTrue(user.getId());
+        List<UserInfoDto.FarmAssignmentDto> assignmentDtos = activeAssignments.stream().map(a -> {
+            String fName = farmRepository.findById(a.getFarmId()).map(Farm::getName).orElse(null);
+            return UserInfoDto.FarmAssignmentDto.builder()
+                    .id(a.getId())
+                    .farmId(a.getFarmId())
+                    .farmName(fName)
+                    .zoneId(a.getZoneId())
+                    .roleInFarm(a.getRoleInFarm())
+                    .isActive(a.getIsActive())
+                    .build();
+        }).toList();
+
+        // Collect accessible farm IDs
+        Set<Long> accessibleFarmIds = new LinkedHashSet<>();
         List<UserFarmAccess> accesses = userFarmAccessRepository.findByUserId(user.getId());
-        List<UserInfoDto.AccessibleFarmDto> farmDtos = new ArrayList<>();
         for (UserFarmAccess access : accesses) {
-            Optional<Farm> farmOpt = farmRepository.findById(access.getFarmId());
+            accessibleFarmIds.add(access.getFarmId());
+        }
+
+        List<Farm> managedFarms = farmRepository.findByManagerUserId(user.getId());
+        for (Farm mf : managedFarms) {
+            accessibleFarmIds.add(mf.getId());
+        }
+
+        for (FarmAssignment fa : activeAssignments) {
+            accessibleFarmIds.add(fa.getFarmId());
+        }
+
+        if ((isSuperAdmin || isOwnerTenantScope) && user.getTenantId() != null) {
+            List<Farm> allTenantFarms = farmRepository.findByTenantId(user.getTenantId());
+            for (Farm tf : allTenantFarms) {
+                accessibleFarmIds.add(tf.getId());
+            }
+        }
+
+        List<UserInfoDto.AccessibleFarmDto> farmDtos = new ArrayList<>();
+        boolean isDirectFarmManager = !managedFarms.isEmpty() || activeAssignments.stream().anyMatch(a -> "FARM_MANAGER".equalsIgnoreCase(a.getRoleInFarm()));
+
+        for (Long farmId : accessibleFarmIds) {
+            Optional<Farm> farmOpt = farmRepository.findById(farmId);
             if (farmOpt.isPresent()) {
                 Farm farm = farmOpt.get();
+                if ("DELETED".equalsIgnoreCase(farm.getStatus())) {
+                    continue;
+                }
+
+                boolean isManagerOfThisFarm = farm.getManagerUserId() != null && farm.getManagerUserId().equals(user.getId());
+                Optional<FarmAssignment> farmSpecificAssignment = activeAssignments.stream()
+                        .filter(a -> a.getFarmId().equals(farm.getId()))
+                        .findFirst();
+
+                if (farmSpecificAssignment.isPresent() && "FARM_MANAGER".equalsIgnoreCase(farmSpecificAssignment.get().getRoleInFarm())) {
+                    isManagerOfThisFarm = true;
+                }
+
+                String assignedRole = "MEMBER";
+                if (isManagerOfThisFarm) {
+                    assignedRole = "FARM_MANAGER";
+                } else if (farmSpecificAssignment.isPresent()) {
+                    assignedRole = farmSpecificAssignment.get().getRoleInFarm();
+                } else if (isOwnerTenantScope) {
+                    assignedRole = "FARM_OWNER";
+                } else if (hasAccountantRole) {
+                    assignedRole = "ACCOUNTANT";
+                } else if (hasTechRole) {
+                    assignedRole = "TECHNICAL_LEAD";
+                } else if (hasWarehouseRole) {
+                    assignedRole = "WAREHOUSE_KEEPER";
+                } else if (hasFieldStaffRole) {
+                    assignedRole = "FIELD_WORKER";
+                }
+
                 farmDtos.add(UserInfoDto.AccessibleFarmDto.builder()
                         .farmId(farm.getId())
                         .farmCode(farm.getCode())
                         .farmName(farm.getName())
                         .farmType(farm.getFarmType())
-                        .assignedRole("MEMBER")
+                        .assignedRole(assignedRole)
+                        .isManager(isManagerOfThisFarm || isOwnerTenantScope)
+                        .managerUserId(farm.getManagerUserId())
                         .build());
+            }
+        }
+
+        // Operational Role resolution
+        String operationalRole = "STAFF";
+        if (isSuperAdmin) {
+            operationalRole = "SUPER_ADMIN";
+        } else if (isOwnerTenantScope || (hasOwnerRole && !isDirectFarmManager && farmDtos.size() > 1)) {
+            operationalRole = "OWNER";
+        } else if (isDirectFarmManager || (hasOwnerRole && !isOwnerTenantScope)) {
+            operationalRole = "FARM_MANAGER";
+        } else if (hasAccountantRole) {
+            operationalRole = "FARM_ACCOUNTANT";
+        } else if (hasTechRole || activeAssignments.stream().anyMatch(a -> Arrays.asList("ZONE_MANAGER", "TECHNICAL_LEAD", "AGRONOMIST", "VETERINARIAN").contains(a.getRoleInFarm()))) {
+            operationalRole = "TECHNICAL_LEAD";
+        } else if (hasWarehouseRole || activeAssignments.stream().anyMatch(a -> "WAREHOUSE_KEEPER".equalsIgnoreCase(a.getRoleInFarm()))) {
+            operationalRole = "WAREHOUSE_KEEPER";
+        } else if (hasFieldStaffRole || activeAssignments.stream().anyMatch(a -> "FIELD_WORKER".equalsIgnoreCase(a.getRoleInFarm()))) {
+            operationalRole = "FIELD_WORKER";
+        }
+
+        Integer maxFarms = null;
+        String planType = null;
+        if (user.getTenantId() != null) {
+            TenantSubscription activeSub = tenantSubscriptionRepository.findByTenantIdAndIsActiveTrue(user.getTenantId()).orElse(null);
+            if (activeSub != null) {
+                maxFarms = activeSub.getMaxFarms();
+                planType = activeSub.getPlanType();
             }
         }
 
@@ -334,11 +482,15 @@ public class AuthServiceImpl implements AuthService {
                 .fullName(user.getFullName())
                 .email(user.getEmail())
                 .phone(user.getPhone())
-                .isSuperAdmin(Boolean.TRUE.equals(user.getIsSuperAdmin()))
+                .isSuperAdmin(isSuperAdmin)
                 .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
                 .roles(roleDtos)
                 .permissions(permCodes)
                 .accessibleFarms(farmDtos)
+                .farmAssignments(assignmentDtos)
+                .operationalRole(operationalRole)
+                .maxFarms(maxFarms)
+                .planType(planType)
                 .build();
     }
 

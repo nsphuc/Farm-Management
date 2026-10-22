@@ -25,11 +25,12 @@ public class PartnerController {
     @GetMapping
     @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT') or hasAuthority('PERM_FARM_VIEW')")
     public ResponseEntity<Page<PartnerResponse>> getPartners(
+            @RequestParam(required = false) Long farmId,
             @RequestParam(required = false) String partnerType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<PartnerResponse> response = partnerService.getPartners(partnerType, status, keyword, pageable);
+        Page<PartnerResponse> response = partnerService.getPartners(farmId, partnerType, status, keyword, pageable);
         return ResponseEntity.ok(response);
     }
 

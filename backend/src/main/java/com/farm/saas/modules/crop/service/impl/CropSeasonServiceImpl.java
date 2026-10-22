@@ -39,6 +39,7 @@ public class CropSeasonServiceImpl implements CropSeasonService {
     private final ProductionZoneRepository productionZoneRepository;
     private final OperationalCycleRepository operationalCycleRepository;
     private final CropTypeRepository cropTypeRepository;
+    private final com.farm.saas.modules.hr.service.FarmTaskService farmTaskService;
 
     @Override
     @Transactional(readOnly = true)
@@ -124,6 +125,7 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         if (request.getActualYieldKg() != null) {
             season.setActualYieldKg(request.getActualYieldKg());
         }
+        boolean wasClosed = "CLOSED".equalsIgnoreCase(season.getStatus());
         if (StringUtils.hasText(request.getStatus())) {
             season.setStatus(request.getStatus());
         }
@@ -131,6 +133,10 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         season.setUpdatedAt(Instant.now());
         season.setUpdatedBy(SecurityUtils.getCurrentUserId());
         season = cropSeasonRepository.save(season);
+
+        if (!wasClosed && "CLOSED".equalsIgnoreCase(season.getStatus())) {
+            farmTaskService.cancelPendingRoutineTasksForZone(farmId, season.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+        }
 
         return mapToDetailResponse(season);
     }
@@ -151,6 +157,8 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         season.setUpdatedAt(Instant.now());
         season.setUpdatedBy(SecurityUtils.getCurrentUserId());
         season = cropSeasonRepository.save(season);
+
+        farmTaskService.cancelPendingRoutineTasksForZone(farmId, season.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
 
         log.info("Closed crop season id={} on farmId={}", season.getId(), farmId);
         return mapToDetailResponse(season);

@@ -10,6 +10,5 @@ services:
       - "3309:3306"
     volumes:
       - farm_mysql_data:/var/lib/mysql
-
 volumes:
   farm_mysql_data:

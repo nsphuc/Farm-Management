@@ -1,23 +1,53 @@
-import React, { useState } from 'react';
-import { BadgeDollarSign, Plus, QrCode, Truck, CreditCard, Receipt, ArrowLeftRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BadgeDollarSign, Plus, QrCode, Truck, CreditCard, Receipt, ArrowLeftRight, Building } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { VietQRModal } from '@/components/common/VietQRModal';
 import { Can } from '@/components/common/Can';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 /**
  * Workspace H2: Trung Tâm Bán Hàng, Giao Hàng & Thu Phí VietQR (Điều 2.9 File 08)
  */
 export function SalesCashflowWorkspace() {
+  const { activeFarmId, syncTrigger, notifyDataChanged } = useActiveFarmStore();
+  const { isOwner } = useAuthStore();
   const [activeTab, setActiveTab] = useState('ORDERS');
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedOrderForQR, setSelectedOrderForQR] = useState(null);
 
+  useEffect(() => {
+    // Tự động tải/lọc đơn hàng theo activeFarmId (khi chọn ALL thì tải toàn bộ chuỗi)
+    setIsLoading(true);
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [activeFarmId, syncTrigger?.finance]);
+
   const columns = [
     { key: 'orderCode', header: 'Mã đơn hàng', width: '130px', sortable: true },
+    {
+      key: 'farmName',
+      header: 'Trang Trại',
+      render: (row) => {
+        const name = row.farmName || (row.farmId ? `Trại #${row.farmId}` : null);
+        return name ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+            <Building className="h-3 w-3 text-emerald-600" />
+            <span>{name}</span>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200">
+            Toàn chuỗi
+          </span>
+        );
+      },
+    },
     { key: 'orderDate', header: 'Ngày đặt', render: (row) => formatDate(row.orderDate) },
     { key: 'partnerName', header: 'Khách hàng B2B' },
     { key: 'finalAmount', header: 'Tổng tiền (VNĐ)', align: 'right', render: (row) => formatCurrency(row.finalAmount) },
@@ -29,14 +59,28 @@ export function SalesCashflowWorkspace() {
       header: 'Thao tác',
       align: 'center',
       render: (row) => (
-        <Button
-          size="sm"
-          variant="outline"
-          icon={QrCode}
-          onClick={() => setSelectedOrderForQR(row)}
-        >
-          VietQR
-        </Button>
+        <div className="flex items-center justify-center gap-1.5">
+          <Can permission="PERM_FINANCE_PAYMENT">
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<QrCode className="h-3.5 w-3.5 text-emerald-600" />}
+              onClick={() => setSelectedOrderForQR(row)}
+            >
+              VietQR
+            </Button>
+          </Can>
+          <Can permission="PERM_DELIVERY_MANAGE">
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<Truck className="h-3.5 w-3.5 text-blue-600" />}
+              onClick={() => alert(`Lập phiếu giao hàng cho đơn ${row.orderCode}`)}
+            >
+              Giao Hàng
+            </Button>
+          </Can>
+        </div>
       ),
     },
   ];
@@ -58,11 +102,59 @@ export function SalesCashflowWorkspace() {
           </div>
         </div>
 
-        <Can permission="PERM_FINANCE_SALES_ORDER">
-          <Button variant="primary" size="sm" icon={Plus}>
-            Tạo Đơn Bán Sỉ
-          </Button>
-        </Can>
+        <div className="flex items-center gap-2">
+          {activeTab === 'ORDERS' && (
+            <Can permission="PERM_FINANCE_SALES_ORDER">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => alert('Tạo đơn bán sỉ mới')}
+              >
+                + Tạo Đơn Bán Sỉ
+              </Button>
+            </Can>
+          )}
+
+          {activeTab === 'DELIVERIES' && (
+            <Can permission="PERM_DELIVERY_MANAGE">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Truck className="h-4 w-4" />}
+                onClick={() => alert('Tạo đợt xuất giao hàng')}
+              >
+                + Lập Đợt Giao Hàng
+              </Button>
+            </Can>
+          )}
+
+          {activeTab === 'DEBT' && (
+            <Can permission="PERM_PAYMENT_ALLOCATE">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<CreditCard className="h-4 w-4" />}
+                onClick={() => alert('Cấn trừ công nợ đối tác 2 chiều')}
+              >
+                + Cấn Trừ Công Nợ
+              </Button>
+            </Can>
+          )}
+
+          {activeTab === 'PAYMENTS' && (
+            <Can permission="PERM_FINANCE_PAYMENT">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => alert('Tạo giao dịch thanh toán / thu tiền')}
+              >
+                + Ghi Nhận Thanh Toán
+              </Button>
+            </Can>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}

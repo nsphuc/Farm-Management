@@ -1,6 +1,7 @@
 package com.farm.saas.common.security;
 
 import com.farm.saas.common.exception.ApiErrorResponse;
+import com.farm.saas.modules.auth.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -26,6 +27,7 @@ import java.util.Set;
 public class PasswordChangeEnforcementFilter extends OncePerRequestFilter {
 
     private final ObjectMapper objectMapper;
+    private final UserRepository userRepository;
 
     private static final Set<String> ALLOWED_PATHS = Set.of(
             "/api/v1/auth/change-password",
@@ -51,22 +53,29 @@ public class PasswordChangeEnforcementFilter extends OncePerRequestFilter {
                         || path.startsWith("/swagger-ui");
 
                 if (!isAllowed) {
-                    log.warn("Blocked request to {} because user {} must change password", path, user.getUsername());
-                    response.setStatus(HttpStatus.FORBIDDEN.value());
-                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                    response.setCharacterEncoding("UTF-8");
+                    // Kiểm tra dự phòng trong DB: nếu người dùng vừa đổi mật khẩu xong nhưng gửi token cũ
+                    boolean stillMustChange = userRepository.findById(user.getId())
+                            .map(u -> Boolean.TRUE.equals(u.getMustChangePassword()))
+                            .orElse(true);
 
-                    ApiErrorResponse error = ApiErrorResponse.builder()
-                            .timestamp(Instant.now())
-                            .status(HttpStatus.FORBIDDEN.value())
-                            .error("Forbidden")
-                            .errorCode("FORCE_PASSWORD_CHANGE_REQUIRED")
-                            .message("Tài khoản bắt buộc phải đổi mật khẩu trước khi tiếp tục thao tác trên hệ thống.")
-                            .path(path)
-                            .build();
+                    if (stillMustChange) {
+                        log.warn("Blocked request to {} because user {} must change password", path, user.getUsername());
+                        response.setStatus(HttpStatus.FORBIDDEN.value());
+                        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                        response.setCharacterEncoding("UTF-8");
 
-                    response.getWriter().write(objectMapper.writeValueAsString(error));
-                    return;
+                        ApiErrorResponse error = ApiErrorResponse.builder()
+                                .timestamp(Instant.now())
+                                .status(HttpStatus.FORBIDDEN.value())
+                                .error("Forbidden")
+                                .errorCode("FORCE_PASSWORD_CHANGE_REQUIRED")
+                                .message("Tài khoản bắt buộc phải đổi mật khẩu trước khi tiếp tục thao tác trên hệ thống.")
+                                .path(path)
+                                .build();
+
+                        response.getWriter().write(objectMapper.writeValueAsString(error));
+                        return;
+                    }
                 }
             }
         }

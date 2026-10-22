@@ -68,6 +68,7 @@ public class LivestockServiceImpl implements LivestockService {
     private final WarehouseInventoryTransactionRepository warehouseInventoryTransactionRepository;
     private final CostCategoryRepository costCategoryRepository;
     private final FarmExpenseRepository farmExpenseRepository;
+    private final com.farm.saas.modules.hr.service.FarmTaskService farmTaskService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
 
@@ -146,6 +147,7 @@ public class LivestockServiceImpl implements LivestockService {
         if (request.getCurrentQuantity() != null) {
             group.setCurrentQuantity(request.getCurrentQuantity());
         }
+        String oldStatus = group.getStatus();
         if (StringUtils.hasText(request.getStatus())) {
             group.setStatus(request.getStatus());
         }
@@ -153,6 +155,12 @@ public class LivestockServiceImpl implements LivestockService {
         group.setUpdatedAt(Instant.now());
         group.setUpdatedBy(SecurityUtils.getCurrentUserId());
         group = livestockGroupRepository.save(group);
+
+        if (("SOLD".equalsIgnoreCase(group.getStatus()) || "CULLED".equalsIgnoreCase(group.getStatus()))
+                && !group.getStatus().equalsIgnoreCase(oldStatus)) {
+            farmTaskService.cancelPendingRoutineTasksForZone(farmId, group.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+        }
+
         return mapToGroupDetailResponse(group);
     }
 

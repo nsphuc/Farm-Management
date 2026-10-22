@@ -2,6 +2,7 @@ package com.farm.saas.modules.geography.service.impl;
 
 import com.farm.saas.common.audit.AuditTrailEvent;
 import com.farm.saas.common.exception.ApiException;
+import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.auth.entity.User;
@@ -16,6 +17,8 @@ import com.farm.saas.modules.geography.dto.response.OperationalCycleResponse;
 import com.farm.saas.modules.geography.entity.*;
 import com.farm.saas.modules.geography.repository.*;
 import com.farm.saas.modules.geography.service.FarmOperationsService;
+import com.farm.saas.modules.hr.entity.Employee;
+import com.farm.saas.modules.hr.repository.EmployeeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -41,11 +44,13 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
     private final FarmOperationalSettingRepository farmOperationalSettingRepository;
     private final UserFarmAccessRepository userFarmAccessRepository;
     private final UserRepository userRepository;
+    private final EmployeeRepository employeeRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     private static final Set<String> VALID_ROLES_IN_FARM = Set.of(
-            "FARM_MANAGER", "DEPUTY_MANAGER", "AGRONOMIST", "VETERINARIAN",
-            "ZONE_LEADER", "FIELD_WORKER", "GUARDS_SECURITY"
+            "FARM_MANAGER", "ZONE_MANAGER", "ZONE_LEADER", "TECHNICAL_LEAD",
+            "AGRONOMIST", "VETERINARIAN", "WAREHOUSE_KEEPER", "ACCOUNTANT",
+            "FIELD_WORKER", "DEPUTY_MANAGER", "GUARDS_SECURITY"
     );
 
     private static final Set<String> VALID_CYCLE_STATUSES = Set.of(
@@ -78,19 +83,55 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                     "Ngày kết thúc phân công phải lớn hơn hoặc bằng ngày bắt đầu.");
         }
 
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new ResourceNotFoundException("Người dùng", request.getUserId()));
+        User user = null;
+        Employee employee = null;
+
+        Optional<User> userOpt = userRepository.findById(request.getUserId());
+        if (userOpt.isPresent()) {
+            user = userOpt.get();
+            employee = employeeRepository.findByUserId(user.getId()).orElse(null);
+        } else {
+            // Trường hợp client truyền ID của bản ghi Employee
+            Optional<Employee> empOpt = employeeRepository.findById(request.getUserId());
+            if (empOpt.isPresent()) {
+                employee = empOpt.get();
+                if (employee.getUserId() != null) {
+                    user = userRepository.findById(employee.getUserId()).orElse(null);
+                }
+            }
+        }
+
+        if (user == null && employee == null) {
+            throw new ResourceNotFoundException("Người dùng", request.getUserId());
+        }
+
+        // CÔ LẬP TUYỆT ĐỐI THEO TRANG TRẠI:
+        // Kiểm tra nhân viên được chọn bắt buộc phải có employee.getFarmId().equals(farmId),
+        // nếu thuộc trang trại khác thì ném ngay BusinessException("EMPLOYEE_BELONGS_TO_ANOTHER_FARM") (HTTP 400).
+        if (employee != null) {
+            if (employee.getFarmId() != null && !employee.getFarmId().equals(farmId)) {
+                throw new BusinessException("EMPLOYEE_BELONGS_TO_ANOTHER_FARM",
+                        String.format("Nhân viên %s (%s) thuộc trang trại khác, không thể phân công vào trang trại này.",
+                                employee.getFullName(), employee.getEmployeeCode()));
+            }
+            if (employee.getFarmId() == null) {
+                employee.setFarmId(farmId);
+                employeeRepository.save(employee);
+            }
+        }
 
         if (request.getZoneId() != null) {
             productionZoneRepository.findByFarmIdAndId(farmId, request.getZoneId())
                     .orElseThrow(() -> new ResourceNotFoundException("Phân khu", request.getZoneId()));
         }
 
+        Long targetUserId = user != null ? user.getId() : (employee != null && employee.getUserId() != null ? employee.getUserId() : request.getUserId());
+
         FarmAssignment assignment = FarmAssignment.builder()
                 .tenantId(farm.getTenantId())
                 .farmId(farmId)
                 .zoneId(request.getZoneId())
-                .userId(request.getUserId())
+                .userId(targetUserId)
                 .roleInFarm(role)
                 .assignedFrom(request.getAssignedFrom())
                 .assignedTo(request.getAssignedTo())
@@ -101,8 +142,8 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
 
         FarmAssignment saved = farmAssignmentRepository.save(assignment);
 
-        // Đảm bảo cấp quyền truy cập user_farm_access nếu chưa có
-        if (!userFarmAccessRepository.existsByUserIdAndFarmId(user.getId(), farmId)) {
+        // Đảm bảo cấp quyền truy cập user_farm_access nếu có tài khoản user và chưa có quyền
+        if (user != null && !userFarmAccessRepository.existsByUserIdAndFarmId(user.getId(), farmId)) {
             UserFarmAccess access = UserFarmAccess.builder()
                     .userId(user.getId())
                     .farmId(farmId)
@@ -113,6 +154,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
             userFarmAccessRepository.save(access);
         }
 
+        String displayNameForAudit = user != null ? user.getUsername() : (employee != null ? employee.getFullName() : String.valueOf(targetUserId));
         eventPublisher.publishEvent(AuditTrailEvent.builder()
                 .tenantId(farm.getTenantId())
                 .userId(SecurityUtils.getCurrentUserId())
@@ -120,7 +162,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                 .module("GEOGRAPHY")
                 .endpoint("/api/v1/farms/" + farmId + "/assignments")
                 .method("POST")
-                .newValue("User: " + user.getUsername() + ", Role: " + role)
+                .newValue("User: " + displayNameForAudit + ", Role: " + role)
                 .build());
 
         return toAssignmentResponse(saved, farm.getName());
