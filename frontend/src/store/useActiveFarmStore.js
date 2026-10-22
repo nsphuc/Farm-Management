@@ -116,26 +116,31 @@ export const useActiveFarmStore = create((set, get) => ({
         authStore.setAccessibleFarms(mappedAccessible);
       }
 
-      // Cập nhật activeFarm nếu chưa có hoặc khớp ID
-      const { activeFarmId } = get();
-      if (!activeFarmId || activeFarmId === 'ALL') {
-        // Mặc định luôn là 'ALL' (Tất cả trang trại toàn chuỗi) khi load trang hoặc mới đăng nhập
-        set({
-          activeFarmId: 'ALL',
-          activeFarm: {
-            id: 'ALL',
-            farmId: 'ALL',
-            name: 'Tất cả trang trại toàn chuỗi',
-            farmName: 'Tất cả trang trại toàn chuỗi',
-            code: 'ALL',
-            isAllFarms: true,
-          },
-        });
-      } else if (farmList.length > 0) {
-        const found = farmList.find((f) => Number(f.id) === Number(activeFarmId));
-        if (found) {
-          set({ activeFarm: found });
-        } else {
+      // Khóa cứng activeFarmId vào đúng trang trại phụ trách nếu là Giám đốc trang trại (FARM_MANAGER) hoặc role bị khóa
+      const isFm = authStore?.isFarmManager ? authStore.isFarmManager() : false;
+      const isLocked = authStore?.isFarmLocked ? authStore.isFarmLocked() : false;
+      const isOwner = authStore?.isOwner ? authStore.isOwner() : false;
+
+      if (isFm || (isLocked && !isOwner)) {
+        const appointedFarm =
+          farmList.find(
+            (f) =>
+              f.isManager ||
+              f.assignedRole === 'FARM_MANAGER' ||
+              Number(f.managerUserId) === Number(authStore?.userInfo?.id)
+          ) || farmList[0];
+
+        if (appointedFarm) {
+          const appointedId = Number(appointedFarm.id || appointedFarm.farmId);
+          set({
+            activeFarmId: appointedId,
+            activeFarm: appointedFarm,
+          });
+        }
+      } else {
+        const { activeFarmId } = get();
+        if (!activeFarmId || activeFarmId === 'ALL') {
+          // Mặc định luôn là 'ALL' (Tất cả trang trại toàn chuỗi) khi load trang hoặc mới đăng nhập cho Owner
           set({
             activeFarmId: 'ALL',
             activeFarm: {
@@ -147,6 +152,23 @@ export const useActiveFarmStore = create((set, get) => ({
               isAllFarms: true,
             },
           });
+        } else if (farmList.length > 0) {
+          const found = farmList.find((f) => Number(f.id) === Number(activeFarmId));
+          if (found) {
+            set({ activeFarm: found });
+          } else {
+            set({
+              activeFarmId: 'ALL',
+              activeFarm: {
+                id: 'ALL',
+                farmId: 'ALL',
+                name: 'Tất cả trang trại toàn chuỗi',
+                farmName: 'Tất cả trang trại toàn chuỗi',
+                code: 'ALL',
+                isAllFarms: true,
+              },
+            });
+          }
         }
       }
       return farmList;
@@ -161,9 +183,36 @@ export const useActiveFarmStore = create((set, get) => ({
    * Thay đổi trang trại đang tác nghiệp
    * - Hỗ trợ chọn 1 farm cụ thể (number) để cô lập 100% dữ liệu
    * - Hỗ trợ chọn "ALL" ('Tất cả trang trại toàn chuỗi') dành riêng cho Owner
+   * - FARM_MANAGER bị KHÓA CỨNG vào trại phụ trách, cấm chuyển sang ALL hay trại khác
    * Tự động reset activeZoneId và activeCycleId theo Quy tắc 1 File 09
    */
   setActiveFarmId: (farmId, accessibleFarms = []) => {
+    const authStore = useAuthStore.getState();
+    const isFm = authStore?.isFarmManager ? authStore.isFarmManager() : false;
+
+    // Giám đốc trang trại (Role 2) bị cô lập 100% vào đúng trại phụ trách
+    if (isFm) {
+      const farmPool = accessibleFarms.length > 0 ? accessibleFarms : get().farms;
+      const appointedFarm =
+        farmPool.find(
+          (f) =>
+            f.isManager ||
+            f.assignedRole === 'FARM_MANAGER' ||
+            Number(f.managerUserId) === Number(authStore?.userInfo?.id)
+        ) || farmPool[0];
+
+      if (appointedFarm) {
+        const appointedId = Number(appointedFarm.id || appointedFarm.farmId);
+        set({
+          activeFarmId: appointedId,
+          activeFarm: appointedFarm,
+          activeZoneId: null,
+          activeCycleId: null,
+        });
+        return;
+      }
+    }
+
     if (farmId === 'ALL') {
       set({
         activeFarmId: 'ALL',
@@ -196,6 +245,13 @@ export const useActiveFarmStore = create((set, get) => ({
   },
 
   setActiveFarm: (farmObject) => {
+    const authStore = useAuthStore.getState();
+    const isFm = authStore?.isFarmManager ? authStore.isFarmManager() : false;
+    if (isFm) {
+      // Giữ cố định trại phụ trách
+      return;
+    }
+
     if (!farmObject) {
       set({
         activeFarmId: null,
@@ -249,7 +305,7 @@ export const useActiveFarmStore = create((set, get) => ({
 
   /**
    * Đồng bộ từ danh sách accessibleFarms khi đăng nhập hoặc nạp userInfo
-   * Tự động chọn Farm đầu tiên nếu chưa chọn hoặc farm hiện tại không nằm trong danh sách được cấp quyền
+   * Tự động khóa cứng vào đúng trang trại đối với FARM_MANAGER
    */
   syncFromAccessibleFarms: (accessibleFarms = []) => {
     if (!accessibleFarms || !accessibleFarms.length) {
@@ -262,9 +318,34 @@ export const useActiveFarmStore = create((set, get) => ({
       return;
     }
 
-    const { activeFarmId } = get();
     const authStore = useAuthStore.getState();
+    const isFm = authStore?.isFarmManager ? authStore.isFarmManager() : false;
     const isOwner = authStore?.isOwner ? authStore.isOwner() : false;
+    const isLocked = authStore?.isFarmLocked ? authStore.isFarmLocked() : false;
+
+    // Khóa cứng FARM_MANAGER vào trang trại được bổ nhiệm (accessibleFarms[0])
+    if (isFm || (isLocked && !isOwner)) {
+      const appointedFarm =
+        accessibleFarms.find(
+          (f) =>
+            f.isManager ||
+            f.assignedRole === 'FARM_MANAGER' ||
+            Number(f.managerUserId) === Number(authStore?.userInfo?.id)
+        ) || accessibleFarms[0];
+
+      if (appointedFarm) {
+        const appointedId = Number(appointedFarm.farmId || appointedFarm.id);
+        set({
+          activeFarmId: appointedId,
+          activeFarm: appointedFarm,
+          activeZoneId: null,
+          activeCycleId: null,
+        });
+      }
+      return;
+    }
+
+    const { activeFarmId } = get();
 
     // Nếu đang chọn ALL và là Owner, giữ nguyên ALL
     if (activeFarmId === 'ALL' && isOwner) {

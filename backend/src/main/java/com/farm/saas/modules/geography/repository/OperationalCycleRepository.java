@@ -8,5 +8,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface OperationalCycleRepository extends JpaRepository<OperationalCycle, Long>, JpaSpecificationExecutor<OperationalCycle> {
     java.util.List<OperationalCycle> findByFarmId(Long farmId);
+    java.util.List<OperationalCycle> findByTenantId(Long tenantId);
     java.util.Optional<OperationalCycle> findByFarmIdAndId(Long farmId, Long id);
 }

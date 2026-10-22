@@ -10,6 +10,7 @@ import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 import { useAuthStore } from '@/store/useAuthStore';
+import { toast } from '@/store/useToastStore';
 
 const ZONE_TYPES = [
   { value: 'GREENHOUSE', label: 'GREENHOUSE - Nhà Màng / Nhà Kính Công Nghệ Cao' },
@@ -34,6 +35,7 @@ export function ZoneFormModal({
   farmTotalAreaM2 = 1000000,
   farmCenter = null,
   editingItem = null,
+  existingZones = [],
   onSuccess,
 }) {
   const { isOwner, isFarmManager } = useAuthStore();
@@ -107,8 +109,14 @@ export function ZoneFormModal({
     if (!formData.code.trim()) errors.code = 'Mã phân khu không được để trống';
     if (!formData.name.trim()) errors.name = 'Tên phân khu không được để trống';
     if (Number(formData.areaM2) <= 0) errors.areaM2 = 'Diện tích phải lớn hơn 0 m²';
-    if (farmTotalAreaM2 && Number(formData.areaM2) > Number(farmTotalAreaM2)) {
-      errors.areaM2 = `Diện tích phân khu (${formData.areaM2} m²) không được vượt quá tổng diện tích trang trại (${farmTotalAreaM2} m²)`;
+    
+    // Kiểm tra tổng diện tích các phân khu không vượt quá diện tích trang trại
+    const existingSum = (existingZones || [])
+      .filter((z) => Number(z.id) !== Number(editingItem?.id))
+      .reduce((sum, z) => sum + Number(z.areaM2 || 0), 0);
+    const newTotalArea = existingSum + Number(formData.areaM2);
+    if (farmTotalAreaM2 && newTotalArea > Number(farmTotalAreaM2)) {
+      errors.areaM2 = `Tổng diện tích các phân khu (${newTotalArea.toLocaleString()} m²) vượt quá diện tích trang trại (${Number(farmTotalAreaM2).toLocaleString()} m²)`;
     }
 
     if (Object.keys(errors).length > 0) {
@@ -129,14 +137,18 @@ export function ZoneFormModal({
         soilType: formData.soilType?.trim() || null,
         waterSource: formData.waterSource?.trim() || null,
         mapLayoutJson: formData.mapLayoutJson || null,
+        status: isProposalMode ? 'MAINTENANCE' : formData.status,
       };
 
       if (editingItem) {
         await geographyService.updateZone(farmId, editingItem.id, payload);
+        toast.success(`Cập nhật phân khu "${payload.name}" thành công!`);
       } else {
         await geographyService.createZone(farmId, payload);
         if (isProposalMode) {
-          alert('Đã gửi đề xuất mở phân khu mới đến Chủ đầu tư phê duyệt! (Trạng thái: MAINTENANCE - Chờ phê duyệt)');
+          toast.success(`Đã gửi đề xuất mở phân khu "${payload.name}" đến Chủ đầu tư! (Trạng thái: ⏳ Chờ Owner phê duyệt)`);
+        } else {
+          toast.success(`Tạo mới phân khu "${payload.name}" thành công!`);
         }
       }
 

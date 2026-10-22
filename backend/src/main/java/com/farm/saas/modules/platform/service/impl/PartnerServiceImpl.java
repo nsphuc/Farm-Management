@@ -37,7 +37,30 @@ public class PartnerServiceImpl implements PartnerService {
     @Transactional(readOnly = true)
     public Page<PartnerResponse> getPartners(Long farmId, String partnerType, String status, String keyword, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
-        Page<Partner> page = partnerRepository.searchPartners(tenantId, farmId, partnerType, status, keyword, pageable);
+        com.farm.saas.common.security.CustomUserDetails user = SecurityUtils.getCurrentUser();
+        boolean isOwner = user != null && (user.isSuperAdmin() || user.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER"));
+        java.util.Set<Long> accessibleFarmIds = SecurityUtils.getCurrentAccessibleFarmIds();
+
+        Long effectiveFarmId = farmId;
+        boolean isFarmScoped = false;
+
+        if (!isOwner) {
+            // Cán bộ cấp Trang trại (FARM_MANAGER, ACCOUNTANT, WAREHOUSE_STAFF có scope_level = 'FARM'):
+            // Bắt buộc lọc các đối tác thuộc trang trại của họ (partners.farm_id = :activeFarmId HOẶC đối tác chung toàn chuỗi partners.farm_id IS NULL)!
+            if (accessibleFarmIds == null || accessibleFarmIds.isEmpty()) {
+                log.warn("FARM scope user {} has no accessible farms. Returning empty page.", SecurityUtils.getCurrentUserId());
+                return Page.empty(pageable);
+            }
+
+            if (farmId != null && accessibleFarmIds.contains(farmId)) {
+                effectiveFarmId = farmId;
+            } else {
+                effectiveFarmId = accessibleFarmIds.iterator().next();
+            }
+            isFarmScoped = true;
+        }
+
+        Page<Partner> page = partnerRepository.searchPartners(tenantId, effectiveFarmId, isFarmScoped, partnerType, status, keyword, pageable);
         return page.map(this::toPartnerResponse);
     }
 
@@ -54,6 +77,32 @@ public class PartnerServiceImpl implements PartnerService {
     @Transactional
     public PartnerResponse createPartner(CreatePartnerRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
+        com.farm.saas.common.security.CustomUserDetails user = SecurityUtils.getCurrentUser();
+        boolean isOwner = user != null && (user.isSuperAdmin() || user.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER"));
+        java.util.Set<Long> accessibleFarmIds = SecurityUtils.getCurrentAccessibleFarmIds();
+
+        Long targetFarmId = request.getFarmId();
+        BigDecimal targetCreditLimit = request.getCreditLimit();
+
+        if (!isOwner) {
+            // Cán bộ cấp Trang trại (FARM_MANAGER hoặc Kế toán trại):
+            // Tự động gán cứng partner.setFarmId(activeFarmId) và khóa cứng creditLimit = BigDecimal.ZERO (0.00)
+            if (request.getFarmId() != null && accessibleFarmIds != null && accessibleFarmIds.contains(request.getFarmId())) {
+                targetFarmId = request.getFarmId();
+            } else if (accessibleFarmIds != null && !accessibleFarmIds.isEmpty()) {
+                targetFarmId = accessibleFarmIds.iterator().next();
+            } else {
+                throw new BusinessException("FARM_ACCESS_REQUIRED", "Cán bộ cấp trang trại chưa được phân bổ trang trại để tạo đối tác");
+            }
+            // Khóa cứng creditLimit = 0.00 (muốn tăng hạn mức nợ phải do Owner duyệt!)
+            targetCreditLimit = BigDecimal.ZERO;
+        } else {
+            // Owner: Cho phép chọn farmId (gán cho 1 trại cụ thể hoặc để null dùng chung toàn chuỗi) và được nhập creditLimit
+            if (targetCreditLimit == null) {
+                targetCreditLimit = BigDecimal.ZERO;
+            }
+        }
+
         String code = request.getCode() != null && !request.getCode().isBlank()
                 ? request.getCode().trim().toUpperCase()
                 : codeGenerator.generatePartnerCode();
@@ -64,7 +113,7 @@ public class PartnerServiceImpl implements PartnerService {
 
         Partner partner = Partner.builder()
                 .tenantId(tenantId)
-                .farmId(request.getFarmId())
+                .farmId(targetFarmId)
                 .code(code)
                 .name(request.getName().trim())
                 .partnerType(request.getPartnerType())
@@ -78,7 +127,7 @@ public class PartnerServiceImpl implements PartnerService {
                 .bankAccountNo(request.getBankAccountNo())
                 .bankAccountName(request.getBankAccountName())
                 .bankAccountInfo(request.getNotes())
-                .creditLimit(request.getCreditLimit() != null ? request.getCreditLimit() : BigDecimal.ZERO)
+                .creditLimit(targetCreditLimit)
                 .paymentTermDays(request.getPaymentTermDays() != null ? request.getPaymentTermDays() : 0)
                 .creditRating(request.getCreditRating() != null ? request.getCreditRating() : "A")
                 .status("ACTIVE")
@@ -94,7 +143,7 @@ public class PartnerServiceImpl implements PartnerService {
                 .module("COMMERCIAL")
                 .endpoint("/api/v1/partners")
                 .method("POST")
-                .newValue("Partner: " + partner.getCode() + ", Type: " + partner.getPartnerType())
+                .newValue("Partner: " + partner.getCode() + ", Type: " + partner.getPartnerType() + ", FarmId: " + partner.getFarmId())
                 .build());
 
         return toPartnerResponse(partner);
@@ -104,10 +153,24 @@ public class PartnerServiceImpl implements PartnerService {
     @Transactional
     public PartnerResponse updatePartner(Long id, UpdatePartnerRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
+        com.farm.saas.common.security.CustomUserDetails user = SecurityUtils.getCurrentUser();
+        boolean isOwner = user != null && (user.isSuperAdmin() || user.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER"));
+        java.util.Set<Long> accessibleFarmIds = SecurityUtils.getCurrentAccessibleFarmIds();
+
         Partner partner = partnerRepository.findByTenantIdAndId(tenantId, id)
                 .orElseThrow(() -> new ResourceNotFoundException("Đối tác", id));
 
-        if (request.getFarmId() != null) partner.setFarmId(request.getFarmId());
+        if (!isOwner) {
+            // Cán bộ cấp cơ sở không được chỉnh sửa đối tác của trang trại khác
+            if (partner.getFarmId() != null && (accessibleFarmIds == null || !accessibleFarmIds.contains(partner.getFarmId()))) {
+                throw new BusinessException("FORBIDDEN_PARTNER_EDIT", "Bạn không có quyền chỉnh sửa đối tác của trang trại khác");
+            }
+            // Khóa cứng không cho nhân sự cơ sở tự đổi creditLimit
+        } else {
+            if (request.getFarmId() != null) partner.setFarmId(request.getFarmId());
+            if (request.getCreditLimit() != null) partner.setCreditLimit(request.getCreditLimit());
+        }
+
         partner.setName(request.getName().trim());
         partner.setPartnerType(request.getPartnerType());
         partner.setTaxCode(request.getTaxCode());
@@ -120,7 +183,6 @@ public class PartnerServiceImpl implements PartnerService {
         if (request.getBankAccountNo() != null) partner.setBankAccountNo(request.getBankAccountNo());
         if (request.getBankAccountName() != null) partner.setBankAccountName(request.getBankAccountName());
         if (request.getNotes() != null) partner.setBankAccountInfo(request.getNotes());
-        if (request.getCreditLimit() != null) partner.setCreditLimit(request.getCreditLimit());
         if (request.getPaymentTermDays() != null) partner.setPaymentTermDays(request.getPaymentTermDays());
         if (request.getCreditRating() != null) partner.setCreditRating(request.getCreditRating());
         partner.setUpdatedBy(SecurityUtils.getCurrentUserId());
@@ -188,7 +250,9 @@ public class PartnerServiceImpl implements PartnerService {
         }
 
         String farmName = null;
-        if (p.getFarmId() != null) {
+        if (p.getFarm() != null) {
+            farmName = p.getFarm().getName();
+        } else if (p.getFarmId() != null) {
             try {
                 farmName = jdbcTemplate.queryForObject(
                         "SELECT name FROM farms WHERE id = ?", String.class, p.getFarmId());

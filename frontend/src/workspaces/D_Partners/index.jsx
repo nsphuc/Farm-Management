@@ -18,6 +18,8 @@ import {
   Unlock,
   ShieldCheck,
   Phone,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import { partnerService } from '@/services/modules/partnerService';
 import { toast } from '@/store/useToastStore';
@@ -36,10 +38,10 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 const PARTNER_TABS = [
   { id: 'ALL', label: 'Tất Cả Đối Tác', icon: Contact },
-  { id: 'SUPPLIER', label: 'Nhà Cung Cấp Vật Tư', icon: Building },
-  { id: 'BUYER', label: 'Khách Hàng / Thương Lái', icon: ShoppingCart },
-  { id: 'LOGISTICS', label: 'Đơn Vị Vận Chuyển', icon: Truck },
-  { id: 'AGENT', label: 'Đại Lý Hai Chiều', icon: Layers },
+  { id: 'SUPPLIER', label: 'Nhà Cung Cấp Vật Tư (SUPPLIER)', icon: Building },
+  { id: 'BUYER', label: 'Khách Hàng / Thương Lái (BUYER)', icon: ShoppingCart },
+  { id: 'LOGISTICS', label: 'Đơn Vị Vận Chuyển (LOGISTICS)', icon: Truck },
+  { id: 'AGENT', label: 'Đại Lý Hai Chiều (AGENT)', icon: Layers },
 ];
 
 const STATUS_FILTERS = [
@@ -51,7 +53,7 @@ const STATUS_FILTERS = [
 
 export function PartnersWorkspace() {
   const { isOwner, isFarmManager, isFarmAccountant } = useAuthStore();
-  const { activeFarmId, syncTrigger, notifyDataChanged } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, syncTrigger, notifyDataChanged } = useActiveFarmStore();
   const owner = isOwner();
   const farmManager = isFarmManager();
   const accountant = isFarmAccountant();
@@ -110,30 +112,13 @@ export function PartnersWorkspace() {
     fetchPartners();
   }, [partnerTypeTab, statusFilter, searchTerm, page, activeFarmId, syncTrigger?.partners]);
 
-  const handleDeletePartner = async (partnerId, e) => {
-    e?.stopPropagation();
-    if (!owner) {
-      alert('Chỉ Chủ đầu tư (Owner) mới có quyền xóa vĩnh viễn hồ sơ đối tác!');
-      return;
-    }
-    if (!window.confirm('Bạn có chắc chắn muốn xóa đối tác này?')) return;
-    try {
-      await partnerService.deletePartner(partnerId);
-      notifyDataChanged?.('partners');
-      fetchPartners();
-    } catch (err) {
-      const errInfo = extractApiErrors(err);
-      alert(errInfo.message || 'Không thể xóa đối tác đã có phát sinh đơn hàng hoặc công nợ!');
-    }
-  };
-
   const handleRowClick = (item) => {
     setSelectedPartner(item);
     setDrawerOpen(true);
   };
 
   const handleQuickQr = (item, e) => {
-    e.stopPropagation();
+    e?.stopPropagation();
     setQuickVietQrPartner(item);
   };
 
@@ -168,29 +153,65 @@ export function PartnersWorkspace() {
   // Summary Metrics
   const supplierCount = partners.filter((p) => p.partnerType === 'SUPPLIER').length;
   const buyerCount = partners.filter((p) => p.partnerType === 'BUYER').length;
-  const otherCount = partners.filter(
-    (p) => p.partnerType === 'LOGISTICS' || p.partnerType === 'AGENT'
-  ).length;
+  const logisticsCount = partners.filter((p) => p.partnerType === 'LOGISTICS').length;
+  const agentCount = partners.filter((p) => p.partnerType === 'AGENT').length;
 
   const columns = [
     {
       key: 'name',
-      header: 'Tên Doanh Nghiệp / Đối Tác',
-      title: 'Tên Doanh Nghiệp / Đối Tác',
-      width: '240px',
+      header: 'Mã & Tên Đối Tác',
+      title: 'Mã & Tên Đối Tác',
+      width: '230px',
       render: (item) => (
         <div>
-          <div className="font-semibold text-slate-900 text-xs">{item.name}</div>
+          <div className="font-bold text-slate-900 text-xs">{item.name}</div>
           <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
             {item.code && (
-              <span className="font-mono font-bold text-slate-700 bg-slate-100 px-1 py-0.2 rounded text-[10px]">
+              <span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.2 rounded text-[10px]">
                 {item.code}
               </span>
             )}
             <span>{item.taxCode ? `MST: ${item.taxCode}` : 'Chưa có MST'}</span>
-            {item.contactPerson ? <span>• NLH: {item.contactPerson}</span> : null}
           </div>
         </div>
+      ),
+    },
+    {
+      key: 'partnerType',
+      header: 'Loại Đối Tác',
+      title: 'Loại Đối Tác',
+      width: '120px',
+      render: (item) => <StatusBadge status={item.partnerType} size="sm" />,
+    },
+    {
+      key: 'scope',
+      header: 'Phạm Vi',
+      title: 'Phạm Vi',
+      width: '160px',
+      render: (item) => {
+        const isFarmSpecific = Boolean(item.farmId);
+        return isFarmSpecific ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+            <Building className="h-3 w-3 text-emerald-600 shrink-0" />
+            <span>Đối tác Trại hiện tại</span>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+            <Globe className="h-3 w-3 text-blue-600 shrink-0" />
+            <span>Đối tác Chung toàn chuỗi</span>
+          </span>
+        );
+      },
+    },
+    {
+      key: 'contactPerson',
+      header: 'Người Liên Hệ',
+      title: 'Người Liên Hệ',
+      width: '140px',
+      render: (item) => (
+        <span className="text-xs text-slate-800 font-medium">
+          {item.contactPerson || '—'}
+        </span>
       ),
     },
     {
@@ -206,58 +227,34 @@ export function PartnersWorkspace() {
       ),
     },
     {
-      key: 'partnerType',
-      header: 'Phân Loại',
-      title: 'Phân Loại',
+      key: 'taxCode',
+      header: 'Mã Số Thuế',
+      title: 'Mã Số Thuế',
       width: '120px',
-      render: (item) => <StatusBadge status={item.partnerType} size="sm" />,
+      render: (item) => (
+        <span className="font-mono text-xs text-slate-600">
+          {item.taxCode || '—'}
+        </span>
+      ),
     },
     {
-      key: 'farmName',
-      header: 'Trang Trại',
-      title: 'Trang Trại',
-      width: '130px',
+      key: 'bankInfo',
+      header: 'Ngân Hàng Napas247',
+      title: 'Ngân Hàng Napas247',
+      width: '180px',
       render: (item) => {
-        const farmName = item.farmName || (item.farmId ? `Trại #${item.farmId}` : null);
-        return farmName ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
-            <Building className="h-3 w-3 text-emerald-600" />
-            <span className="truncate max-w-[120px]">{farmName}</span>
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 border border-slate-200">
-            Toàn chuỗi
-          </span>
-        );
-      },
-    },
-    {
-      key: 'receivableDebt',
-      header: 'Dư Nợ Phải Thu',
-      title: 'Dư Nợ Phải Thu',
-      align: 'right',
-      width: '130px',
-      render: (item) => {
-        const val = item.currentReceivableDebt || 0;
+        if (!item.bankAccountNo) {
+          return <span className="text-xs text-slate-400 italic">Chưa liên kết</span>;
+        }
         return (
-          <span className={`font-mono text-xs font-bold ${val > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
-            {formatCurrency(val)}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'payableDebt',
-      header: 'Nợ Phải Trả',
-      title: 'Nợ Phải Trả',
-      align: 'right',
-      width: '130px',
-      render: (item) => {
-        const val = item.currentPayableDebt || 0;
-        return (
-          <span className={`font-mono text-xs font-bold ${val > 0 ? 'text-rose-700' : 'text-slate-400'}`}>
-            {formatCurrency(val)}
-          </span>
+          <div className="text-xs">
+            <div className="font-mono font-bold text-slate-800">
+              {item.bankAccountNo}
+            </div>
+            <div className="text-[10px] text-slate-500 truncate max-w-[170px]">
+              {item.bankName?.split(' - ')[0] || item.bankBin} • {item.bankAccountName}
+            </div>
+          </div>
         );
       },
     },
@@ -265,7 +262,7 @@ export function PartnersWorkspace() {
       key: 'credit',
       header: 'Hạn Mức & Hạn Nợ',
       title: 'Hạn Mức & Hạn Nợ',
-      width: '140px',
+      width: '150px',
       render: (item) => (
         <div className="text-xs">
           <div className="font-mono font-bold text-emerald-800">
@@ -276,31 +273,6 @@ export function PartnersWorkspace() {
           </div>
         </div>
       ),
-    },
-    {
-      key: 'creditRating',
-      header: 'Tín Nhiệm',
-      title: 'Tín Nhiệm',
-      align: 'center',
-      width: '100px',
-      render: (item) => {
-        const rating = item.creditRating || 'UNRATED';
-        const colors = {
-          A: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-          B: 'bg-blue-50 text-blue-800 border-blue-200',
-          C: 'bg-amber-50 text-amber-800 border-amber-200',
-          UNRATED: 'bg-slate-100 text-slate-600 border-slate-200',
-        };
-        return (
-          <span
-            className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-bold ${
-              colors[rating] || colors.UNRATED
-            }`}
-          >
-            Hạng {rating}
-          </span>
-        );
-      },
     },
     {
       key: 'status',
@@ -315,9 +287,12 @@ export function PartnersWorkspace() {
       header: 'Thao Tác',
       title: 'Thao Tác',
       align: 'center',
-      width: owner ? '230px' : '110px',
+      width: owner ? '230px' : '150px',
       render: (item) => {
         const isBlacklisted = item.status === 'BLACKLISTED';
+        const isEditableByFarm = item.farmId && Number(item.farmId) === Number(activeFarmId);
+
+        // THAO TÁC DÀNH CHO OWNER
         if (owner) {
           return (
             <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -334,7 +309,6 @@ export function PartnersWorkspace() {
                 360°
               </Button>
 
-              {/* Đặc quyền Owner: Phê duyệt hạn mức tín dụng */}
               <Button
                 size="xs"
                 variant="outline"
@@ -346,7 +320,6 @@ export function PartnersWorkspace() {
                 Duyệt nợ
               </Button>
 
-              {/* Đặc quyền Owner: Khóa đen hoặc Mở khóa */}
               <Button
                 size="xs"
                 variant={isBlacklisted ? 'outline' : 'danger'}
@@ -355,7 +328,7 @@ export function PartnersWorkspace() {
                 title={isBlacklisted ? 'Mở khóa đối tác sang ACTIVE' : 'Đưa vào danh sách đen (BLACKLISTED)'}
                 className={isBlacklisted ? 'text-emerald-700 border-emerald-300 hover:bg-emerald-50' : ''}
               >
-                {isBlacklisted ? 'Mở khóa' : 'Khóa đen'}
+                {isBlacklisted ? 'Mở' : 'Khóa'}
               </Button>
 
               <button
@@ -374,8 +347,11 @@ export function PartnersWorkspace() {
           );
         }
 
+        // THAO TÁC DÀNH CHO FARM_MANAGER & KẾ TOÁN TRẠI:
+        // Tuyệt đối KHÔNG có nút Duyệt hạn mức hay Khóa đen của Owner!
         return (
-          <div className="flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            {/* Nút 360 độ */}
             <Button
               size="xs"
               variant="outline"
@@ -384,23 +360,25 @@ export function PartnersWorkspace() {
                 setSelectedPartner(item);
                 setDrawerOpen(true);
               }}
-              title="Hồ sơ 360°"
+              title="Hồ sơ đối tác 360°"
             >
               360°
             </Button>
 
-            {item.bankAccountNo && (
-              <button
-                type="button"
-                onClick={(e) => handleQuickQr(item, e)}
-                className="rounded-lg p-1 text-blue-600 hover:bg-blue-50 transition-colors"
-                title="Mã VietQR thanh toán"
-              >
-                <QrCode className="h-4 w-4" />
-              </button>
-            )}
+            {/* Nút Xem Mã VietQR Thanh Toán Cho NCC */}
+            <Button
+              size="xs"
+              variant="outline"
+              icon={<QrCode className="h-3.5 w-3.5 text-blue-600" />}
+              onClick={(e) => handleQuickQr(item, e)}
+              title="Xem mã VietQR Napas247 thanh toán"
+              className="text-blue-700 border-blue-200 hover:bg-blue-50"
+            >
+              QR
+            </Button>
 
-            <Can anyPermissions={['PERM_FINANCE_SALES_ORDER', 'PERM_INVENTORY_RECEIPT', 'PERM_FARM_MANAGE', 'PERM_FARM_VIEW']}>
+            {/* Nút Sửa Thông Tin Liên Hệ & Ngân Hàng: Chỉ cho phép sửa đối tác thuộc farmId == activeFarmId */}
+            {isEditableByFarm ? (
               <button
                 type="button"
                 onClick={(e) => {
@@ -408,12 +386,19 @@ export function PartnersWorkspace() {
                   setEditingPartner(item);
                   setFormModalOpen(true);
                 }}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-800 transition-colors"
-                title="Sửa hồ sơ"
+                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                title="Sửa thông tin liên hệ & ngân hàng"
               >
                 <Edit2 className="h-4 w-4" />
               </button>
-            </Can>
+            ) : (
+              <span
+                className="p-1.5 text-slate-300 cursor-not-allowed"
+                title="Đối tác dùng chung toàn chuỗi do Chủ đầu tư (Owner) quản lý"
+              >
+                <Lock className="h-4 w-4" />
+              </span>
+            )}
           </div>
         );
       },
@@ -422,10 +407,10 @@ export function PartnersWorkspace() {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
+      {/* Top Banner Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-xs">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/20">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20">
             <Contact className="h-6 w-6" />
           </div>
           <div>
@@ -433,21 +418,38 @@ export function PartnersWorkspace() {
               <h1 className="text-xl font-black text-slate-900 tracking-tight">
                 {owner
                   ? 'WS-D: Quản Trị Đối Tác & Duyệt Hạn Mức Tín Dụng Toàn Chuỗi'
-                  : 'Workspace D: Sổ Danh Bạ Đối Tác & Tài Khoản VietQR'}
+                  : 'WS-D: Quản Lý Đối Tác Trang Trại'}
               </h1>
-              {owner && (
-                <span className="rounded-full bg-amber-100 text-amber-900 px-2.5 py-0.5 text-[10px] font-bold border border-amber-300">
-                  Chủ Đầu Tư
-                </span>
-              )}
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                  owner
+                    ? 'bg-amber-100 text-amber-900 border-amber-300'
+                    : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                }`}
+              >
+                {owner ? 'Chủ Đầu Tư' : activeFarm?.name || 'Trang Trại Phụ Trách'}
+              </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               {owner
                 ? 'Đặc quyền Chủ Đầu Tư: Quản trị danh bạ, độc quyền phê duyệt hạn mức tín dụng và khóa đen đối tác'
-                : 'Chế độ Vận Hành (Farm Manager & Kế Toán): Tạo lập và quản lý nhà cung cấp, khách hàng, nhà xe'}
+                : 'Quản lý danh bạ nhà cung cấp vật tư, thương lái thu mua và đơn vị vận chuyển của trang trại'}
             </p>
           </div>
         </div>
+
+        {/* Nút Thêm Mới Đối Tác */}
+        <Button
+          variant="primary"
+          size="md"
+          icon={<Plus className="h-4 w-4" />}
+          onClick={() => {
+            setEditingPartner(null);
+            setFormModalOpen(true);
+          }}
+        >
+          {owner ? '+ Thêm Đối Tác Toàn Chuỗi' : '+ Thêm Đối Tác Cho Trang Trại'}
+        </Button>
       </div>
 
       {/* Summary Stat Cards */}
@@ -462,7 +464,7 @@ export function PartnersWorkspace() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Nhà Cung Cấp
+            Nhà Cung Cấp (SUPPLIER)
           </span>
           <div className="text-2xl font-black font-mono text-blue-700 mt-1">{supplierCount}</div>
           <div className="text-[11px] text-slate-400 mt-0.5">Vật tư, cây con giống</div>
@@ -470,7 +472,7 @@ export function PartnersWorkspace() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-            Khách Hàng / Thương Lái
+            Khách Hàng (BUYER)
           </span>
           <div className="text-2xl font-black font-mono text-emerald-700 mt-1">{buyerCount}</div>
           <div className="text-[11px] text-slate-400 mt-0.5">Thu mua nông sản</div>
@@ -480,15 +482,24 @@ export function PartnersWorkspace() {
           <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
             Vận Chuyển & Đại Lý
           </span>
-          <div className="text-2xl font-black font-mono text-indigo-700 mt-1">{otherCount}</div>
+          <div className="text-2xl font-black font-mono text-indigo-700 mt-1">
+            {logisticsCount + agentCount}
+          </div>
           <div className="text-[11px] text-slate-400 mt-0.5">Hậu cần & Hai chiều</div>
         </div>
       </div>
 
-      {/* Segmented Tabs */}
+      {/* 5 Tabs Phân Loại Nghiệp Vụ */}
       <div className="flex space-x-1 border-b border-slate-200 text-xs font-semibold overflow-x-auto pb-px">
         {PARTNER_TABS.map((tab) => {
           const isSelected = partnerTypeTab === tab.id;
+          const displayLabel =
+            tab.id === 'ALL'
+              ? owner
+                ? 'Tất Cả Đối Tác'
+                : 'Tất Cả Đối Tác Trại'
+              : tab.label;
+
           return (
             <button
               key={tab.id}
@@ -506,7 +517,7 @@ export function PartnersWorkspace() {
               <tab.icon
                 className={`h-4 w-4 ${isSelected ? 'text-emerald-700' : 'text-slate-400'}`}
               />
-              <span>{tab.label}</span>
+              <span>{displayLabel}</span>
             </button>
           );
         })}
@@ -565,8 +576,10 @@ export function PartnersWorkspace() {
         onRowClick={handleRowClick}
         emptyStateProps={{
           title: 'Chưa có đối tác nào trong danh mục',
-          description: 'Khai báo thông tin pháp lý, hạn mức công nợ và số tài khoản ngân hàng Napas247.',
-          actionLabel: '+ Thêm Đối Tác Mới',
+          description: farmManager
+            ? 'Khai báo các nhà cung cấp giống/phân bón, thương lái thu mua nông sản hoặc nhà xe vận chuyển của trang trại.'
+            : 'Khai báo thông tin pháp lý, hạn mức công nợ và số tài khoản ngân hàng Napas247.',
+          actionLabel: farmManager ? '+ Thêm Đối Tác Cho Trang Trại' : '+ Thêm Đối Tác Mới',
           onAction: () => {
             setEditingPartner(null);
             setFormModalOpen(true);
@@ -574,7 +587,7 @@ export function PartnersWorkspace() {
         }}
       />
 
-      {/* Modal Thêm/Sửa */}
+      {/* Modal Thêm/Sửa Đối Tác */}
       <PartnerFormModal
         isOpen={formModalOpen}
         onClose={() => setFormModalOpen(false)}

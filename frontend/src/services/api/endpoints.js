@@ -71,6 +71,7 @@ export const API_ENDPOINTS = {
     WORK_SHIFT_DETAIL: (id) => `/hr/shifts/${id}`,
     SHIFT_ASSIGN: '/hr/shifts/assign',
     SHIFT_ASSIGNMENTS: '/hr/shifts/assignments',
+    SHIFT_ASSIGNMENT_CANCEL: (id) => `/hr/shifts/assignments/${id}/cancel`,
     ATTENDANCE: '/hr/attendance',
     ATTENDANCE_DETAIL: (id) => `/hr/attendance/${id}`,
     CHECK_IN: '/hr/attendance/check-in',
@@ -158,7 +159,15 @@ export const API_ENDPOINTS = {
     AUDIT_LOGS: '/system/audit-logs',
   },
 
-  // 12. Public Traceability (Unauthenticated)
+  // 12. Users
+  USERS: {
+    LIST: '/users',
+    DETAIL: (id) => `/users/${id}`,
+    STATUS: (id) => `/users/${id}/status`,
+    ROLES: (id) => `/users/${id}/roles`,
+  },
+
+  // 13. Public Traceability (Unauthenticated)
   PUBLIC: {
     TRACEABILITY: (code) => `/public/traceability/${encodeURIComponent(code)}`,
   },

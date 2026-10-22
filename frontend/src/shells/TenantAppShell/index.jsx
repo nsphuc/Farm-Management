@@ -38,7 +38,7 @@ export function TenantAppShell() {
   useEffect(() => {
     if (!userInfo || isOwner()) return;
 
-    if (isFarmLocked()) {
+    if (isFarmManager() || isFarmLocked()) {
       const accessibleFarms = userInfo.accessibleFarms || [];
       if (accessibleFarms.length > 0) {
         // Tìm trại mà user được bổ nhiệm làm quản lý (isManager = true hoặc assignedRole = 'FARM_MANAGER')
@@ -58,7 +58,7 @@ export function TenantAppShell() {
         }
       }
     }
-  }, [userInfo, isFarmLocked, isOwner, activeFarmId, setActiveFarmId]);
+  }, [userInfo, isFarmLocked, isFarmManager, isOwner, activeFarmId, setActiveFarmId]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 font-sans text-slate-900">

@@ -55,8 +55,14 @@ public class SalesOrderServiceImpl implements SalesOrderService {
     @Override
     @Transactional(readOnly = true)
     public Page<SalesOrderDetailResponse> getOrders(Long farmId, Pageable pageable) {
-        validateFarm(farmId);
-        Page<SalesOrder> page = salesOrderRepository.findByFarmId(farmId, pageable);
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Page<SalesOrder> page;
+        if (farmId != null && farmId > 0) {
+            validateFarm(farmId);
+            page = salesOrderRepository.findByFarmId(farmId, pageable);
+        } else {
+            page = salesOrderRepository.findByTenantId(tenantId, pageable);
+        }
         return page.map(this::toDetailResponse);
     }
 

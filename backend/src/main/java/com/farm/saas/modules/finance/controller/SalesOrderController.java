@@ -17,7 +17,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/farms/{farmId}/sales-orders")
+@RequestMapping({"/api/v1/farms/{farmId}/sales-orders", "/api/v1/sales-orders"})
 @RequiredArgsConstructor
 @Tag(name = "Sales Orders", description = "Đơn hàng bán sỉ, giữ chỗ tồn kho lô và thanh toán VietQR Napas247")
 public class SalesOrderController {
@@ -25,19 +25,21 @@ public class SalesOrderController {
     private final SalesOrderService salesOrderService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách đơn bán sỉ", description = "Lấy danh sách các đơn đặt hàng bán sỉ có phân trang")
     public ResponseEntity<Page<SalesOrderDetailResponse>> getOrders(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long filterFarmId,
             @PageableDefault(sort = "orderDate", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ResponseEntity.ok(salesOrderService.getOrders(farmId, pageable));
+        Long targetFarmId = (farmId != null && farmId > 0) ? farmId : filterFarmId;
+        return ResponseEntity.ok(salesOrderService.getOrders(targetFarmId, pageable));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết đơn bán sỉ & VietQR", description = "Lấy thông tin chi tiết đơn hàng, mặt hàng và URL VietQR thanh toán")
     public ResponseEntity<SalesOrderDetailResponse> getOrderById(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
         return ResponseEntity.ok(salesOrderService.getOrderById(farmId, id));
     }

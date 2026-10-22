@@ -17,6 +17,14 @@ public class WarehouseTransferController {
 
     private final InventoryService inventoryService;
 
+    @GetMapping
+    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    public ResponseEntity<org.springframework.data.domain.Page<WarehouseTransferDetailResponse>> getTransfers(
+            @PathVariable Long farmId,
+            @org.springframework.data.web.PageableDefault(size = 50) org.springframework.data.domain.Pageable pageable) {
+        return ResponseEntity.ok(inventoryService.getTransfers(farmId, pageable));
+    }
+
     @PostMapping
     @PreAuthorize("hasAuthority('PERM_INVENTORY_TRANSFER') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseTransferDetailResponse> createTransfer(

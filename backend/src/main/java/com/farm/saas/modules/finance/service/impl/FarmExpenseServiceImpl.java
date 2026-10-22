@@ -17,8 +17,11 @@ import com.farm.saas.modules.finance.repository.BudgetRepository;
 import com.farm.saas.modules.finance.repository.CostAllocationRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
 import com.farm.saas.modules.finance.service.FarmExpenseService;
+import com.farm.saas.modules.finance.dto.response.MultiFarmExpenseSummaryResponse;
 import com.farm.saas.modules.geography.entity.Farm;
+import com.farm.saas.modules.geography.entity.OperationalCycle;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.geography.repository.OperationalCycleRepository;
 import com.farm.saas.modules.livestock.entity.LivestockGroup;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.masterdata.entity.CostCategory;
@@ -28,6 +31,7 @@ import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +53,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
     private final BudgetRepository budgetRepository;
     private final BudgetLineItemRepository budgetLineItemRepository;
     private final FarmRepository farmRepository;
+    private final OperationalCycleRepository operationalCycleRepository;
     private final CropSeasonRepository cropSeasonRepository;
     private final LivestockGroupRepository livestockGroupRepository;
     private final HarvestRecordRepository harvestRecordRepository;
@@ -57,19 +62,227 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
     @Override
     @Transactional(readOnly = true)
     public Page<FarmExpenseDetailResponse> getExpenses(Long farmId, Pageable pageable) {
-        validateFarm(farmId);
-        Page<FarmExpense> page = farmExpenseRepository.findByFarmId(farmId, pageable);
-        return page.map(this::toDetailResponse);
+        return getExpenses(farmId, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<FarmExpenseDetailResponse> getExpenses(Long farmId, Long operationalCycleId, Pageable pageable) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        List<FarmExpense> allExpenses;
+        if (farmId != null && farmId > 0) {
+            validateFarm(farmId);
+            allExpenses = farmExpenseRepository.findByTenantIdAndFarmId(tenantId, farmId);
+        } else {
+            allExpenses = farmExpenseRepository.findByTenantId(tenantId);
+        }
+
+        if (operationalCycleId != null && operationalCycleId > 0) {
+            OperationalCycle cycle = operationalCycleRepository.findById(operationalCycleId).orElse(null);
+            if (cycle != null) {
+                Set<Long> cycleSeasonIds = cropSeasonRepository.findByTenantId(tenantId).stream()
+                        .filter(s -> operationalCycleId.equals(s.getOperationalCycleId()))
+                        .map(CropSeason::getId)
+                        .collect(Collectors.toSet());
+                Set<Long> cycleGroupIds = livestockGroupRepository.findByTenantId(tenantId).stream()
+                        .filter(g -> operationalCycleId.equals(g.getOperationalCycleId()))
+                        .map(LivestockGroup::getId)
+                        .collect(Collectors.toSet());
+
+                allExpenses = allExpenses.stream().filter(e -> {
+                    if (e.getSeasonId() != null && cycleSeasonIds.contains(e.getSeasonId())) return true;
+                    if (e.getLivestockGroupId() != null && cycleGroupIds.contains(e.getLivestockGroupId())) return true;
+                    if (e.getExpenseDate() != null) {
+                        return !e.getExpenseDate().isBefore(cycle.getStartDate()) && !e.getExpenseDate().isAfter(cycle.getEndDate());
+                    }
+                    return false;
+                }).toList();
+            }
+        }
+
+        List<FarmExpense> sorted = allExpenses.stream()
+                .sorted(Comparator.comparing(FarmExpense::getExpenseDate, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(FarmExpense::getId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), sorted.size());
+        List<FarmExpenseDetailResponse> content = (start <= end && start < sorted.size())
+                ? sorted.subList(start, end).stream().map(this::toDetailResponse).toList()
+                : Collections.emptyList();
+
+        return new PageImpl<>(content, pageable, sorted.size());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MultiFarmExpenseSummaryResponse getMultiFarmExpenseSummary(Long farmId, Long operationalCycleId) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+
+        List<Farm> targetFarms;
+        if (farmId != null && farmId > 0) {
+            Farm farm = validateFarm(farmId);
+            targetFarms = List.of(farm);
+        } else {
+            targetFarms = farmRepository.findByTenantId(tenantId);
+        }
+
+        List<MultiFarmExpenseSummaryResponse.FarmExpenseSummaryItem> items = new ArrayList<>();
+        BigDecimal grandTotalMaterials = BigDecimal.ZERO;
+        BigDecimal grandTotalLabor = BigDecimal.ZERO;
+        BigDecimal grandTotalOverhead = BigDecimal.ZERO;
+        BigDecimal grandTotal = BigDecimal.ZERO;
+        BigDecimal grandTotalYield = BigDecimal.ZERO;
+
+        Map<Long, CostCategory> categoryMap = costCategoryRepository.findByTenantId(tenantId).stream()
+                .collect(Collectors.toMap(CostCategory::getId, c -> c, (a, b) -> a));
+
+        for (Farm f : targetFarms) {
+            List<OperationalCycle> farmCycles = operationalCycleRepository.findByFarmId(f.getId());
+            if (operationalCycleId != null && operationalCycleId > 0) {
+                farmCycles = farmCycles.stream().filter(c -> c.getId().equals(operationalCycleId)).toList();
+            }
+
+            if (farmCycles.isEmpty()) {
+                List<FarmExpense> expenses = farmExpenseRepository.findByTenantIdAndFarmId(tenantId, f.getId());
+                MultiFarmExpenseSummaryResponse.FarmExpenseSummaryItem item = calculateSummaryItem(
+                        f, null, expenses, categoryMap);
+                items.add(item);
+
+                grandTotalMaterials = grandTotalMaterials.add(item.getMaterialExpense());
+                grandTotalLabor = grandTotalLabor.add(item.getLaborExpense());
+                grandTotalOverhead = grandTotalOverhead.add(item.getOverheadExpense());
+                grandTotal = grandTotal.add(item.getTotalExpense());
+                grandTotalYield = grandTotalYield.add(item.getTotalYieldKg());
+            } else {
+                for (OperationalCycle cycle : farmCycles) {
+                    List<FarmExpense> allFarmExpenses = farmExpenseRepository.findByTenantIdAndFarmId(tenantId, f.getId());
+                    Set<Long> cycleSeasonIds = cropSeasonRepository.findByFarmId(f.getId()).stream()
+                            .filter(s -> cycle.getId().equals(s.getOperationalCycleId()))
+                            .map(CropSeason::getId)
+                            .collect(Collectors.toSet());
+                    Set<Long> cycleGroupIds = livestockGroupRepository.findByFarmId(f.getId()).stream()
+                            .filter(g -> cycle.getId().equals(g.getOperationalCycleId()))
+                            .map(LivestockGroup::getId)
+                            .collect(Collectors.toSet());
+
+                    List<FarmExpense> cycleExpenses = allFarmExpenses.stream().filter(e -> {
+                        if (e.getSeasonId() != null && cycleSeasonIds.contains(e.getSeasonId())) return true;
+                        if (e.getLivestockGroupId() != null && cycleGroupIds.contains(e.getLivestockGroupId())) return true;
+                        if (e.getExpenseDate() != null) {
+                            return !e.getExpenseDate().isBefore(cycle.getStartDate()) && !e.getExpenseDate().isAfter(cycle.getEndDate());
+                        }
+                        return false;
+                    }).toList();
+
+                    MultiFarmExpenseSummaryResponse.FarmExpenseSummaryItem item = calculateSummaryItem(
+                            f, cycle, cycleExpenses, categoryMap);
+                    items.add(item);
+
+                    grandTotalMaterials = grandTotalMaterials.add(item.getMaterialExpense());
+                    grandTotalLabor = grandTotalLabor.add(item.getLaborExpense());
+                    grandTotalOverhead = grandTotalOverhead.add(item.getOverheadExpense());
+                    grandTotal = grandTotal.add(item.getTotalExpense());
+                    grandTotalYield = grandTotalYield.add(item.getTotalYieldKg());
+                }
+            }
+        }
+
+        BigDecimal overallAvgUnitCost = BigDecimal.ZERO;
+        if (grandTotalYield.compareTo(BigDecimal.ZERO) > 0) {
+            overallAvgUnitCost = grandTotal.divide(grandTotalYield, 2, RoundingMode.HALF_UP);
+        }
+
+        return MultiFarmExpenseSummaryResponse.builder()
+                .items(items)
+                .totalMaterialsExpense(grandTotalMaterials)
+                .totalLaborExpense(grandTotalLabor)
+                .totalOverheadExpense(grandTotalOverhead)
+                .grandTotalExpense(grandTotal)
+                .overallAvgUnitCost(overallAvgUnitCost)
+                .build();
+    }
+
+    private MultiFarmExpenseSummaryResponse.FarmExpenseSummaryItem calculateSummaryItem(
+            Farm farm,
+            OperationalCycle cycle,
+            List<FarmExpense> expenses,
+            Map<Long, CostCategory> categoryMap) {
+
+        BigDecimal material = BigDecimal.ZERO;
+        BigDecimal labor = BigDecimal.ZERO;
+        BigDecimal overhead = BigDecimal.ZERO;
+        BigDecimal total = BigDecimal.ZERO;
+        BigDecimal unitCostEligibleTotal = BigDecimal.ZERO;
+
+        for (FarmExpense e : expenses) {
+            BigDecimal amt = e.getAmount() != null ? e.getAmount() : BigDecimal.ZERO;
+            total = total.add(amt);
+            if (Boolean.TRUE.equals(e.getUnitCostEligible())) {
+                unitCostEligibleTotal = unitCostEligibleTotal.add(amt);
+            }
+
+            CostCategory cat = categoryMap.get(e.getCostCategoryId());
+            String costType = cat != null ? cat.getCostType() : "";
+            String source = e.getExpenseSource() != null ? e.getExpenseSource() : "";
+
+            if ("MATERIALS".equalsIgnoreCase(costType) || "INVENTORY_BACKFLUSH".equalsIgnoreCase(source)) {
+                material = material.add(amt);
+            } else if ("DIRECT_LABOR".equalsIgnoreCase(costType) || "PAYROLL_ALLOCATION".equalsIgnoreCase(source)) {
+                labor = labor.add(amt);
+            } else {
+                overhead = overhead.add(amt);
+            }
+        }
+
+        BigDecimal yieldKg = BigDecimal.ZERO;
+        if (cycle != null) {
+            List<CropSeason> seasons = cropSeasonRepository.findByFarmId(farm.getId()).stream()
+                    .filter(s -> cycle.getId().equals(s.getOperationalCycleId()))
+                    .toList();
+            for (CropSeason s : seasons) {
+                yieldKg = yieldKg.add(harvestRecordRepository.sumQuantityBySeasonId(s.getId()));
+            }
+            List<LivestockGroup> groups = livestockGroupRepository.findByFarmId(farm.getId()).stream()
+                    .filter(g -> cycle.getId().equals(g.getOperationalCycleId()))
+                    .toList();
+            for (LivestockGroup g : groups) {
+                yieldKg = yieldKg.add(harvestRecordRepository.sumQuantityByLivestockGroupId(g.getId()));
+            }
+        } else {
+            yieldKg = harvestRecordRepository.sumQuantityByFarmId(farm.getId());
+        }
+
+        BigDecimal avgUnitCost = BigDecimal.ZERO;
+        if (yieldKg.compareTo(BigDecimal.ZERO) > 0) {
+            avgUnitCost = unitCostEligibleTotal.divide(yieldKg, 2, RoundingMode.HALF_UP);
+        }
+
+        return MultiFarmExpenseSummaryResponse.FarmExpenseSummaryItem.builder()
+                .farmId(farm.getId())
+                .farmName(farm.getName())
+                .operationalCycleId(cycle != null ? cycle.getId() : null)
+                .operationalCycleName(cycle != null ? cycle.getName() : "Toàn bộ chu kỳ")
+                .materialExpense(material)
+                .laborExpense(labor)
+                .overheadExpense(overhead)
+                .totalExpense(total)
+                .totalYieldKg(yieldKg)
+                .avgUnitCost(avgUnitCost)
+                .build();
     }
 
     @Override
     @Transactional(readOnly = true)
     public FarmExpenseDetailResponse getExpenseById(Long farmId, Long id) {
-        validateFarm(farmId);
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         FarmExpense expense = farmExpenseRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Expense not found: " + id));
-        if (!expense.getFarmId().equals(farmId)) {
+        if (farmId != null && farmId > 0 && !expense.getFarmId().equals(farmId)) {
             throw new BusinessException("BAD_REQUEST", "Expense does not belong to specified farm");
+        }
+        if (tenantId != null && !expense.getTenantId().equals(tenantId)) {
+            throw new BusinessException("FORBIDDEN", "Access to expense forbidden");
         }
         return toDetailResponse(expense);
     }

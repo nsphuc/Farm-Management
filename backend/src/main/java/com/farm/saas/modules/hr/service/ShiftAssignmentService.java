@@ -8,6 +8,7 @@ import java.util.List;
 
 public interface ShiftAssignmentService {
     ShiftAssignmentResponse assignShift(AssignShiftRequest request);
+    ShiftAssignmentResponse cancelAssignment(Long id);
     List<ShiftAssignmentResponse> getAssignmentsByFarmAndDate(Long farmId, LocalDate workDate);
     List<ShiftAssignmentResponse> getAssignmentsByEmployeeAndDate(Long employeeId, LocalDate workDate);
 }

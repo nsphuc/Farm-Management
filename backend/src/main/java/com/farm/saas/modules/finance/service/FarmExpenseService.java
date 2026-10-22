@@ -7,9 +7,15 @@ import com.farm.saas.modules.finance.dto.response.UnitCostReportResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import com.farm.saas.modules.finance.dto.response.MultiFarmExpenseSummaryResponse;
+
 public interface FarmExpenseService {
 
     Page<FarmExpenseDetailResponse> getExpenses(Long farmId, Pageable pageable);
+
+    Page<FarmExpenseDetailResponse> getExpenses(Long farmId, Long operationalCycleId, Pageable pageable);
+
+    MultiFarmExpenseSummaryResponse getMultiFarmExpenseSummary(Long farmId, Long operationalCycleId);
 
     FarmExpenseDetailResponse getExpenseById(Long farmId, Long id);
 

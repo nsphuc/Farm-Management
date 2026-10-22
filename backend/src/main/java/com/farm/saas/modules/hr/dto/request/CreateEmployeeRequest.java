@@ -18,6 +18,7 @@ import java.time.LocalDate;
 public class CreateEmployeeRequest {
 
     private Long farmId;
+    private Long assignedZoneId;
 
     @NotBlank(message = "Mã nhân viên không được để trống")
     private String employeeCode;

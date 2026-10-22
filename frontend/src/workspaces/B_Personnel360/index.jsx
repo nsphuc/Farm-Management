@@ -96,8 +96,22 @@ export function Personnel360Workspace() {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [formDefaultPosition, setFormDefaultPosition] = useState(null);
 
-  // Lắng nghe URL params từ WS-A (?action=appoint&farmId=...)
+  // Lắng nghe URL params từ WS-A (?action=appoint&farmId=...) hoặc WS-G (?tab=attendance | ?tab=leave_ot)
   useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam) {
+      const lower = tabParam.toLowerCase();
+      if (lower === 'attendance' || lower === 'timesheet' || lower === '3') {
+        setActiveSegment('ATTENDANCE');
+      } else if (lower === 'leave_ot' || lower === 'leave' || lower === 'ot' || lower === '4') {
+        setActiveSegment('LEAVE_OT');
+      } else if (lower === 'schedule' || lower === 'shifts' || lower === '2') {
+        setActiveSegment('SCHEDULE');
+      } else if (lower === 'directory' || lower === '1') {
+        setActiveSegment('DIRECTORY');
+      }
+    }
+
     const action = searchParams.get('action');
     const farmIdParam = searchParams.get('farmId');
     if (action === 'appoint') {
@@ -199,10 +213,70 @@ export function Personnel360Workspace() {
     }
   };
 
+  // Thao tác cho Quản lý trại: Khóa / Mở khóa khẩn cấp tài khoản SaaS
+  const handleToggleUserLock = async (emp) => {
+    if (!emp.userId) return;
+    const isCurrentlyLocked = emp.userStatus === 'LOCKED';
+    const nextStatus = isCurrentlyLocked ? 'ACTIVE' : 'LOCKED';
+    const actionLabel = isCurrentlyLocked ? 'Mở khóa tài khoản' : 'Khóa tài khoản khẩn cấp';
+
+    if (!window.confirm(`Bạn có chắc muốn ${actionLabel} của nhân viên "${emp.fullName}" (${emp.employeeCode})?`)) {
+      return;
+    }
+
+    try {
+      await hrService.updateUserStatus(emp.userId, nextStatus);
+      toast.success(`${actionLabel} thành công cho "${emp.fullName}"!`);
+      notifyDataChanged?.('employees');
+      await fetchEmployees();
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || `Không thể ${actionLabel.toLowerCase()}!`);
+    }
+  };
+
+  // Thao tác cho Quản lý trại: Cho thôi việc (RESIGNED) - Tự động thu hồi quyền, không xóa cứng
+  const handleResignEmployee = async (emp) => {
+    if (!window.confirm(
+      `Xác nhận cho nhân viên "${emp.fullName}" (${emp.employeeCode}) thôi việc (RESIGNED)?\n\n` +
+      `Lưu ý: Hệ thống sẽ chuyển trạng thái sang RESIGNED và tự động khóa quyền đăng nhập (nếu có). Toàn bộ dữ liệu chấm công và bảng lương vẫn được lưu trữ vĩnh viễn.`
+    )) {
+      return;
+    }
+
+    try {
+      await hrService.updateEmployee(emp.id, {
+        farmId: emp.farmId,
+        employeeCode: emp.employeeCode,
+        fullName: emp.fullName,
+        phone: emp.phone,
+        email: emp.email,
+        idCardNumber: emp.idCardNumber,
+        dateOfBirth: emp.dateOfBirth,
+        position: emp.position,
+        department: emp.department,
+        joinedDate: emp.joinedDate,
+        contractType: emp.contractType,
+        baseSalary: emp.baseSalary,
+        hourlyRate: emp.hourlyRate,
+        annualLeaveQuota: emp.annualLeaveQuota,
+        status: 'RESIGNED',
+      });
+      toast.success(`Đã chuyển nhân viên "${emp.fullName}" sang trạng thái Thôi việc (RESIGNED)!`);
+      notifyDataChanged?.('employees');
+      notifyDataChanged?.('zones');
+      await fetchEmployees();
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || 'Không thể cập nhật thôi việc cho nhân sự!');
+    }
+  };
+
   // Đồng bộ tức thì sau khi thêm mới / cập nhật nhân sự
   const handleSuccess = async () => {
     await fetchEmployees();
     notifyDataChanged?.('employees');
+    notifyDataChanged?.('zones');
     notifyDataChanged?.('farms');
   };
 
@@ -256,12 +330,22 @@ export function Personnel360Workspace() {
     totalSalary: filteredEmployees.reduce((sum, e) => sum + (Number(e.baseSalary) || 0), 0),
   };
 
-  // Bảng Cột Nhân Sự Chuẩn Hóa (Không hiển thị cột mã và không hiển thị cột trang trại trực thuộc)
+  // Bảng Cột Nhân Sự Chuẩn Hóa Theo Hợp Đồng WS-B
   const directoryColumns = [
+    {
+      key: 'employeeCode',
+      header: 'Mã NV',
+      width: '120px',
+      render: (row) => (
+        <span className="font-mono font-bold text-xs text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+          {row.employeeCode || '—'}
+        </span>
+      ),
+    },
     {
       key: 'fullName',
       header: 'Họ và Tên',
-      width: '190px',
+      width: '180px',
       render: (row) => (
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700 font-bold text-xs border border-slate-200">
@@ -269,7 +353,7 @@ export function Personnel360Workspace() {
           </div>
           <div className="min-w-0">
             <span className="font-bold text-slate-900 block truncate text-xs">{row.fullName}</span>
-            <span className="text-[10px] text-slate-400 font-mono block">{row.email || '—'}</span>
+            <span className="text-[10px] text-slate-400 font-mono block truncate">{row.email || '—'}</span>
           </div>
         </div>
       ),
@@ -277,7 +361,7 @@ export function Personnel360Workspace() {
     {
       key: 'position',
       header: 'Chức Vụ / Vị Trí',
-      width: '200px',
+      width: '180px',
       render: (row) => {
         const isFm = row.position === 'FARM_MANAGER';
         return (
@@ -297,9 +381,24 @@ export function Personnel360Workspace() {
       },
     },
     {
+      key: 'department',
+      header: 'Khu Vực / Bộ Phận Trực Thuộc',
+      width: '180px',
+      render: (row) => (
+        <div className="text-xs">
+          <span className="font-semibold text-slate-800 block truncate">
+            {row.assignedZoneName ? `Phân khu: ${row.assignedZoneName}` : (row.department || 'Chưa gán')}
+          </span>
+          {row.assignedZoneName && row.department && !row.department.includes(row.assignedZoneName) && (
+            <span className="text-[10px] text-slate-400 block truncate">{row.department}</span>
+          )}
+        </div>
+      ),
+    },
+    {
       key: 'phone',
       header: 'Số Điện Thoại',
-      width: '120px',
+      width: '115px',
       render: (row) => (
         <span className="font-mono text-xs text-slate-700 flex items-center gap-1">
           <Phone className="h-3 w-3 text-slate-400 shrink-0" />
@@ -309,8 +408,8 @@ export function Personnel360Workspace() {
     },
     {
       key: 'idCardNumber',
-      header: 'Số CCCD / CMND',
-      width: '140px',
+      header: 'Số CCCD',
+      width: '125px',
       render: (row) => (
         <span className="font-mono text-xs text-slate-600 flex items-center gap-1">
           <CreditCard className="h-3 w-3 text-slate-400 shrink-0" />
@@ -336,40 +435,54 @@ export function Personnel360Workspace() {
     },
     {
       key: 'baseSalary',
-      header: 'Mức Lương',
+      header: 'Lương CB / Giờ',
       align: 'right',
-      width: '125px',
+      width: '145px',
       render: (row) => (
-        <span className="font-mono font-bold text-slate-900 text-xs">
-          {formatCurrency(row.baseSalary)}
+        <div className="text-right">
+          <span className="font-mono font-bold text-slate-900 text-xs block">
+            {formatCurrency(row.baseSalary)}
+          </span>
+          {Number(row.hourlyRate) > 0 && (
+            <span className="text-[10px] font-mono text-slate-500 block">
+              {formatCurrency(row.hourlyRate)}/h
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'annualLeaveQuota',
+      header: 'Quỹ Phép',
+      align: 'center',
+      width: '85px',
+      render: (row) => (
+        <span className="font-mono text-xs font-semibold text-slate-700">
+          {row.annualLeaveQuota != null ? `${row.annualLeaveQuota} ng` : '—'}
         </span>
       ),
     },
     {
       key: 'userId',
-      header: 'Trạng Thái Tài Khoản',
-      width: '135px',
+      header: 'Loại Tài Khoản',
+      width: '140px',
       render: (row) =>
         row.userId ? (
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-            <KeyRound className="h-3 w-3 text-emerald-600" />
-            <span>Đã cấp TK</span>
-          </span>
-        ) : farmManager ? (
-          <Can permission="PERM_HR_EMPLOYEE_MANAGE">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedEmployee(row);
-                setIsDetailDrawerOpen(true);
-              }}
-              className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors"
-            >
-              <span>+ Cấp TK</span>
-            </button>
-          </Can>
+          row.userStatus === 'LOCKED' ? (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+              <Lock className="h-3 w-3 text-rose-600" />
+              <span>TK Bị Khóa</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              <KeyRound className="h-3 w-3 text-emerald-600" />
+              <span>Có TK Web</span>
+            </span>
+          )
         ) : (
-          <span className="text-[11px] text-slate-400 italic">Chưa cấp</span>
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+            <span>Lao động không TK</span>
+          </span>
         ),
     },
     {
@@ -382,7 +495,7 @@ export function Personnel360Workspace() {
       key: 'actions',
       header: 'Thao Tác',
       align: 'center',
-      width: owner ? '230px' : '110px',
+      width: owner ? '230px' : farmManager ? '280px' : '110px',
       render: (row) => {
         if (owner) {
           const isFm = row.position === 'FARM_MANAGER';
@@ -433,6 +546,77 @@ export function Personnel360Workspace() {
             </div>
           );
         }
+
+        if (farmManager) {
+          const isResigned = row.status === 'RESIGNED' || row.status === 'TERMINATED';
+          const isLocked = row.userStatus === 'LOCKED';
+          return (
+            <div className="flex items-center justify-center gap-1">
+              <Button
+                size="xs"
+                variant="outline"
+                icon={<Eye className="h-3.5 w-3.5" />}
+                onClick={() => {
+                  setSelectedEmployee(row);
+                  setIsDetailDrawerOpen(true);
+                }}
+                title="Xem Chi Tiết 360°"
+              >
+                360°
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                icon={<Edit2 className="h-3.5 w-3.5" />}
+                onClick={() => {
+                  setEditingEmployee(row);
+                  setIsFormModalOpen(true);
+                }}
+                title="Sửa Hồ Sơ & Chuyển Khu Vực"
+                className="text-blue-700 border-blue-200 hover:bg-blue-50"
+              >
+                Sửa
+              </Button>
+              {row.userId ? (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  icon={isLocked ? <KeyRound className="h-3.5 w-3.5 text-emerald-600" /> : <Lock className="h-3.5 w-3.5 text-rose-600" />}
+                  onClick={() => handleToggleUserLock(row)}
+                  title={isLocked ? 'Mở Khóa Tài Khoản' : 'Khóa Khẩn Cấp Tài Khoản'}
+                  className={isLocked ? 'text-emerald-700 border-emerald-200 hover:bg-emerald-50' : 'text-rose-700 border-rose-200 hover:bg-rose-50'}
+                >
+                  {isLocked ? 'Mở TK' : 'Khóa TK'}
+                </Button>
+              ) : (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  icon={<KeyRound className="h-3.5 w-3.5 text-amber-600" />}
+                  onClick={() => {
+                    setSelectedEmployee(row);
+                    setIsDetailDrawerOpen(true);
+                  }}
+                  title="Cấp Tài Khoản Web SaaS"
+                  className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                >
+                  Cấp TK
+                </Button>
+              )}
+              {!isResigned && (
+                <Button
+                  size="xs"
+                  variant="danger"
+                  onClick={() => handleResignEmployee(row)}
+                  title="Cho Thôi Việc (RESIGNED)"
+                >
+                  Thôi việc
+                </Button>
+              )}
+            </div>
+          );
+        }
+
         return (
           <Button
             size="sm"
@@ -526,7 +710,7 @@ export function Personnel360Workspace() {
                 setIsFormModalOpen(true);
               }}
             >
-              + Tiếp Nhận Nhân Sự Mới
+              + Tiếp Nhận Nhân Sự Mới Cho Trại
             </Button>
           </Can>
         </div>

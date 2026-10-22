@@ -22,6 +22,8 @@ public class CreateBudgetRequest {
     @NotNull(message = "Năm tài chính không được để trống")
     private Integer fiscalYear;
 
+    private Long farmId;
+
     private Long operationalCycleId;
 
     @NotNull(message = "Tổng ngân sách không được để trống")

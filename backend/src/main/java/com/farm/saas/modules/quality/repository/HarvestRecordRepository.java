@@ -19,4 +19,7 @@ public interface HarvestRecordRepository extends JpaRepository<HarvestRecord, Lo
 
     @org.springframework.data.jpa.repository.Query("SELECT COALESCE(SUM(hr.quantity), 0) FROM HarvestRecord hr WHERE hr.livestockGroupId = :groupId")
     BigDecimal sumQuantityByLivestockGroupId(@org.springframework.data.repository.query.Param("groupId") Long groupId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT COALESCE(SUM(hr.quantity), 0) FROM HarvestRecord hr WHERE hr.farmId = :farmId")
+    BigDecimal sumQuantityByFarmId(@org.springframework.data.repository.query.Param("farmId") Long farmId);
 }

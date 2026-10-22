@@ -21,7 +21,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/farms/{farmId}")
+@RequestMapping({"/api/v1/farms/{farmId}", "/api/v1/finance"})
 @RequiredArgsConstructor
 @Tag(name = "Debt and Payment", description = "Sổ cái công nợ 2 chiều, thanh toán VietQR và cấn trừ nợ DEBT_OFFSET")
 public class DebtAndPaymentController {
@@ -29,22 +29,24 @@ public class DebtAndPaymentController {
     private final DebtAndPaymentService debtAndPaymentService;
 
     @GetMapping("/debts")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách công nợ", description = "Truy vấn sổ công nợ có lọc theo đối tác, loại nợ (RECEIVABLE/PAYABLE) và trạng thái")
     public ResponseEntity<Page<DebtRecordDetailResponse>> getDebts(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long filterFarmId,
             @RequestParam(required = false) Long partnerId,
             @RequestParam(required = false) String debtType,
             @RequestParam(required = false) String status,
             @PageableDefault(sort = "dueDate", direction = Sort.Direction.ASC) Pageable pageable) {
-        return ResponseEntity.ok(debtAndPaymentService.getDebts(farmId, partnerId, debtType, status, pageable));
+        Long targetFarmId = (farmId != null && farmId > 0) ? farmId : filterFarmId;
+        return ResponseEntity.ok(debtAndPaymentService.getDebts(targetFarmId, partnerId, debtType, status, pageable));
     }
 
     @GetMapping("/debts/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết khoản nợ", description = "Xem chi tiết một khoản công nợ phải thu hoặc phải trả")
     public ResponseEntity<DebtRecordDetailResponse> getDebtById(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
         return ResponseEntity.ok(debtAndPaymentService.getDebtById(farmId, id));
     }

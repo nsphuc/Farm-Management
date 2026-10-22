@@ -9,11 +9,14 @@ import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/useAuthStore';
 
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { toast } from '@/store/useToastStore';
+
 const FARM_MANAGER_ROLES = [
-  { value: 'ZONE_MANAGER', label: 'ZONE_MANAGER - Trưởng Phân Khu / Trưởng Nhà Màng' },
+  { value: 'ZONE_MANAGER', label: 'ZONE_MANAGER - Trưởng Phân Khu / Trưởng Nhà Màng / Trưởng Khu Chuồng' },
   { value: 'TECHNICAL_LEAD', label: 'TECHNICAL_LEAD - Trưởng Bộ Phận Kỹ Thuật' },
-  { value: 'WAREHOUSE_KEEPER', label: 'WAREHOUSE_KEEPER - Thủ Kho Trang Trại' },
-  { value: 'ACCOUNTANT', label: 'ACCOUNTANT - Kế Toán Trang Trại' },
+  { value: 'WAREHOUSE_KEEPER', label: 'WAREHOUSE_KEEPER - Thủ Kho Chính Của Trại' },
+  { value: 'ACCOUNTANT', label: 'ACCOUNTANT - Kế Toán Phụ Trách Trại' },
 ];
 
 const TECH_LEAD_ROLES = [
@@ -44,10 +47,13 @@ export function AssignmentModal({
   zoneId = null,
   farmName = '',
   zoneName = '',
+  zones = [],
   employees = [],
+  editingAssignment = null,
   onSuccess,
 }) {
   const navigate = useNavigate();
+  const { notifyDataChanged } = useActiveFarmStore();
   const { isOwner, isFarmManager, isTechnicalLead, isWarehouseKeeper } = useAuthStore();
   const owner = isOwner();
   const farmManager = isFarmManager();
@@ -70,7 +76,8 @@ export function AssignmentModal({
 
   const [formData, setFormData] = useState({
     userId: '',
-    roleInFarm: availableRoles[0]?.value || 'FIELD_WORKER',
+    roleInFarm: availableRoles[0]?.value || 'ZONE_MANAGER',
+    selectedZoneId: '',
     assignedFrom: new Date().toISOString().substring(0, 10),
     assignedTo: '',
   });
@@ -83,14 +90,26 @@ export function AssignmentModal({
     if (!isOpen) return;
     setFieldErrors({});
     setGeneralError('');
-    const defaultRole = availableRoles[0]?.value || (zoneId ? 'ZONE_MANAGER' : 'FIELD_WORKER');
-    setFormData({
-      userId: employees[0]?.userId || employees[0]?.id || '',
-      roleInFarm: defaultRole,
-      assignedFrom: new Date().toISOString().substring(0, 10),
-      assignedTo: '',
-    });
-  }, [isOpen, zoneId, employees]);
+
+    if (editingAssignment) {
+      setFormData({
+        userId: String(editingAssignment.userId || ''),
+        roleInFarm: editingAssignment.roleInFarm || availableRoles[0]?.value || 'ZONE_MANAGER',
+        selectedZoneId: editingAssignment.zoneId ? String(editingAssignment.zoneId) : (zoneId ? String(zoneId) : ''),
+        assignedFrom: editingAssignment.assignedFrom || new Date().toISOString().substring(0, 10),
+        assignedTo: editingAssignment.assignedTo || '',
+      });
+    } else {
+      const defaultRole = availableRoles[0]?.value || (zoneId ? 'ZONE_MANAGER' : 'TECHNICAL_LEAD');
+      setFormData({
+        userId: employees[0]?.userId || employees[0]?.id || '',
+        roleInFarm: defaultRole,
+        selectedZoneId: zoneId ? String(zoneId) : '',
+        assignedFrom: new Date().toISOString().substring(0, 10),
+        assignedTo: '',
+      });
+    }
+  }, [isOpen, zoneId, employees, editingAssignment]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -99,6 +118,11 @@ export function AssignmentModal({
     if (!formData.assignedFrom) errors.assignedFrom = 'Ngày bắt đầu phân công không được để trống';
     if (formData.assignedTo && formData.assignedTo < formData.assignedFrom) {
       errors.assignedTo = 'Ngày kết thúc phân công phải lớn hơn hoặc bằng ngày bắt đầu';
+    }
+
+    const effectiveZoneId = zoneId || formData.selectedZoneId;
+    if (formData.roleInFarm === 'ZONE_MANAGER' && !effectiveZoneId) {
+      errors.selectedZoneId = 'Vai trò Trưởng Phân Khu bắt buộc phải chọn phân khu phụ trách';
     }
 
     if (Object.keys(errors).length > 0) {
@@ -112,14 +136,26 @@ export function AssignmentModal({
       setGeneralError('');
 
       const payload = {
-        zoneId: zoneId ? Number(zoneId) : null,
+        zoneId: effectiveZoneId ? Number(effectiveZoneId) : null,
         userId: Number(formData.userId),
         roleInFarm: formData.roleInFarm,
         assignedFrom: formData.assignedFrom,
         assignedTo: formData.assignedTo || null,
       };
 
+      if (editingAssignment?.id) {
+        await geographyService.deleteAssignment(farmId, editingAssignment.id);
+      }
       await geographyService.createAssignment(farmId, payload);
+
+      toast.success(
+        editingAssignment
+          ? 'Đã cập nhật thay đổi người phụ trách thành công!'
+          : 'Đã hoàn tất phân công nhân sự hiện trường!'
+      );
+
+      notifyDataChanged?.('zones');
+      notifyDataChanged?.('employees');
       onSuccess?.();
       onClose();
     } catch (err) {
@@ -134,7 +170,13 @@ export function AssignmentModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Phân Công Nhân Sự Hiện Trường"
+      title={
+        editingAssignment
+          ? 'Thay Đổi Người Phụ Trách / Cập Nhật Phân Công'
+          : farmManager
+          ? 'Phân Công Trưởng Phân Khu / Phụ Trách Bộ Phận'
+          : 'Phân Công Nhân Sự Hiện Trường'
+      }
       size="md"
       footer={
         <div className="flex justify-end gap-2">
@@ -142,7 +184,7 @@ export function AssignmentModal({
             Hủy
           </Button>
           <Button type="button" variant="primary" size="sm" isLoading={saving} onClick={handleSubmit}>
-            Xác Nhận Phân Công
+            {editingAssignment ? 'Xác Nhận Thay Đổi' : 'Xác Nhận Phân Công'}
           </Button>
         </div>
       }
@@ -169,21 +211,23 @@ export function AssignmentModal({
           )}
         </div>
 
-        <FormField label="Nhân Sự Phụ Trách" required error={fieldErrors.userId}>
+        <FormField label="Nhân Sự Phụ Trách (Cán bộ nhân viên của trại)" required error={fieldErrors.userId}>
           {employees.length === 0 ? (
-            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 space-y-2">
-              <p>Chưa có hồ sơ nhân sự nào thuộc trang trại này.</p>
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5 text-xs text-amber-800 space-y-2.5">
+              <p className="font-medium">
+                Hiện tại trang trại chưa có hồ sơ nhân sự nào đang hoạt động (ACTIVE).
+              </p>
               <Button
                 type="button"
-                variant="outline"
+                variant="primary"
                 size="sm"
-                className="w-full text-xs font-bold text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                className="w-full text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
                 onClick={() => {
                   onClose();
                   navigate('/app/hr');
                 }}
               >
-                + Tiếp Nhận Nhân Sự Mới (Workspace B)
+                [👉 Sang WS-B Tuyển Nhân Sự Mới]
               </Button>
             </div>
           ) : (
@@ -191,7 +235,7 @@ export function AssignmentModal({
               value={formData.userId}
               onChange={(e) => setFormData((prev) => ({ ...prev, userId: e.target.value }))}
               options={[
-                { value: '', label: '-- Chọn nhân sự --' },
+                { value: '', label: '-- Chọn nhân sự thuộc trang trại --' },
                 ...employees.map((emp) => ({
                   value: String(emp.userId || emp.id),
                   label: `${emp.fullName} (${emp.employeeCode || 'NV'} - ${emp.position || 'Nhân viên'})`,
@@ -201,13 +245,34 @@ export function AssignmentModal({
           )}
         </FormField>
 
-        <FormField label="Vai Trò Tại Hiện Trường (Phân cấp vận hành)" required error={fieldErrors.roleInFarm} hint={roleHelperText}>
+        <FormField label="Vai Trò Phụ Trách Chính (Phân cấp điều hành)" required error={fieldErrors.roleInFarm} hint={roleHelperText}>
           <Select
             value={formData.roleInFarm}
             onChange={(e) => setFormData((prev) => ({ ...prev, roleInFarm: e.target.value }))}
             options={availableRoles}
           />
         </FormField>
+
+        {formData.roleInFarm === 'ZONE_MANAGER' && !zoneId && (
+          <FormField
+            label="Phân Khu Phụ Trách"
+            required
+            error={fieldErrors.selectedZoneId}
+            hint="Trưởng Phân Khu bắt buộc phải gắn trực tiếp với 1 phân khu cụ thể"
+          >
+            <Select
+              value={formData.selectedZoneId}
+              onChange={(e) => setFormData((prev) => ({ ...prev, selectedZoneId: e.target.value }))}
+              options={[
+                { value: '', label: '-- Chọn phân khu trong trại --' },
+                ...zones.map((z) => ({
+                  value: String(z.id),
+                  label: `${z.name} (${z.code} - ${z.zoneType})`,
+                })),
+              ]}
+            />
+          </FormField>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Ngày Bắt Đầu Phụ Trách" required error={fieldErrors.assignedFrom}>

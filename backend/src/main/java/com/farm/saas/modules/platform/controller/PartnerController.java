@@ -29,8 +29,10 @@ public class PartnerController {
             @RequestParam(required = false) String partnerType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String search,
             @PageableDefault(size = 20) Pageable pageable) {
-        Page<PartnerResponse> response = partnerService.getPartners(farmId, partnerType, status, keyword, pageable);
+        String searchTerm = (search != null && !search.isBlank()) ? search : keyword;
+        Page<PartnerResponse> response = partnerService.getPartners(farmId, partnerType, status, searchTerm, pageable);
         return ResponseEntity.ok(response);
     }
 

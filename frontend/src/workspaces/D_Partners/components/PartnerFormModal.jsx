@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Contact, AlertTriangle, Building, CreditCard, Shield, QrCode } from 'lucide-react';
+import { Contact, AlertTriangle, Building, CreditCard, Shield, QrCode, Lock, CheckCircle2 } from 'lucide-react';
 import { partnerService } from '@/services/modules/partnerService';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -9,10 +9,11 @@ import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { toast } from '@/store/useToastStore';
 
 const PARTNER_TYPES = [
   { value: 'SUPPLIER', label: 'SUPPLIER - Nhà Cung Cấp Vật Tư / Giống' },
-  { value: 'BUYER', label: 'BUYER - Khách Hàng / Doanh Nghiệp / Thương Lái Thu Mua' },
+  { value: 'BUYER', label: 'BUYER - Khách Hàng / Thương Lái Thu Mua' },
   { value: 'LOGISTICS', label: 'LOGISTICS - Đơn Vị Vận Chuyển / Hậu Cần' },
   { value: 'AGENT', label: 'AGENT - Đại Lý Hai Chiều (Vừa Cung Cấp Vừa Thu Mua)' },
 ];
@@ -30,10 +31,11 @@ export function PartnerFormModal({
   onSuccess,
 }) {
   const { isOwner } = useAuthStore();
-  const { activeFarmId } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, farms, notifyDataChanged } = useActiveFarmStore();
   const owner = isOwner();
 
   const [formData, setFormData] = useState({
+    farmId: '',
     code: '',
     name: '',
     partnerType: 'SUPPLIER',
@@ -64,6 +66,7 @@ export function PartnerFormModal({
 
     if (editingItem) {
       setFormData({
+        farmId: editingItem.farmId != null ? String(editingItem.farmId) : '',
         code: editingItem.code || '',
         name: editingItem.name || '',
         partnerType: editingItem.partnerType || 'SUPPLIER',
@@ -79,11 +82,16 @@ export function PartnerFormModal({
         bankName: editingItem.bankName || 'MBBank - Ngân hàng Quân Đội',
         bankAccountNo: editingItem.bankAccountNo || '',
         bankAccountName: editingItem.bankAccountName || '',
-        notes: editingItem.notes || '',
+        notes: editingItem.notes || editingItem.bankAccountInfo || '',
       });
       setIsDualRole(editingItem.partnerType === 'AGENT');
     } else {
+      const defaultFarmId = !owner && activeFarmId && activeFarmId !== 'ALL'
+        ? String(activeFarmId)
+        : '';
+
       setFormData({
+        farmId: defaultFarmId,
         code: generateEntityCode(CODE_PREFIXES.PARTNER),
         name: '',
         partnerType: 'SUPPLIER',
@@ -103,7 +111,7 @@ export function PartnerFormModal({
       });
       setIsDualRole(false);
     }
-  }, [isOpen, editingItem]);
+  }, [isOpen, editingItem, owner, activeFarmId]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -148,7 +156,18 @@ export function PartnerFormModal({
     e.preventDefault();
     const errors = {};
 
-    if (!formData.name.trim()) errors.name = 'Tên đối tác không được để trống';
+    if (!formData.name?.trim()) errors.name = 'Tên đối tác không được để trống';
+    if (!formData.contactPerson?.trim()) errors.contactPerson = 'Người liên hệ không được để trống';
+
+    // Validate phone VN bắt buộc
+    if (!formData.phone?.trim()) {
+      errors.phone = 'Số điện thoại không được để trống';
+    } else {
+      const cleanPhone = formData.phone.trim();
+      if (!/^(0|\+84)[3|5|7|8|9][0-9]{8}$/.test(cleanPhone)) {
+        errors.phone = 'Số điện thoại không đúng định dạng số di động Việt Nam (10 chữ số)';
+      }
+    }
 
     // Validate taxCode nếu nhập: 10 hoặc 13 số
     if (formData.taxCode?.trim()) {
@@ -158,11 +177,10 @@ export function PartnerFormModal({
       }
     }
 
-    // Validate phone VN nếu nhập
-    if (formData.phone?.trim()) {
-      const cleanPhone = formData.phone.trim();
-      if (!/^(0|\+84)[3|5|7|8|9][0-9]{8}$/.test(cleanPhone)) {
-        errors.phone = 'Số điện thoại không đúng định dạng số di động Việt Nam';
+    // Validate email nếu nhập
+    if (formData.email?.trim()) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+        errors.email = 'Email không hợp lệ';
       }
     }
 
@@ -184,11 +202,23 @@ export function PartnerFormModal({
       setFieldErrors({});
       setGeneralError('');
 
+      // Đối với FARM_MANAGER: farmId bắt buộc là activeFarmId, creditLimit bắt buộc là 0
+      let resolvedFarmId = null;
+      if (owner) {
+        resolvedFarmId = formData.farmId ? Number(formData.farmId) : null;
+      } else {
+        resolvedFarmId = activeFarmId && activeFarmId !== 'ALL'
+          ? Number(activeFarmId)
+          : editingItem?.farmId || null;
+      }
+
       const payload = {
         ...formData,
-        farmId: editingItem?.farmId || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null),
+        farmId: resolvedFarmId,
         code: formData.code?.trim() ? formData.code.trim().toUpperCase() : null,
         name: formData.name.trim(),
+        contactPerson: formData.contactPerson.trim(),
+        phone: formData.phone.trim(),
         creditLimit: owner
           ? Number(formData.creditLimit)
           : editingItem
@@ -204,10 +234,14 @@ export function PartnerFormModal({
 
       if (editingItem) {
         await partnerService.updatePartner(editingItem.id, payload);
+        toast.success(`Cập nhật thông tin đối tác "${payload.name}" thành công!`);
       } else {
         await partnerService.createPartner(payload);
+        toast.success(`Thêm mới đối tác "${payload.name}" cho trang trại thành công!`);
       }
 
+      // Kích hoạt bus đồng bộ liên Workspace để WS-C và WS-H2 nhận tức thì
+      await notifyDataChanged?.('partners');
       onSuccess?.();
       onClose();
     } catch (err) {
@@ -218,19 +252,22 @@ export function PartnerFormModal({
     }
   };
 
+  // Tên trang trại hiển thị cho FARM_MANAGER
+  const farmDisplayName = activeFarm?.name || (activeFarmId ? `Trang trại #${activeFarmId}` : 'Trang trại hiện tại');
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={editingItem ? 'Cập Nhật Hồ Sơ Đối Tác' : 'Thêm Mới Đối Tác Thương Mại'}
+      title={editingItem ? 'Cập Nhật Hồ Sơ Đối Tác' : 'Thêm Mới Đối Tác Cho Trang Trại'}
       size="lg"
       footer={
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onClose}>
-            Hủy
+          <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={saving}>
+            Hủy Bỏ
           </Button>
           <Button type="button" variant="primary" size="sm" isLoading={saving} onClick={handleSubmit}>
-            {editingItem ? 'Lưu Thay Đổi' : 'Tạo Đối Tác'}
+            {editingItem ? 'Lưu Thay Đổi' : 'Lưu Đối Tác'}
           </Button>
         </div>
       }
@@ -247,7 +284,7 @@ export function PartnerFormModal({
         <div className="space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-800">
-              <Building className="h-4 w-4 text-indigo-600" />
+              <Building className="h-4 w-4 text-emerald-600" />
               1. Thông Tin Định Danh & Phân Loại
             </div>
 
@@ -264,7 +301,42 @@ export function PartnerFormModal({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <FormField label="Phân Loại Đối Tác" required error={fieldErrors.partnerType}>
+            {/* Ô Trang trại quản lý (farmId) */}
+            <FormField
+              label="Trang Trại Quản Lý"
+              required={!owner}
+              error={fieldErrors.farmId}
+              hint={!owner ? 'Tự động gán cứng theo trang trại bạn đang điều hành' : 'Chọn trang trại hoặc dùng chung toàn chuỗi'}
+            >
+              {!owner ? (
+                <div className="relative">
+                  <Input
+                    value={farmDisplayName}
+                    readOnly
+                    disabled
+                    className="bg-slate-100 text-slate-700 font-semibold cursor-not-allowed pl-8"
+                  />
+                  <Building className="absolute left-2.5 top-2.5 h-4 w-4 text-emerald-600" />
+                  <Lock className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                </div>
+              ) : (
+                <Select
+                  name="farmId"
+                  value={formData.farmId}
+                  onChange={handleChange}
+                  options={[
+                    { value: '', label: '🌐 Dùng chung toàn chuỗi (Toàn hệ thống)' },
+                    ...(farms || []).map((f) => ({
+                      value: String(f.id),
+                      label: `🏢 ${f.name} (${f.code})`,
+                    })),
+                  ]}
+                />
+              )}
+            </FormField>
+
+            {/* Ô Phân loại đối tác */}
+            <FormField label="Loại Đối Tác" required error={fieldErrors.partnerType}>
               <Select
                 name="partnerType"
                 value={formData.partnerType}
@@ -274,7 +346,12 @@ export function PartnerFormModal({
               />
             </FormField>
 
-            <FormField label="Mã Đối Tác" error={fieldErrors.code} hint={editingItem ? 'Mã đối tác bất biến' : 'Hệ thống tự động sinh mã gợi ý'}>
+            {/* Ô Mã đối tác (code) */}
+            <FormField
+              label="Mã Đối Tác"
+              error={fieldErrors.code}
+              hint={editingItem ? 'Khóa cứng bất biến' : 'Mã tự sinh dạng PRT-YYMM-XXXX'}
+            >
               <CodeInput
                 value={formData.code}
                 onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
@@ -283,6 +360,19 @@ export function PartnerFormModal({
                 error={fieldErrors.code}
               />
             </FormField>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-2">
+              <FormField label="Tên Đơn Vị / Đối Tác Thương Mại" required error={fieldErrors.name}>
+                <Input
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  placeholder="VD: Công ty TNHH Giống Cây Trồng Miền Đông"
+                />
+              </FormField>
+            </div>
 
             <FormField label="Mã Số Thuế (10 hoặc 13 số)" error={fieldErrors.taxCode}>
               <Input
@@ -295,35 +385,27 @@ export function PartnerFormModal({
             </FormField>
           </div>
 
-          <FormField label="Tên Đơn Vị / Đối Tác Thương Mại" required error={fieldErrors.name}>
-            <Input
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              placeholder="VD: Công ty TNHH Vật Tư Nông Nghiệp Miền Đông"
-            />
-          </FormField>
-
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <FormField label="Người Đại Diện / Liên Hệ" error={fieldErrors.contactPerson}>
+            <FormField label="Người Liên Hệ / Đại Diện" required error={fieldErrors.contactPerson}>
               <Input
                 name="contactPerson"
                 value={formData.contactPerson}
                 onChange={handleChange}
-                placeholder="VD: Anh Trần Tuấn"
+                placeholder="VD: Anh Nguyễn Văn An"
               />
             </FormField>
 
-            <FormField label="Số Điện Thoại" error={fieldErrors.phone}>
+            <FormField label="Số Điện Thoại" required error={fieldErrors.phone} hint="Định dạng số di động Việt Nam">
               <Input
                 name="phone"
                 value={formData.phone}
                 onChange={handleChange}
                 placeholder="VD: 0987654321"
+                className="font-mono"
               />
             </FormField>
 
-            <FormField label="Email" error={fieldErrors.email}>
+            <FormField label="Email Liên Hệ" error={fieldErrors.email}>
               <Input
                 type="email"
                 name="email"
@@ -339,7 +421,7 @@ export function PartnerFormModal({
               name="address"
               value={formData.address}
               onChange={handleChange}
-              placeholder="VD: 123 Quốc Lộ 20, Huyện Đức Trọng, Tỉnh Lâm Đồng"
+              placeholder="VD: 123 Quốc Lộ 1A, Phường Suối Hoa, TP. Bắc Ninh"
             />
           </FormField>
         </div>
@@ -355,23 +437,32 @@ export function PartnerFormModal({
             <FormField
               label="Hạn Mức Tín Dụng (VNĐ)"
               error={fieldErrors.creditLimit}
-              hint={
-                !owner
-                  ? 'Chỉ Chủ đầu tư (Owner) mới có quyền duyệt hạn mức tín dụng'
-                  : 'Hạn mức công nợ tối đa cấp cho đối tác'
-              }
             >
               <div className="space-y-1.5">
-                <Input
-                  type="number"
-                  min="0"
-                  step="500000"
-                  name="creditLimit"
-                  value={formData.creditLimit}
-                  onChange={handleChange}
-                  disabled={!owner}
-                  className={!owner ? 'bg-slate-100 text-slate-500 cursor-not-allowed font-mono' : 'font-mono'}
-                />
+                <div className="relative">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="500000"
+                    name="creditLimit"
+                    value={formData.creditLimit}
+                    onChange={handleChange}
+                    disabled={!owner}
+                    className={!owner ? 'bg-slate-100 text-slate-500 cursor-not-allowed font-mono pr-8' : 'font-mono'}
+                  />
+                  {!owner && <Lock className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />}
+                </div>
+
+                {/* Chú thích màu hổ phách dành riêng cho FARM_MANAGER */}
+                {!owner && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-[11px] text-amber-800 flex items-start gap-1.5">
+                    <Shield className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      Hạn mức mua chịu mặc định là 0 VNĐ. Sau khi tạo, Chủ đầu tư (Owner) sẽ phê duyệt hạn mức tín dụng nếu khách mua nợ.
+                    </span>
+                  </div>
+                )}
+
                 {owner && (
                   <div className="flex flex-wrap items-center gap-1 text-[11px] text-slate-600">
                     <span className="font-semibold text-slate-500 text-[10px]">Duyệt nhanh:</span>
@@ -472,4 +563,5 @@ export function PartnerFormModal({
     </Modal>
   );
 }
+
 export default PartnerFormModal;

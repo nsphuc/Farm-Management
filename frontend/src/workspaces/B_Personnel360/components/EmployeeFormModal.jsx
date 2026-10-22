@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, Switch, CodeInput } from '@/components/ui/FormControls';
 import { hrService } from '@/services/modules/hrService';
+import { geographyService } from '@/services/modules/geographyService';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -139,6 +140,7 @@ export function EmployeeFormModal({
     email: '',
     joinedDate: new Date().toISOString().split('T')[0],
     farmId: '',
+    assignedZoneId: '',
     position: '',
     contractType: 'FULL_TIME',
     baseSalary: '7500000',
@@ -152,9 +154,28 @@ export function EmployeeFormModal({
     selectedRole: 'ROLE_FIELD_STAFF',
   });
 
+  const [zones, setZones] = useState([]);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generalError, setGeneralError] = useState(null);
+
+  // Nạp danh sách phân khu của trang trại
+  useEffect(() => {
+    const targetFarmId = formData.farmId || activeFarmId;
+    if (isOpen && targetFarmId) {
+      geographyService.getZones(targetFarmId)
+        .then((res) => {
+          const list = Array.isArray(res) ? res : (res?.data || res?.content || []);
+          setZones(list);
+        })
+        .catch((err) => {
+          console.warn('Lỗi khi tải danh sách phân khu:', err);
+          setZones([]);
+        });
+    } else {
+      setZones([]);
+    }
+  }, [isOpen, formData.farmId, activeFarmId]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -179,6 +200,7 @@ export function EmployeeFormModal({
         email: employee.email || '',
         joinedDate: employee.joinedDate || new Date().toISOString().split('T')[0],
         farmId: employee.farmId !== null && employee.farmId !== undefined ? String(employee.farmId) : '',
+        assignedZoneId: employee.assignedZoneId !== null && employee.assignedZoneId !== undefined ? String(employee.assignedZoneId) : '',
         position: employee.position || '',
         contractType: employee.contractType || 'FULL_TIME',
         baseSalary: employee.baseSalary ? String(employee.baseSalary) : '0',
@@ -213,6 +235,7 @@ export function EmployeeFormModal({
           email: '',
           joinedDate: new Date().toISOString().split('T')[0],
           farmId: defaultFarmId,
+          assignedZoneId: '',
           position: 'FARM_MANAGER', // Khóa cứng FARM_MANAGER
           contractType: 'FULL_TIME',
           baseSalary: '15000000',
@@ -239,6 +262,7 @@ export function EmployeeFormModal({
           email: '',
           joinedDate: new Date().toISOString().split('T')[0],
           farmId: initialFarmId,
+          assignedZoneId: '',
           position: initialPos,
           contractType: 'FULL_TIME',
           baseSalary: '7500000',
@@ -416,6 +440,7 @@ export function EmployeeFormModal({
 
       const payload = {
         farmId: formData.farmId ? Number(formData.farmId) : null,
+        assignedZoneId: formData.assignedZoneId ? Number(formData.assignedZoneId) : null,
         employeeCode: formData.employeeCode.trim().toUpperCase(),
         fullName: formData.fullName.trim(),
         phone: formData.phone?.trim() || null,
@@ -447,6 +472,7 @@ export function EmployeeFormModal({
       }
 
       notifyDataChanged?.('employees');
+      notifyDataChanged?.('zones');
       if (formData.position === 'FARM_MANAGER' || isEditing) {
         notifyDataChanged?.('farms');
       }
@@ -628,13 +654,13 @@ export function EmployeeFormModal({
                 hint={
                   !owner
                     ? 'Khóa cứng theo trang trại bạn đang phụ trách điều hành'
-                    : 'Trang trại trực thuộc'
+                    : 'Trang trại trực thuộc (Khóa khi sửa)'
                 }
               >
                 <Select
                   value={formData.farmId}
                   onChange={(e) => handleChange('farmId', e.target.value)}
-                  disabled={!owner}
+                  disabled={!owner || isEditing}
                   placeholder="-- Chọn trang trại --"
                 >
                   {effectiveFarms.map((f) => (
@@ -661,12 +687,12 @@ export function EmployeeFormModal({
                   className="bg-slate-100 font-bold text-amber-900 border-amber-200 cursor-not-allowed"
                 />
               </FormField>
-            ) : isEditing ? (
+            ) : isEditing && employee?.position === 'FARM_MANAGER' ? (
               <FormField
                 label="Chức Vụ / Vị Trí"
                 required
                 error={errors.position}
-                hint="Hệ thống tự động suy diễn Phòng Ban tương ứng"
+                hint="Vị trí Quản lý trang trại"
               >
                 <Input
                   value={formData.position}
@@ -695,6 +721,32 @@ export function EmployeeFormModal({
                 </Select>
               </FormField>
             )}
+
+            {/* Ô Giao Về Phân Khu / Bộ Phận Quản Lý */}
+            <FormField
+              label="Giao Về Phân Khu / Bộ Phận Quản Lý"
+              hint={
+                formData.position === 'FARM_MANAGER'
+                  ? 'Quản lý bao quát toàn bộ trang trại'
+                  : formData.position === 'WAREHOUSE_STAFF'
+                  ? 'Trực thuộc bộ phận Kho Vận trang trại'
+                  : 'Phân công nhân sự về phân khu sản xuất (Trưởng khu quản lý)'
+              }
+              error={errors.assignedZoneId}
+            >
+              <Select
+                value={formData.assignedZoneId}
+                onChange={(e) => handleChange('assignedZoneId', e.target.value)}
+                disabled={formData.position === 'FARM_MANAGER'}
+              >
+                <option value="">-- Chưa chỉ định / Theo phân công sau --</option>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    Phân khu: {z.name} ({z.code || `ZON-${z.id}`}) {z.zoneType ? `— ${z.zoneType}` : ''}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
 
             <FormField label="Loại Hợp Đồng" required error={errors.contractType}>
               <Select

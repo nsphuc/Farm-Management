@@ -49,11 +49,17 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
     @Override
     @Transactional(readOnly = true)
     public Page<DebtRecordDetailResponse> getDebts(Long farmId, Long partnerId, String debtType, String status, Pageable pageable) {
-        validateFarm(farmId);
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        if (farmId != null && farmId > 0) {
+            validateFarm(farmId);
+        }
 
         Specification<DebtRecord> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("farmId"), farmId));
+            predicates.add(cb.equal(root.get("tenantId"), tenantId));
+            if (farmId != null && farmId > 0) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
 
             if (partnerId != null) {
                 predicates.add(cb.equal(root.get("partnerId"), partnerId));

@@ -73,9 +73,43 @@ export const useAuthStore = create((set, get) => ({
    * Helper: Kiểm tra người dùng có quyền cụ thể không
    */
   hasPermission: (permCode) => {
-    const { userInfo } = get();
+    const { userInfo, isSuperAdmin, isOwner, isFarmManager } = get();
     if (!userInfo) return false;
-    if (userInfo.isSuperAdmin) return true;
+    if (isSuperAdmin() || isOwner()) return true;
+
+    // Giám đốc trang trại (Role 2) có toàn quyền điều hành 9 workspaces của cơ sở phụ trách (trừ quyền platform và tạo farm mới)
+    if (isFarmManager()) {
+      if (permCode === 'PERM_TENANT_MANAGE' || permCode === 'PERM_FARM_CREATE') return false;
+      const farmManagerPermissions = [
+        'PERM_FARM_VIEW',
+        'PERM_FARM_UPDATE',
+        'PERM_ZONE_MANAGE',
+        'PERM_CROP_VIEW',
+        'PERM_CROP_PLAN',
+        'PERM_CROP_LOG',
+        'PERM_LIVESTOCK_VIEW',
+        'PERM_LIVESTOCK_MANAGE',
+        'PERM_LIVESTOCK_VET',
+        'PERM_INVENTORY_VIEW',
+        'PERM_HARVEST_MANAGE',
+        'PERM_QC_INSPECT',
+        'PERM_QC_APPROVE',
+        'PERM_LABEL_PRINT',
+        'PERM_HR_EMPLOYEE_MANAGE',
+        'PERM_HR_ATTENDANCE',
+        'PERM_TASK_ASSIGN',
+        'PERM_FINANCE_EXPENSE',
+        'PERM_FINANCE_SALES_ORDER',
+        'PERM_FINANCE_REPORT',
+        'PERM_PAYMENT_ALLOCATE',
+      ];
+      if (farmManagerPermissions.includes(permCode)) return true;
+      if (Array.isArray(userInfo.permissions)) {
+        return userInfo.permissions.includes(permCode);
+      }
+      return false;
+    }
+
     if (!Array.isArray(userInfo.permissions)) return false;
     return userInfo.permissions.includes(permCode);
   },
@@ -84,11 +118,9 @@ export const useAuthStore = create((set, get) => ({
    * Helper: Kiểm tra có ít nhất 1 quyền trong danh sách không
    */
   hasAnyPermission: (permCodes) => {
-    const { userInfo } = get();
-    if (!userInfo) return false;
-    if (userInfo.isSuperAdmin) return true;
-    if (!Array.isArray(userInfo.permissions) || !Array.isArray(permCodes)) return false;
-    return permCodes.some((perm) => userInfo.permissions.includes(perm));
+    const { hasPermission } = get();
+    if (!Array.isArray(permCodes) || permCodes.length === 0) return false;
+    return permCodes.some((perm) => hasPermission(perm));
   },
 
   /**
@@ -124,9 +156,24 @@ export const useAuthStore = create((set, get) => ({
     if (!userInfo) return false;
     if (isSuperAdmin()) return true;
 
-    if (userInfo.operationalRole === 'OWNER' || userInfo.isOwner === true) return true;
+    // Giám đốc trang trại (FARM_MANAGER) làm thuê tuyệt đối KHÔNG PHẢI là Chủ đầu tư cấp Tenant
+    if (
+      userInfo.operationalRole === 'FARM_MANAGER' ||
+      userInfo.position === 'FARM_MANAGER' ||
+      userInfo.assignedRole === 'FARM_MANAGER'
+    ) {
+      return false;
+    }
 
     const roles = userInfo.roles || [];
+    const hasFmRole = roles.some((r) => {
+      const code = typeof r === 'string' ? r : (r?.code || r?.name);
+      return code === 'ROLE_FARM_MANAGER' || code === 'FARM_MANAGER';
+    });
+    if (hasFmRole && !userInfo.isTenantOwner && !userInfo.isOwner) return false;
+
+    if (userInfo.operationalRole === 'OWNER' || userInfo.isOwner === true) return true;
+
     const ownerRole = roles.find((r) =>
       typeof r === 'string' ? r === 'ROLE_FARM_OWNER' : r?.code === 'ROLE_FARM_OWNER'
     );
@@ -177,7 +224,7 @@ export const useAuthStore = create((set, get) => ({
    * Role 2 - Giám đốc / Quản lý 1 Trang trại (isFarmManager)
    * Người được Owner bổ nhiệm phụ trách điều hành 1 trang trại cụ thể:
    * (farms.manager_user_id == currentUser.id hoặc có farm_assignments.role_in_farm == 'FARM_MANAGER' /
-   * ROLE_FARM_OWNER giới hạn ở scope_level = 'FARM').
+   * ROLE_FARM_OWNER giới hạn ở scope_level = 'FARM' / ROLE_FARM_MANAGER / position == 'FARM_MANAGER').
    * Chỉ nhìn thấy dữ liệu của đúng trang trại mình phụ trách (activeFarmId khóa chặt vào trại đó).
    * Bắt buộc phải chấm công GPS + Selfie hàng ngày.
    */
@@ -186,9 +233,22 @@ export const useAuthStore = create((set, get) => ({
     if (!userInfo) return false;
     if (isOwner()) return false;
 
-    if (userInfo.operationalRole === 'FARM_MANAGER') return true;
+    if (
+      userInfo.operationalRole === 'FARM_MANAGER' ||
+      userInfo.position === 'FARM_MANAGER' ||
+      userInfo.assignedRole === 'FARM_MANAGER' ||
+      userInfo.role === 'ROLE_FARM_MANAGER'
+    ) {
+      return true;
+    }
 
     const roles = userInfo.roles || [];
+    const hasFmRole = roles.some((r) => {
+      const code = typeof r === 'string' ? r : (r?.code || r?.name);
+      return code === 'ROLE_FARM_MANAGER' || code === 'FARM_MANAGER';
+    });
+    if (hasFmRole) return true;
+
     const ownerRole = roles.find((r) =>
       typeof r === 'string' ? r === 'ROLE_FARM_OWNER' : r?.code === 'ROLE_FARM_OWNER'
     );
@@ -344,8 +404,8 @@ export const useAuthStore = create((set, get) => ({
       isFieldWorker,
     } = get();
     if (isSuperAdmin()) return 'SUPER_ADMIN';
-    if (isOwner()) return 'OWNER';
     if (isFarmManager()) return 'FARM_MANAGER';
+    if (isOwner()) return 'OWNER';
     if (isFarmAccountant()) return 'FARM_ACCOUNTANT';
     if (isTechnicalLead()) return 'TECHNICAL_LEAD';
     if (isWarehouseKeeper()) return 'WAREHOUSE_KEEPER';

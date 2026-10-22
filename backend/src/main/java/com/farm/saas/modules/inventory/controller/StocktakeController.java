@@ -18,6 +18,14 @@ public class StocktakeController {
 
     private final InventoryService inventoryService;
 
+    @GetMapping
+    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    public ResponseEntity<org.springframework.data.domain.Page<StocktakeDetailResponse>> getStocktakes(
+            @PathVariable Long farmId,
+            @org.springframework.data.web.PageableDefault(size = 50) org.springframework.data.domain.Pageable pageable) {
+        return ResponseEntity.ok(inventoryService.getStocktakes(farmId, pageable));
+    }
+
     @PostMapping
     @PreAuthorize("hasAuthority('PERM_INVENTORY_STOCKTAKE') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<StocktakeDetailResponse> createStocktake(
