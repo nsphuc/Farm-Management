@@ -40,19 +40,28 @@ public class BudgetServiceImpl implements BudgetService {
     @Override
     @Transactional(readOnly = true)
     public Page<BudgetDetailResponse> getBudgets(Long farmId, Pageable pageable) {
-        validateFarm(farmId);
-        Page<Budget> page = budgetRepository.findByFarmId(farmId, pageable);
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Page<Budget> page;
+        if (farmId != null && farmId > 0) {
+            validateFarm(farmId);
+            page = budgetRepository.findByTenantIdAndFarmId(tenantId, farmId, pageable);
+        } else {
+            page = budgetRepository.findByTenantId(tenantId, pageable);
+        }
         return page.map(this::toDetailResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
     public BudgetDetailResponse getBudgetById(Long farmId, Long id) {
-        validateFarm(farmId);
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         Budget budget = budgetRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Budget not found: " + id));
-        if (!budget.getFarmId().equals(farmId)) {
+        if (farmId != null && farmId > 0 && !budget.getFarmId().equals(farmId)) {
             throw new BusinessException("BAD_REQUEST", "Budget does not belong to specified farm");
+        }
+        if (tenantId != null && !budget.getTenantId().equals(tenantId)) {
+            throw new BusinessException("FORBIDDEN", "Access to budget forbidden");
         }
         return toDetailResponse(budget);
     }
@@ -62,11 +71,15 @@ public class BudgetServiceImpl implements BudgetService {
     public BudgetDetailResponse createBudget(Long farmId, CreateBudgetRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
-        validateFarm(farmId);
+        Long targetFarmId = (farmId != null && farmId > 0) ? farmId : request.getFarmId();
+        if (targetFarmId == null) {
+            throw new BusinessException("BAD_REQUEST", "Trang trại (farmId) không được để trống khi khởi tạo ngân sách");
+        }
+        validateFarm(targetFarmId);
 
         Budget budget = Budget.builder()
                 .tenantId(tenantId)
-                .farmId(farmId)
+                .farmId(targetFarmId)
                 .operationalCycleId(request.getOperationalCycleId())
                 .name(request.getName())
                 .fiscalYear(request.getFiscalYear())
@@ -103,13 +116,16 @@ public class BudgetServiceImpl implements BudgetService {
     @Override
     @Transactional
     public BudgetDetailResponse updateBudgetStatus(Long farmId, Long id, String status) {
-        validateFarm(farmId);
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
         Budget budget = budgetRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Budget not found: " + id));
-        if (!budget.getFarmId().equals(farmId)) {
+        if (farmId != null && farmId > 0 && !budget.getFarmId().equals(farmId)) {
             throw new BusinessException("BAD_REQUEST", "Budget does not belong to specified farm");
+        }
+        if (tenantId != null && !budget.getTenantId().equals(tenantId)) {
+            throw new BusinessException("FORBIDDEN", "Access to budget forbidden");
         }
 
         budget.setStatus(status);

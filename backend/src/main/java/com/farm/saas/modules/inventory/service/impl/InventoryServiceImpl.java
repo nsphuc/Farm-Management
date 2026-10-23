@@ -873,6 +873,14 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
     @Override
     @Transactional(readOnly = true)
+    public Page<WarehouseTransferDetailResponse> getTransfers(Long farmId, Pageable pageable) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        return transferRepository.findByFarmId(tenantId, farmId, pageable)
+                .map(this::enrichTransferDetail);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public WarehouseTransferDetailResponse getTransferById(Long farmId, Long id) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         WarehouseTransfer transfer = transferRepository.findByTenantIdAndId(tenantId, id)
@@ -1101,6 +1109,14 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .build());
 
         return enrichStocktakeDetail(stocktake);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<StocktakeDetailResponse> getStocktakes(Long farmId, Pageable pageable) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        return stocktakeRepository.findByTenantIdAndFarmIdOrderByCreatedAtDesc(tenantId, farmId, pageable)
+                .map(this::enrichStocktakeDetail);
     }
 
     @Override

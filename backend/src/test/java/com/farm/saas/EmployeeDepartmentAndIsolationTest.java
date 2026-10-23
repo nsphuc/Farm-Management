@@ -154,6 +154,7 @@ public class EmployeeDepartmentAndIsolationTest {
     void testOneStepFarmManagerProvisioningAndAppointment() {
         var empRepo = org.mockito.Mockito.mock(com.farm.saas.modules.hr.repository.EmployeeRepository.class);
         var farmRepo = org.mockito.Mockito.mock(com.farm.saas.modules.geography.repository.FarmRepository.class);
+        var productionZoneRepo = org.mockito.Mockito.mock(com.farm.saas.modules.geography.repository.ProductionZoneRepository.class);
         var userRepo = org.mockito.Mockito.mock(com.farm.saas.modules.auth.repository.UserRepository.class);
         var roleRepo = org.mockito.Mockito.mock(com.farm.saas.modules.auth.repository.RoleRepository.class);
         var userRoleRepo = org.mockito.Mockito.mock(com.farm.saas.modules.auth.repository.UserRoleRepository.class);
@@ -163,7 +164,7 @@ public class EmployeeDepartmentAndIsolationTest {
         var passwordEncoder = org.mockito.Mockito.mock(org.springframework.security.crypto.password.PasswordEncoder.class);
 
         var service = new com.farm.saas.modules.hr.service.impl.EmployeeServiceImpl(
-                empRepo, farmRepo, userRepo, roleRepo, userRoleRepo, userFarmAccessRepo, farmAssignmentRepo, subRepo, passwordEncoder
+                empRepo, farmRepo, productionZoneRepo, userRepo, roleRepo, userRoleRepo, userFarmAccessRepo, farmAssignmentRepo, subRepo, passwordEncoder
         );
 
         // Giả lập Security Context cho Owner

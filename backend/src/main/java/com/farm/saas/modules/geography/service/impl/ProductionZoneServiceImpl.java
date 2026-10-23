@@ -3,6 +3,7 @@ package com.farm.saas.modules.geography.service.impl;
 import com.farm.saas.common.audit.AuditTrailEvent;
 import com.farm.saas.common.exception.ApiException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
+import com.farm.saas.common.security.CustomUserDetails;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.geography.dto.request.CreateProductionZoneRequest;
 import com.farm.saas.modules.geography.dto.request.CreateZoneLocationRequest;
@@ -41,6 +42,7 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
     private final ZoneLocationRepository zoneLocationRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.farm.saas.modules.notification.service.NotificationService notificationService;
 
     private static final Set<String> VALID_ZONE_TYPES = Set.of(
             "GREENHOUSE", "OPEN_FIELD", "BARN", "POND", "STORAGE", "ISOLATION"
@@ -98,12 +100,18 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                             newTotal, farm.getTotalAreaM2()));
         }
 
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+        boolean isOwnerOrAdmin = currentUser != null && (currentUser.isSuperAdmin() || currentUser.hasRole("ROLE_FARM_OWNER"));
+
         String initialStatus = "ACTIVE";
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             String candidate = request.getStatus().trim().toUpperCase();
             if (VALID_ZONE_STATUSES.contains(candidate)) {
                 initialStatus = candidate;
             }
+        } else if (!isOwnerOrAdmin) {
+            // FARM_MANAGER hoặc nhân sự cấp cơ sở tạo phân khu -> Trạng thái MAINTENANCE (Chờ Owner phê duyệt)
+            initialStatus = "MAINTENANCE";
         }
 
         ProductionZone zone = ProductionZone.builder()
@@ -122,6 +130,34 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                 .build();
 
         ProductionZone saved = productionZoneRepository.save(zone);
+
+        // Nếu trạng thái là MAINTENANCE (Đề xuất chờ duyệt), gửi thông báo thông tri cho Owner
+        if ("MAINTENANCE".equals(initialStatus)) {
+            try {
+                List<Long> ownerUserIds = jdbcTemplate.query(
+                        "SELECT u.id FROM users u " +
+                                "JOIN user_roles ur ON u.id = ur.user_id " +
+                                "JOIN roles r ON ur.role_id = r.id " +
+                                "WHERE u.tenant_id = ? AND r.code = 'ROLE_FARM_OWNER' AND u.status = 'ACTIVE'",
+                        (rs, rowNum) -> rs.getLong("id"),
+                        farm.getTenantId()
+                );
+                for (Long ownerId : ownerUserIds) {
+                    notificationService.sendNotification(
+                            farm.getTenantId(),
+                            ownerId,
+                            "Đề xuất mở phân khu mới: " + zone.getName(),
+                            "Giám đốc trang trại " + farm.getName() + " vừa gửi đề xuất mở phân khu " + zone.getName() + " (" + zone.getCode() + ") diện tích " + zone.getAreaM2() + " m2 đang chờ phê duyệt.",
+                            "INFO",
+                            "SYSTEM",
+                            zone.getId(),
+                            "/app/geography?farmId=" + farmId + "&zoneId=" + zone.getId()
+                    );
+                }
+            } catch (Exception ex) {
+                log.warn("Could not dispatch notification to Farm Owner for zone proposal: {}", ex.getMessage());
+            }
+        }
 
         eventPublisher.publishEvent(AuditTrailEvent.builder()
                 .tenantId(farm.getTenantId())

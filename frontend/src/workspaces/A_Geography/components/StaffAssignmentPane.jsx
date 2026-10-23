@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Trash2, Calendar, ShieldCheck, UserCheck, Info } from 'lucide-react';
+import { Users, Plus, Trash2, Calendar, ShieldCheck, UserCheck, Info, RefreshCw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Can } from '@/components/common/Can';
 import { formatDate } from '@/utils/formatters';
@@ -76,10 +76,12 @@ export function StaffAssignmentPane({
             type="button"
             variant="outline"
             size="sm"
-            onClick={onOpenAssignModal}
+            onClick={() => onOpenAssignModal?.(null)}
             icon={<Plus className="h-3.5 w-3.5" />}
           >
-            + Phân Công Nhân Sự
+            {farmManager && !owner
+              ? '+ Phân Công Trưởng Phân Khu / Phụ Trách Bộ Phận'
+              : '+ Phân Công Nhân Sự'}
           </Button>
         </Can>
       </div>
@@ -98,7 +100,7 @@ export function StaffAssignmentPane({
             return (
               <div
                 key={a.id}
-                className="flex items-start justify-between rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 hover:bg-slate-50 transition-colors"
+                className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 hover:bg-slate-50 transition-colors space-y-3"
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -130,16 +132,39 @@ export function StaffAssignmentPane({
                   )}
                 </div>
 
-                <Can permission="PERM_ZONE_MANAGE">
-                  <button
-                    type="button"
-                    onClick={() => onDeleteAssignment?.(a.id)}
-                    className="p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors"
-                    title="Xóa phân công"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </Can>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
+                  <div className="text-[11px] text-slate-500">
+                    <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                      ● Đang phụ trách
+                    </span>
+                  </div>
+
+                  <Can permission="PERM_ZONE_MANAGE">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        className="text-[11px] border-slate-200 text-slate-700 hover:bg-slate-100 font-medium"
+                        onClick={() => onOpenAssignModal?.(a)}
+                        icon={<RefreshCw className="h-3 w-3 text-slate-500" />}
+                      >
+                        [🔄 Thay Đổi Người Phụ Trách]
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        className="text-[11px] border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 font-medium"
+                        onClick={() => onDeleteAssignment?.(a.id, a)}
+                        icon={<Square className="h-3 w-3 text-rose-500" />}
+                      >
+                        [⏹️ Kết Thúc Phân Công]
+                      </Button>
+                    </div>
+                  </Can>
+                </div>
               </div>
             );
           })}

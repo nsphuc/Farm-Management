@@ -39,4 +39,10 @@ public class ShiftAssignmentController {
         }
         return ResponseEntity.ok(shiftAssignmentService.getAssignmentsByFarmAndDate(farmId, workDate));
     }
+
+    @PutMapping("/assignments/{id}/cancel")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    public ResponseEntity<ShiftAssignmentResponse> cancelAssignment(@PathVariable Long id) {
+        return ResponseEntity.ok(shiftAssignmentService.cancelAssignment(id));
+    }
 }

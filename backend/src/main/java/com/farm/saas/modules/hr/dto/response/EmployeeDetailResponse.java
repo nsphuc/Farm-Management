@@ -16,8 +16,11 @@ public class EmployeeDetailResponse {
     private Long tenantId;
     private Long farmId;
     private String farmName;
+    private Long assignedZoneId;
+    private String assignedZoneName;
     private Long userId;
     private String username;
+    private String userStatus;
     private String employeeCode;
     private String fullName;
     private String phone;

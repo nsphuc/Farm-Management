@@ -22,9 +22,15 @@ public interface FarmExpenseRepository extends JpaRepository<FarmExpense, Long>,
 
     Page<FarmExpense> findByFarmId(Long farmId, Pageable pageable);
 
+    Page<FarmExpense> findByTenantId(Long tenantId, Pageable pageable);
+
+    Page<FarmExpense> findByTenantIdAndFarmId(Long tenantId, Long farmId, Pageable pageable);
+
     List<FarmExpense> findByFarmId(Long farmId);
 
     List<FarmExpense> findByTenantId(Long tenantId);
+
+    List<FarmExpense> findByTenantIdAndFarmId(Long tenantId, Long farmId);
 
     List<FarmExpense> findBySeasonIdAndStatusAndUnitCostEligibleTrue(Long seasonId, String status);
 

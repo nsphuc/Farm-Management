@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { OneTapTimekeepingCard } from './components/OneTapTimekeepingCard';
+import { FarmManagerDailyOverview } from './components/FarmManagerDailyOverview';
 import { TeamRollCallPanel } from './components/TeamRollCallPanel';
 import { PersonalTaskKanban } from './components/PersonalTaskKanban';
 import { DailyRoutineTaskTab } from './components/DailyRoutineTaskTab';
@@ -60,6 +61,7 @@ export function EmployeeDailyOpsWorkspace() {
   const [tasks, setTasks] = useState([]);
   const [todayAttendance, setTodayAttendance] = useState(null);
   const [todayAttendances, setTodayAttendances] = useState([]);
+  const [assignments, setAssignments] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // 1. Tải danh mục phân khu của Farm
@@ -136,6 +138,17 @@ export function EmployeeDailyOpsWorkspace() {
     }
   };
 
+  // 6. Tải danh sách phân công nhân sự tại trại
+  const fetchAssignments = async () => {
+    if (!activeFarmId) return;
+    try {
+      const data = await geographyService.getAssignments(activeFarmId);
+      setAssignments(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Fetch assignments error in WS-G:', err);
+    }
+  };
+
   const handleRefreshAll = async () => {
     setIsLoading(true);
     await Promise.all([
@@ -144,6 +157,7 @@ export function EmployeeDailyOpsWorkspace() {
       fetchEmployees(),
       fetchTasks(),
       fetchTodayAttendance(),
+      fetchAssignments(),
     ]);
     setIsLoading(false);
   };
@@ -218,7 +232,21 @@ export function EmployeeDailyOpsWorkspace() {
         onAttendanceSuccess={handleRefreshAll}
       />
 
-      {/* KHỐI 2: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động Không Có Tài Khoản (Chỉ Role 2, Role 3, Role 4) */}
+      {/* KHỐI 2 (DÀNH CHO FARM MANAGER): Bảng Tổng Quan Quân Số Đi Làm Hôm Nay & Các Việc Chờ Giám Đốc Trại Duyệt */}
+      {farmManager && (
+        <FarmManagerDailyOverview
+          farmId={activeFarmId}
+          activeFarm={activeFarm}
+          employees={employees}
+          todayAttendances={todayAttendances}
+          tasks={tasks}
+          zones={zones}
+          assignments={assignments}
+          onRefresh={handleRefreshAll}
+        />
+      )}
+
+      {/* KHỐI 3: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động Không Có Tài Khoản (Chỉ Role 2, Role 3, Role 4) */}
       {canRollCallTeam && (
         <TeamRollCallPanel
           activeFarm={activeFarm}

@@ -25,6 +25,10 @@ public class Partner {
     @Column(name = "farm_id")
     private Long farmId;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "farm_id", insertable = false, updatable = false)
+    private com.farm.saas.modules.geography.entity.Farm farm;
+
     @Column(name = "code", nullable = false, length = 50)
     private String code;
 

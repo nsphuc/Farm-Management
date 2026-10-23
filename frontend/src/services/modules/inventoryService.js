@@ -61,4 +61,20 @@ export const inventoryService = {
       return [];
     }
   },
+
+  // 7. Lịch Sử Điều Chuyển Kho (Warehouse Transfers)
+  getTransfers: async (params = {}) => {
+    const { farmId, ...rest } = params;
+    const url = farmId ? `/farms/${farmId}/inventory/transfers` : '/inventory/transfers';
+    const res = await apiClient.get(url, { params: rest });
+    return res.data;
+  },
+
+  // 8. Lịch Sử Kiểm Kê Kho (Stocktakes)
+  getStocktakes: async (params = {}) => {
+    const { farmId, ...rest } = params;
+    const url = farmId ? `/farms/${farmId}/inventory/stocktakes` : '/inventory/stocktakes';
+    const res = await apiClient.get(url, { params: rest });
+    return res.data;
+  },
 };

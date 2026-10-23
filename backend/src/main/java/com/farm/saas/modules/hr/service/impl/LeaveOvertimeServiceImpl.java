@@ -106,12 +106,17 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
                                     currentQuota, leave.getTotalDays()));
                 }
                 employee.setAnnualLeaveQuota(currentQuota.subtract(leave.getTotalDays()));
-                employee.setUpdatedAt(Instant.now());
-                employee.setUpdatedBy(currentUserId);
-                employeeRepository.save(employee);
-                log.info("Deducted {} days annual leave for employee {}. Remaining quota: {}",
-                        leave.getTotalDays(), employee.getId(), employee.getAnnualLeaveQuota());
             }
+
+            java.time.LocalDate today = java.time.LocalDate.now();
+            if (!today.isBefore(leave.getStartDate()) && !today.isAfter(leave.getEndDate())) {
+                employee.setStatus("ON_LEAVE");
+            }
+            employee.setUpdatedAt(Instant.now());
+            employee.setUpdatedBy(currentUserId);
+            employeeRepository.save(employee);
+            log.info("Processed leave approval for employee {}. Remaining quota: {}, status: {}",
+                    employee.getId(), employee.getAnnualLeaveQuota(), employee.getStatus());
 
             leave.setStatus("APPROVED");
         } else {
@@ -266,6 +271,7 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
                 .startDate(l.getStartDate())
                 .endDate(l.getEndDate())
                 .totalDays(l.getTotalDays())
+                .annualLeaveQuota(emp != null ? emp.getAnnualLeaveQuota() : null)
                 .reason(l.getReason())
                 .status(l.getStatus())
                 .approvedByUserId(l.getApprovedByUserId())

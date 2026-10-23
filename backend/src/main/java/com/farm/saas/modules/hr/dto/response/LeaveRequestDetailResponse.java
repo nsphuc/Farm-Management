@@ -22,6 +22,7 @@ public class LeaveRequestDetailResponse {
     private LocalDate startDate;
     private LocalDate endDate;
     private BigDecimal totalDays;
+    private BigDecimal annualLeaveQuota;
     private String reason;
     private String status;
     private Long approvedByUserId;

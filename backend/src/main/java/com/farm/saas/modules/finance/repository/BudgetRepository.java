@@ -19,5 +19,9 @@ public interface BudgetRepository extends JpaRepository<Budget, Long>, JpaSpecif
 
     Page<Budget> findByFarmId(Long farmId, Pageable pageable);
 
+    Page<Budget> findByTenantId(Long tenantId, Pageable pageable);
+
+    Page<Budget> findByTenantIdAndFarmId(Long tenantId, Long farmId, Pageable pageable);
+
     List<Budget> findByFarmIdAndFiscalYear(Long farmId, Integer fiscalYear);
 }

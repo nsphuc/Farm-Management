@@ -39,12 +39,14 @@ public interface InventoryService {
     WarehouseIssueDetailResponse cancelIssue(Long farmId, Long id, CancelWarehouseIssueRequest request);
 
     // --- 4. Warehouse Transfers ---
+    Page<WarehouseTransferDetailResponse> getTransfers(Long farmId, Pageable pageable);
     WarehouseTransferDetailResponse createTransfer(Long farmId, CreateWarehouseTransferRequest request);
     WarehouseTransferDetailResponse getTransferById(Long farmId, Long id);
     WarehouseTransferDetailResponse dispatchTransfer(Long farmId, Long id);
     WarehouseTransferDetailResponse receiveTransfer(Long farmId, Long id);
 
     // --- 5. Stocktakes ---
+    Page<StocktakeDetailResponse> getStocktakes(Long farmId, Pageable pageable);
     StocktakeDetailResponse createStocktake(Long farmId, CreateStocktakeRequest request);
     StocktakeDetailResponse getStocktakeById(Long farmId, Long id);
     StocktakeDetailResponse recordStocktakeCount(Long farmId, Long id, RecordStocktakeCountRequest request);

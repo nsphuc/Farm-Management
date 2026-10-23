@@ -75,6 +75,27 @@ public class ShiftAssignmentServiceImpl implements ShiftAssignmentService {
     }
 
     @Override
+    @Transactional
+    public ShiftAssignmentResponse cancelAssignment(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        ShiftAssignment assignment = shiftAssignmentRepository.findById(id)
+                .filter(a -> a.getTenantId().equals(tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("ShiftAssignment", "id", id));
+
+        if (!"SCHEDULED".equalsIgnoreCase(assignment.getStatus())) {
+            throw new BusinessException("CANNOT_CANCEL_SHIFT", "Chỉ có thể hủy ca làm việc ở trạng thái SCHEDULED (Chưa diễn ra). Ca này đang ở trạng thái: " + assignment.getStatus());
+        }
+
+        assignment.setStatus("CANCELLED");
+        assignment.setUpdatedAt(Instant.now());
+        assignment.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        assignment = shiftAssignmentRepository.save(assignment);
+        log.info("Cancelled shift assignment id={} by user {}", id, SecurityUtils.getCurrentUserId());
+
+        return enrichResponse(assignment);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<ShiftAssignmentResponse> getAssignmentsByFarmAndDate(Long farmId, LocalDate workDate) {
         return shiftAssignmentRepository.findByFarmIdAndWorkDate(farmId, workDate).stream()

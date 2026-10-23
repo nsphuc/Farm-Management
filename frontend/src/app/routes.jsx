@@ -43,7 +43,10 @@ import { useAuthStore } from '@/store/useAuthStore';
  * Điều hướng trang đích ban đầu dựa theo 6 Vai trò Vận hành thực tế
  */
 function TenantIndexRedirect() {
-  const { isOwner, isFieldWorker, isWarehouseKeeper, isFarmAccountant, isTechnicalLead } = useAuthStore();
+  const { isOwner, isFarmManager, isFieldWorker, isWarehouseKeeper, isFarmAccountant, isTechnicalLead } = useAuthStore();
+  if (isFarmManager()) {
+    return <Navigate to="/app/my-dashboard" replace />;
+  }
   if (isOwner()) {
     return <Navigate to="/app/geography" replace />;
   }
@@ -57,7 +60,7 @@ function TenantIndexRedirect() {
     return <Navigate to="/app/sales-cashflow" replace />;
   }
   if (isTechnicalLead()) {
-    return <Navigate to="/app/farming-ops" replace />;
+    return <Navigate to="/app/farming" replace />;
   }
   return <Navigate to="/app/geography" replace />;
 }
@@ -160,7 +163,7 @@ export function AppRoutes() {
           }
         />
         <Route
-          path="farming-ops"
+          path="farming"
           element={
             <OwnerRestrictedGuard>
               <PermissionGuard anyPermissions={['PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_CROP_LOG']}>
@@ -170,10 +173,10 @@ export function AppRoutes() {
           }
         />
         <Route
-          path="farming"
+          path="farming-ops"
           element={
             <OwnerRestrictedGuard>
-              <Navigate to="/app/farming-ops" replace />
+              <Navigate to="/app/farming" replace />
             </OwnerRestrictedGuard>
           }
         />

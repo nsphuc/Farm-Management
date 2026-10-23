@@ -343,6 +343,21 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
         if (uOpt.isPresent()) {
             username = uOpt.get().getUsername();
             userFullName = uOpt.get().getFullName();
+        } else {
+            employeeRepository.findById(a.getUserId()).ifPresent(emp -> {
+                // If it was employee ID
+            });
+            employeeRepository.findByUserId(a.getUserId()).ifPresent(emp -> {
+                // If it was user ID
+            });
+            Optional<com.farm.saas.modules.hr.entity.Employee> empOpt = employeeRepository.findByUserId(a.getUserId());
+            if (empOpt.isEmpty()) {
+                empOpt = employeeRepository.findById(a.getUserId());
+            }
+            if (empOpt.isPresent()) {
+                userFullName = empOpt.get().getFullName();
+                username = empOpt.get().getEmployeeCode();
+            }
         }
 
         String zoneName = null;

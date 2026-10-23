@@ -74,6 +74,12 @@ export function GeographyWorkspace() {
   const [editingLocation, setEditingLocation] = useState(null);
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState(null);
+
+  const handleOpenAssignModal = (assignment = null) => {
+    setEditingAssignment(assignment);
+    setAssignModalOpen(true);
+  };
 
   // 1. Fetch entire geographic hierarchy: Farms -> Zones -> Locations
   const fetchHierarchy = async () => {
@@ -128,10 +134,15 @@ export function GeographyWorkspace() {
     }
   };
 
-  // 2. Fetch active employees for manager dropdown and assignments
-  const fetchEmployees = async () => {
+  // 2. Fetch active employees for manager dropdown and assignments (Cô lập 100% theo trang trại)
+  const fetchEmployees = async (farmId) => {
     try {
-      const res = await employeeService.getEmployees({ size: 100 });
+      const params = { size: 100, status: 'ACTIVE' };
+      const targetFarmId = farmId || (activeFarmId && activeFarmId !== 'ALL' ? activeFarmId : selectedFarm?.id);
+      if (targetFarmId) {
+        params.farmId = targetFarmId;
+      }
+      const res = await employeeService.getEmployees(params);
       setEmployees(res?.content || (Array.isArray(res) ? res : []));
     } catch (err) {
       console.error('Failed to load employees', err);
@@ -162,7 +173,6 @@ export function GeographyWorkspace() {
 
   useEffect(() => {
     fetchHierarchy();
-    fetchEmployees();
   }, [syncTrigger?.farms, syncTrigger?.zones]);
 
   // Tự động đồng bộ chọn farm trên giao diện khi activeFarmId thay đổi từ TopBar
@@ -180,6 +190,7 @@ export function GeographyWorkspace() {
   useEffect(() => {
     if (selectedFarm?.id) {
       fetchAssignments(selectedFarm.id);
+      fetchEmployees(selectedFarm.id);
     }
   }, [selectedFarm?.id, syncTrigger?.employees]);
 
@@ -289,16 +300,20 @@ export function GeographyWorkspace() {
     }
   };
 
-  // Delete assignment
-  const handleDeleteAssignment = async (assignmentId) => {
-    if (!window.confirm('Bạn có chắc muốn hủy phân công cán bộ này?')) return;
+  // Delete / End assignment [⏹️ Kết Thúc Phân Công]
+  const handleDeleteAssignment = async (assignmentId, assignmentItem = null) => {
+    const nameStr = assignmentItem?.userFullName || assignmentItem?.username || '';
+    const roleStr = assignmentItem?.roleInFarm ? `(${assignmentItem.roleInFarm})` : '';
+    if (!window.confirm(`Xác nhận kết thúc phân công cán bộ ${nameStr} ${roleStr} khỏi nhiệm vụ hiện trường?`)) return;
     try {
       await geographyService.deleteAssignment(selectedFarm.id, assignmentId);
+      toast.success('Đã kết thúc phân công cán bộ thành công!');
       notifyDataChanged?.('employees');
+      notifyDataChanged?.('zones');
       fetchAssignments(selectedFarm.id);
     } catch (err) {
       const errInfo = extractApiErrors(err);
-      toast.error(errInfo.message || 'Không thể hủy phân công!');
+      toast.error(errInfo.message || 'Không thể kết thúc phân công!');
     }
   };
 
@@ -440,7 +455,9 @@ export function GeographyWorkspace() {
                         }}
                         icon={<Plus className="h-4 w-4" />}
                       >
-                        {farmManager && !owner ? '+ Đề Xuất Thêm Phân Khu Mới' : '+ Thêm Phân Khu Mới'}
+                        {farmManager && !owner
+                          ? '+ Đề Xuất Thêm Phân Khu Mới (Gửi Owner Duyệt)'
+                          : '+ Thêm Phân Khu Mới'}
                       </Button>
                     </Can>
 
@@ -455,7 +472,7 @@ export function GeographyWorkspace() {
                         }}
                         icon={<Edit2 className="h-4 w-4" />}
                       >
-                        [✏️ Chỉnh Sửa Trang Trại]
+                        [✏️ Cập Nhật Thông Số Trại]
                       </Button>
                     </Can>
 
@@ -680,14 +697,14 @@ export function GeographyWorkspace() {
                       }}
                       icon={<Plus className="h-3.5 w-3.5" />}
                     >
-                      + Phân Khu Mới
+                      {farmManager && !owner ? '+ Đề Xuất Thêm Phân Khu (Gửi Owner Duyệt)' : '+ Phân Khu Mới'}
                     </Button>
                   </Can>
                 </div>
 
                 {(!selectedFarm.zones || selectedFarm.zones.length === 0) ? (
                   <div className="text-center py-8 text-xs text-slate-400">
-                    Trang trại này chưa có phân khu canh tác nào. Nhấn "+ Thêm Phân Khu" để khởi tạo.
+                    Trang trại này chưa có phân khu canh tác nào. Nhấn "{farmManager && !owner ? '+ Đề Xuất Thêm Phân Khu' : '+ Thêm Phân Khu'}" để khởi tạo.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -703,8 +720,8 @@ export function GeographyWorkspace() {
                           </span>
                           <div className="flex items-center gap-1.5">
                             {zone.status === 'MAINTENANCE' && (
-                              <span className="inline-flex items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
-                                Chờ Owner duyệt
+                              <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 text-[10px] font-bold">
+                                ⏳ Chờ Owner phê duyệt
                               </span>
                             )}
                             <StatusBadge status={zone.status} size="xs" />
@@ -742,7 +759,7 @@ export function GeographyWorkspace() {
                 <StaffAssignmentPane
                   assignments={assignments}
                   selectedZoneId={null}
-                  onOpenAssignModal={() => setAssignModalOpen(true)}
+                  onOpenAssignModal={handleOpenAssignModal}
                   onDeleteAssignment={handleDeleteAssignment}
                 />
               )}
@@ -797,18 +814,24 @@ export function GeographyWorkspace() {
                     )}
 
                     <Can permission="PERM_ZONE_MANAGE">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingLocation(null);
-                          setLocationModalOpen(true);
-                        }}
-                        icon={<Plus className="h-4 w-4" />}
-                      >
-                        + Thêm Vị Trí / Luống
-                      </Button>
+                      {selectedZone.status === 'ACTIVE' ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingLocation(null);
+                            setLocationModalOpen(true);
+                          }}
+                          icon={<Plus className="h-4 w-4" />}
+                        >
+                          [+ Thêm Vị Trí / Ô Chuồng]
+                        </Button>
+                      ) : (
+                        <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 font-semibold">
+                          ⏳ Chờ Owner duyệt
+                        </span>
+                      )}
 
                       <Button
                         type="button"
@@ -841,7 +864,7 @@ export function GeographyWorkspace() {
                     <div className="flex items-center gap-2.5">
                       <ShieldCheck className="h-5 w-5 text-amber-700 shrink-0" />
                       <div>
-                        <strong className="font-bold text-amber-950">Phân khu đang ở trạng thái MAINTENANCE (Chờ Chủ đầu tư phê duyệt):</strong>
+                        <strong className="font-bold text-amber-950">Phân khu đang ở trạng thái MAINTENANCE (⏳ Chờ Owner phê duyệt):</strong>
                         <p className="text-amber-800 mt-0.5">
                           {owner
                             ? 'Phân khu do Farm Manager đề xuất nâng cấp/mở rộng. Nhấn nút [ Phê Duyệt Mở Phân Khu ] để kích hoạt sang ACTIVE hoặc [ Từ Chối ] để chuyển sang FALLOW.'
@@ -922,24 +945,32 @@ export function GeographyWorkspace() {
                   </div>
 
                   <Can permission="PERM_ZONE_MANAGE">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      size="sm"
-                      onClick={() => {
-                        setEditingLocation(null);
-                        setLocationModalOpen(true);
-                      }}
-                      icon={<Plus className="h-3.5 w-3.5" />}
-                    >
-                      + Thêm Vị Trí
-                    </Button>
+                    {selectedZone.status === 'ACTIVE' ? (
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        onClick={() => {
+                          setEditingLocation(null);
+                          setLocationModalOpen(true);
+                        }}
+                        icon={<Plus className="h-3.5 w-3.5" />}
+                      >
+                        [+ Thêm Vị Trí / Ô Chuồng]
+                      </Button>
+                    ) : (
+                      <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 font-semibold">
+                        ⏳ Cần Owner duyệt để tạo vị trí
+                      </span>
+                    )}
                   </Can>
                 </div>
 
                 {zoneLocations.length === 0 ? (
                   <div className="text-center py-8 text-xs text-slate-400">
-                    Chưa có vị trí ô luống nào. Nhấn "+ Thêm Vị Trí" để chia nhỏ phân khu theo luống hoặc chuồng nuôi.
+                    {selectedZone.status === 'ACTIVE'
+                      ? 'Chưa có vị trí ô luống nào. Nhấn "[+ Thêm Vị Trí / Ô Chuồng]" để chia nhỏ phân khu theo luống hoặc chuồng nuôi.'
+                      : 'Phân khu đang ở trạng thái ⏳ Chờ Owner phê duyệt. Sau khi được duyệt sang ACTIVE, phân khu mới bắt đầu được mở vị trí / ô chuồng canh tác.'}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
@@ -965,6 +996,7 @@ export function GeographyWorkspace() {
                                 setLocationModalOpen(true);
                               }}
                               className="p-1 text-slate-400 hover:text-slate-800 rounded"
+                              title="[✏️ Sửa Vị Trí]"
                             >
                               <Edit2 className="h-3.5 w-3.5" />
                             </button>
@@ -972,6 +1004,7 @@ export function GeographyWorkspace() {
                               type="button"
                               onClick={() => handleDeleteLocation(loc.id)}
                               className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                              title="Xóa vị trí"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -988,7 +1021,7 @@ export function GeographyWorkspace() {
                 <StaffAssignmentPane
                   assignments={assignments}
                   selectedZoneId={selectedZone.id}
-                  onOpenAssignModal={() => setAssignModalOpen(true)}
+                  onOpenAssignModal={handleOpenAssignModal}
                   onDeleteAssignment={handleDeleteAssignment}
                 />
               )}
@@ -999,12 +1032,20 @@ export function GeographyWorkspace() {
           {farms.length === 0 && !loading && (
             <SmartEmptyState
               title="Chưa Có Trang Trại Nào Trong Hệ Thống"
-              description="Hãy bắt đầu khởi tạo Trang trại đầu tiên của bạn để thiết lập mặt bằng, phân khu và phân công hiện trường."
-              actionLabel="+ Tạo Trang Trại Mới"
-              onAction={() => {
-                setEditingFarm(null);
-                setFarmModalOpen(true);
-              }}
+              description={
+                owner
+                  ? 'Hãy bắt đầu khởi tạo Trang trại đầu tiên của bạn để thiết lập mặt bằng, phân khu và phân công hiện trường.'
+                  : 'Bạn chưa được phân công quản lý trang trại nào. Vui lòng liên hệ Chủ đầu tư (Owner) để được cấp quyền.'
+              }
+              actionLabel={owner ? '+ Tạo Trang Trại Mới' : undefined}
+              onAction={
+                owner
+                  ? () => {
+                      setEditingFarm(null);
+                      setFarmModalOpen(true);
+                    }
+                  : undefined
+              }
             />
           )}
         </div>
@@ -1031,6 +1072,7 @@ export function GeographyWorkspace() {
           farmTotalAreaM2={selectedFarm.totalAreaM2}
           farmCenter={selectedFarm}
           editingItem={editingZone}
+          existingZones={selectedFarm.zones || []}
           onSuccess={() => {
             fetchHierarchy();
             notifyDataChanged?.('zones');
@@ -1057,15 +1099,21 @@ export function GeographyWorkspace() {
       {selectedFarm && (
         <AssignmentModal
           isOpen={assignModalOpen}
-          onClose={() => setAssignModalOpen(false)}
+          onClose={() => {
+            setAssignModalOpen(false);
+            setEditingAssignment(null);
+          }}
           farmId={selectedFarm.id}
           zoneId={selectedZone?.id || null}
           farmName={selectedFarm.name}
           zoneName={selectedZone?.name || ''}
+          zones={selectedFarm.zones || []}
           employees={employees}
+          editingAssignment={editingAssignment}
           onSuccess={() => {
             fetchAssignments(selectedFarm.id);
             notifyDataChanged?.('employees');
+            notifyDataChanged?.('zones');
           }}
         />
       )}

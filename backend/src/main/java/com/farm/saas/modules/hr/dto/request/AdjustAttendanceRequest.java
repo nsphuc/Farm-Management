@@ -16,5 +16,6 @@ public class AdjustAttendanceRequest {
     private Instant checkOutTime;
 
     @NotBlank(message = "Lý do điều chỉnh không được để trống")
+    @jakarta.validation.constraints.Size(min = 10, message = "Lý do điều chỉnh phải có tối thiểu 10 ký tự để phục vụ kiểm toán")
     private String adjustmentReason;
 }

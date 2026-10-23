@@ -97,6 +97,12 @@ export function OneTapTimekeepingCard({
         await hrService.checkOut(payload);
       }
 
+      // Thông báo cập nhật liên workspace đến WS-B
+      const { notifyDataChanged } = useActiveFarmStore.getState();
+      if (notifyDataChanged) {
+        await notifyDataChanged('employees');
+      }
+
       onAttendanceSuccess?.();
       setIsSelfieModalOpen(false);
     } catch (err) {
@@ -136,10 +142,13 @@ export function OneTapTimekeepingCard({
             </span>
 
             {activeFarm && (
-              <span className="flex items-center gap-1 text-xs text-slate-300 bg-white/10 px-2.5 py-0.5 rounded-full border border-white/10">
-                <MapPin className="h-3 w-3 text-emerald-400" />
+              <span className="flex items-center gap-1.5 text-xs text-slate-300 bg-white/10 px-3 py-1 rounded-full border border-white/10">
+                <MapPin className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                 <span>
-                  {activeFarm.farmName || activeFarm.name} (Bán kính GPS: {activeFarm.geofenceRadiusM || 300}m)
+                  {activeFarm.farmName || activeFarm.name} • Tâm: [
+                  {activeFarm.latitude ? Number(activeFarm.latitude).toFixed(4) : '21.0285'},{' '}
+                  {activeFarm.longitude ? Number(activeFarm.longitude).toFixed(4) : '105.8542'}] •
+                  Bán kính GPS: {activeFarm.geofenceRadiusM || 300}m
                 </span>
               </span>
             )}
@@ -204,9 +213,9 @@ export function OneTapTimekeepingCard({
                 size="lg"
                 icon={<Camera className="h-5 w-5" />}
                 onClick={() => handleOpenTimekeeping('CHECK_IN')}
-                className="w-full min-h-[52px] text-base font-black shadow-lg shadow-emerald-600/30 tracking-wide rounded-2xl"
+                className="w-full min-h-[52px] text-sm sm:text-base font-black shadow-lg shadow-emerald-600/30 tracking-wide rounded-2xl"
               >
-                📸 VÀO CA (CHECK-IN)
+                📸 Chấm Công Vào Ca (GPS + Selfie)
               </Button>
             ) : !isCheckedOut ? (
               // 2. ĐANG TRONG CA -> NÚT ĐỎ CHECK-OUT
@@ -222,9 +231,9 @@ export function OneTapTimekeepingCard({
                   size="lg"
                   icon={<Camera className="h-5 w-5" />}
                   onClick={() => handleOpenTimekeeping('CHECK_OUT')}
-                  className="w-full min-h-[52px] text-base font-black shadow-lg shadow-rose-600/30 tracking-wide rounded-2xl"
+                  className="w-full min-h-[52px] text-sm sm:text-base font-black shadow-lg shadow-rose-600/30 tracking-wide rounded-2xl"
                 >
-                  🏁 RA CA (CHECK-OUT)
+                  🏁 Chấm Công Ra Ca (GPS + Selfie)
                 </Button>
               </div>
             ) : (

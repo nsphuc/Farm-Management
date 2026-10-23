@@ -16,6 +16,7 @@ import java.time.LocalDate;
 @AllArgsConstructor
 public class UpdateEmployeeRequest {
     private Long farmId;
+    private Long assignedZoneId;
 
     @NotBlank(message = "Họ và tên nhân viên không được để trống")
     private String fullName;

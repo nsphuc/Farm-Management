@@ -88,27 +88,75 @@ export function FarmContextSwitcher() {
       accessibleFarms.find((f) => Number(f.farmId || f.id) === Number(activeFarmId)) ||
       accessibleFarms[0];
 
-  // Nếu người dùng bị khóa chặt vào 1 trang trại duy nhất (Role 2 Farm Manager hoặc nhân sự theo trại)
-  if (locked && accessibleFarms.length <= 1) {
+  // 1. Role 2: Giám Đốc Trang Trại (FARM_MANAGER) - KHÓA CỐ ĐỊNH 100% VÀO TRẠI PHỤ TRÁCH
+  if (isFarmManager()) {
+    const fmFarm =
+      accessibleFarms.find(
+        (f) =>
+          f.isManager ||
+          f.assignedRole === 'FARM_MANAGER' ||
+          Number(f.managerUserId) === Number(userInfo?.id)
+      ) ||
+      (activeFarm && activeFarm.id !== 'ALL' && activeFarm.id ? activeFarm : accessibleFarms[0]);
+
+    const farmDisplayName =
+      fmFarm?.farmName ||
+      fmFarm?.name ||
+      activeFarm?.farmName ||
+      activeFarm?.name ||
+      'Trang Trại';
+
+    return (
+      <div
+        className="flex items-center gap-2.5 rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50/80 px-3.5 py-1.5 text-left text-xs shadow-2xs select-none"
+        title={`📍 Giám Đốc Trang Trại: Đã khóa cố định dữ liệu vào ${farmDisplayName}`}
+      >
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white shadow-xs shrink-0">
+          <MapPin className="h-4 w-4" />
+        </div>
+        <div className="flex flex-col pr-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-extrabold text-blue-700 uppercase tracking-wider">
+              Trại Phụ Trách
+            </span>
+            <span className="rounded bg-blue-200/90 px-1.5 py-0.2 text-[9px] font-bold text-blue-900 border border-blue-300">
+              Cố Định
+            </span>
+          </div>
+          <span className="truncate font-extrabold text-slate-900 text-xs sm:max-w-[320px]">
+            📍 {farmDisplayName} - Giám Đốc Trại
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Các Role nhân sự bị khóa chặt khác (Kỹ thuật, Thủ kho, Kế toán trại, Nông vụ)
+  if (locked) {
+    const assignedFarm =
+      (activeFarm && activeFarm.id !== 'ALL' ? activeFarm : null) ||
+      accessibleFarms[0];
+    const farmDisplayName = assignedFarm?.farmName || assignedFarm?.name || 'Trang Trại';
+
     return (
       <div
         className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-1.5 text-left text-xs shadow-2xs select-none"
-        title={isFarmManager() ? 'Quản lý trang trại: Đã khóa cố định vào trại phụ trách' : 'Trang trại phân công'}
+        title="Trang trại phân công (Cố định, không thể chuyển đổi)"
       >
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-100 text-blue-700 ring-1 ring-blue-600/20">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-200 text-slate-700 ring-1 ring-slate-300 shrink-0">
           <Lock className="h-3.5 w-3.5" />
         </div>
-        <div className="flex flex-col pr-1">
+        <div className="flex flex-col pr-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-              {isFarmManager() ? 'Trại phụ trách' : 'Trang trại'}
+              Trang trại
             </span>
-            <span className="rounded bg-blue-100 px-1 py-0.2 text-[9px] font-bold text-blue-700">
+            <span className="rounded bg-slate-200 px-1 py-0.2 text-[9px] font-bold text-slate-700">
               Cố định
             </span>
           </div>
-          <span className="max-w-[160px] truncate font-bold text-slate-900 text-xs sm:max-w-[200px]">
-            {currentFarm?.farmName || currentFarm?.name || 'Trang trại phụ trách'}
+          <span className="max-w-[180px] truncate font-bold text-slate-900 text-xs sm:max-w-[240px]">
+            📍 {farmDisplayName}
           </span>
         </div>
       </div>

@@ -25,4 +25,8 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     Page<PaymentTransaction> findByFarmId(Long farmId, Pageable pageable);
 
     Page<PaymentTransaction> findByTenantId(Long tenantId, Pageable pageable);
+
+    java.util.List<PaymentTransaction> findByFarmId(Long farmId);
+
+    java.util.List<PaymentTransaction> findByTenantId(Long tenantId);
 }

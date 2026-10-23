@@ -17,8 +17,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import com.farm.saas.modules.finance.dto.response.MultiFarmExpenseSummaryResponse;
+
 @RestController
-@RequestMapping("/api/v1/farms/{farmId}/expenses")
+@RequestMapping({"/api/v1/farms/{farmId}/expenses", "/api/v1/expenses"})
 @RequiredArgsConstructor
 @Tag(name = "Farm Expenses", description = "Quản lý tập hợp chi phí vận hành nông trại và phân bổ đa đối tượng")
 public class FarmExpenseController {
@@ -26,19 +28,37 @@ public class FarmExpenseController {
     private final FarmExpenseService farmExpenseService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách chi phí nông trại", description = "Lấy danh sách các khoản chi phí có phân trang")
     public ResponseEntity<Page<FarmExpenseDetailResponse>> getExpenses(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long filterFarmId,
+            @RequestParam(name = "farmId", required = false) Long paramFarmId,
+            @RequestParam(required = false) Long operationalCycleId,
             @PageableDefault(sort = "expenseDate", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ResponseEntity.ok(farmExpenseService.getExpenses(farmId, pageable));
+        Long targetFarmId = (farmId != null && farmId > 0) ? farmId :
+                (paramFarmId != null && paramFarmId > 0) ? paramFarmId : filterFarmId;
+        return ResponseEntity.ok(farmExpenseService.getExpenses(targetFarmId, operationalCycleId, pageable));
+    }
+
+    @GetMapping("/summary/multi-farm")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @Operation(summary = "Bảng thống kê và so sánh chi phí từng trang trại", description = "Tổng hợp chi phí theo 4 nguồn, tổng chi và giá thành đơn vị giữa các trại")
+    public ResponseEntity<MultiFarmExpenseSummaryResponse> getMultiFarmExpenseSummary(
+            @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long filterFarmId,
+            @RequestParam(name = "farmId", required = false) Long paramFarmId,
+            @RequestParam(required = false) Long operationalCycleId) {
+        Long targetFarmId = (farmId != null && farmId > 0) ? farmId :
+                (paramFarmId != null && paramFarmId > 0) ? paramFarmId : filterFarmId;
+        return ResponseEntity.ok(farmExpenseService.getMultiFarmExpenseSummary(targetFarmId, operationalCycleId));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết khoản chi phí", description = "Lấy chi tiết một khoản chi phí kèm các phân bổ")
     public ResponseEntity<FarmExpenseDetailResponse> getExpenseById(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
         return ResponseEntity.ok(farmExpenseService.getExpenseById(farmId, id));
     }

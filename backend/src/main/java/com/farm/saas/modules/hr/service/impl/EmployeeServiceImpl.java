@@ -12,9 +12,11 @@ import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.auth.repository.UserRoleRepository;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.entity.FarmAssignment;
+import com.farm.saas.modules.geography.entity.ProductionZone;
 import com.farm.saas.modules.geography.entity.UserFarmAccess;
 import com.farm.saas.modules.geography.repository.FarmAssignmentRepository;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
 import com.farm.saas.modules.geography.repository.UserFarmAccessRepository;
 import com.farm.saas.modules.hr.dto.request.CreateEmployeeRequest;
 import com.farm.saas.modules.hr.dto.request.ProvisionAccountRequest;
@@ -55,6 +57,7 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     private final EmployeeRepository employeeRepository;
     private final FarmRepository farmRepository;
+    private final ProductionZoneRepository productionZoneRepository;
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final UserRoleRepository userRoleRepository;
@@ -154,14 +157,36 @@ public class EmployeeServiceImpl implements EmployeeService {
             }
         }
 
+        // Chặn trùng Kế toán: Mỗi trại chỉ có tối đa 1 Kế toán đang ACTIVE
+        if ("ACCOUNTANT".equalsIgnoreCase(request.getPosition()) && request.getFarmId() != null) {
+            boolean activeAccountantExists = employeeRepository.findByTenantIdAndFarmIdOrderByCreatedAtDesc(tenantId, request.getFarmId())
+                    .stream()
+                    .anyMatch(e -> "ACTIVE".equalsIgnoreCase(e.getStatus()) && "ACCOUNTANT".equalsIgnoreCase(e.getPosition()));
+            if (activeAccountantExists) {
+                throw new BusinessException("ACTIVE_ACCOUNTANT_ALREADY_EXISTS", "Trang trại này đã có Kế toán đang hoạt động (ACTIVE). Mỗi trang trại chỉ có tối đa 1 Kế toán!");
+            }
+        }
+
+        ProductionZone assignedZone = null;
+        if (request.getAssignedZoneId() != null && request.getFarmId() != null) {
+            assignedZone = productionZoneRepository.findById(request.getAssignedZoneId())
+                    .filter(z -> Objects.equals(z.getFarmId(), request.getFarmId()))
+                    .orElseThrow(() -> new BusinessException("ZONE_NOT_FOUND", "Phân khu được chỉ định không thuộc trang trại này"));
+        }
+
         BigDecimal baseSalary = request.getBaseSalary() != null ? request.getBaseSalary() : BigDecimal.ZERO;
         BigDecimal hourlyRate = request.getHourlyRate() != null ? request.getHourlyRate() : BigDecimal.ZERO;
         BigDecimal leaveQuota = request.getAnnualLeaveQuota() != null ? request.getAnnualLeaveQuota() : new BigDecimal("12.0");
 
-        // Tự động suy diễn phòng ban từ chức vụ nếu để trống
-        String resolvedDepartment = StringUtils.hasText(request.getDepartment())
-                ? request.getDepartment().trim()
-                : inferDepartmentFromPosition(request.getPosition());
+        // Tự động suy diễn phòng ban từ chức vụ hoặc phân khu nếu để trống
+        String resolvedDepartment;
+        if (StringUtils.hasText(request.getDepartment())) {
+            resolvedDepartment = request.getDepartment().trim();
+        } else if (assignedZone != null) {
+            resolvedDepartment = "Phân khu: " + assignedZone.getName();
+        } else {
+            resolvedDepartment = inferDepartmentFromPosition(request.getPosition());
+        }
 
         Employee employee = Employee.builder()
                 .tenantId(tenantId)
@@ -258,12 +283,27 @@ public class EmployeeServiceImpl implements EmployeeService {
             employee = employeeRepository.save(employee);
 
             // 6. Gán user_roles (#8)
-            String targetRoleCode = StringUtils.hasText(request.getRoleCode())
-                    ? request.getRoleCode().trim()
-                    : (isFarmManager ? "ROLE_FARM_MANAGER" : "ROLE_TECHNICAL_STAFF");
+            String targetRoleCode = request.getRoleCode();
+            if (!StringUtils.hasText(targetRoleCode)) {
+                String pos = request.getPosition() != null ? request.getPosition().trim().toUpperCase() : "";
+                if (pos.contains("ZONE_MANAGER") || pos.contains("TECHNICAL_STAFF") || pos.contains("TECHNICAL_LEAD")) {
+                    targetRoleCode = "ROLE_TECHNICAL_STAFF";
+                } else if (pos.contains("WAREHOUSE_STAFF") || pos.contains("THỦ KHO") || pos.contains("THU KHO")) {
+                    targetRoleCode = "ROLE_WAREHOUSE_STAFF";
+                } else if (pos.contains("ACCOUNTANT") || pos.contains("KẾ TOÁN") || pos.contains("KE TOAN")) {
+                    targetRoleCode = "ROLE_ACCOUNTANT";
+                } else if (pos.contains("FIELD_STAFF")) {
+                    targetRoleCode = "ROLE_FIELD_STAFF";
+                } else if (isFarmManager) {
+                    targetRoleCode = "ROLE_FARM_MANAGER";
+                } else {
+                    targetRoleCode = "ROLE_TECHNICAL_STAFF";
+                }
+            }
 
-            Role role = roleRepository.findByCode(targetRoleCode)
-                    .or(() -> roleRepository.findByCode("ROLE_" + targetRoleCode))
+            final String finalRoleCode = targetRoleCode;
+            Role role = roleRepository.findByCode(finalRoleCode)
+                    .or(() -> roleRepository.findByCode("ROLE_" + finalRoleCode))
                     .or(() -> roleRepository.findByCode("ROLE_TECHNICAL_STAFF"))
                     .or(() -> roleRepository.findByCode("ROLE_FIELD_STAFF"))
                     .orElse(null);
@@ -311,6 +351,20 @@ public class EmployeeServiceImpl implements EmployeeService {
                         .farmId(employee.getFarmId())
                         .userId(user.getId())
                         .roleInFarm("FARM_MANAGER")
+                        .assignedFrom(request.getJoinedDate() != null ? request.getJoinedDate() : LocalDate.now())
+                        .isActive(true)
+                        .createdAt(Instant.now())
+                        .createdBy(currentUserId)
+                        .build();
+                farmAssignmentRepository.save(assignment);
+            } else if (employee.getFarmId() != null && request.getAssignedZoneId() != null) {
+                // Tạo bản ghi farm_assignments cho phân khu được chỉ định
+                FarmAssignment assignment = FarmAssignment.builder()
+                        .tenantId(tenantId)
+                        .farmId(employee.getFarmId())
+                        .zoneId(request.getAssignedZoneId())
+                        .userId(user.getId())
+                        .roleInFarm(employee.getPosition() != null ? employee.getPosition() : "TECHNICAL_STAFF")
                         .assignedFrom(request.getJoinedDate() != null ? request.getJoinedDate() : LocalDate.now())
                         .isActive(true)
                         .createdAt(Instant.now())
@@ -419,8 +473,54 @@ public class EmployeeServiceImpl implements EmployeeService {
             employee.setAnnualLeaveQuota(request.getAnnualLeaveQuota());
         }
 
+        // Chặn trùng Kế toán khi cập nhật
+        String targetPos = request.getPosition() != null ? request.getPosition() : employee.getPosition();
+        String targetStat = request.getStatus() != null ? request.getStatus() : employee.getStatus();
+        Long targetFmId = employee.getFarmId();
+        if ("ACCOUNTANT".equalsIgnoreCase(targetPos) && "ACTIVE".equalsIgnoreCase(targetStat) && targetFmId != null) {
+            boolean activeAccountantExists = employeeRepository.findByTenantIdAndFarmIdOrderByCreatedAtDesc(tenantId, targetFmId)
+                    .stream()
+                    .anyMatch(e -> !e.getId().equals(employee.getId()) && "ACTIVE".equalsIgnoreCase(e.getStatus()) && "ACCOUNTANT".equalsIgnoreCase(e.getPosition()));
+            if (activeAccountantExists) {
+                throw new BusinessException("ACTIVE_ACCOUNTANT_ALREADY_EXISTS", "Trang trại này đã có Kế toán đang hoạt động (ACTIVE). Mỗi trang trại chỉ có tối đa 1 Kế toán!");
+            }
+        }
+
         final Long empUserId = employee.getUserId();
         final Long empFarmId = employee.getFarmId();
+
+        // Xử lý chuyển phân khu (assignedZoneId)
+        if (request.getAssignedZoneId() != null && empFarmId != null) {
+            ProductionZone targetZone = productionZoneRepository.findById(request.getAssignedZoneId())
+                    .filter(z -> Objects.equals(z.getFarmId(), empFarmId))
+                    .orElseThrow(() -> new BusinessException("ZONE_NOT_FOUND", "Phân khu được chỉ định không thuộc trang trại này"));
+            if (!StringUtils.hasText(request.getDepartment())) {
+                employee.setDepartment("Phân khu: " + targetZone.getName());
+            }
+            if (empUserId != null) {
+                farmAssignmentRepository.findByUserIdAndIsActiveTrue(empUserId)
+                        .stream()
+                        .filter(fa -> Objects.equals(fa.getFarmId(), empFarmId))
+                        .forEach(fa -> {
+                            fa.setIsActive(false);
+                            fa.setAssignedTo(LocalDate.now());
+                            farmAssignmentRepository.save(fa);
+                        });
+
+                FarmAssignment newFa = FarmAssignment.builder()
+                        .tenantId(tenantId)
+                        .farmId(empFarmId)
+                        .zoneId(request.getAssignedZoneId())
+                        .userId(empUserId)
+                        .roleInFarm(employee.getPosition() != null ? employee.getPosition() : "TECHNICAL_STAFF")
+                        .assignedFrom(LocalDate.now())
+                        .isActive(true)
+                        .createdAt(Instant.now())
+                        .createdBy(SecurityUtils.getCurrentUserId())
+                        .build();
+                farmAssignmentRepository.save(newFa);
+            }
+        }
 
         // Xử lý khi nhân sự THÔI VIỆC (RESIGNED / TERMINATED)
         if (isResigningOrTerminated && empUserId != null) {
@@ -718,8 +818,37 @@ public class EmployeeServiceImpl implements EmployeeService {
             }
         }
         String username = null;
+        String userStatus = null;
         if (emp.getUserId() != null) {
-            username = userRepository.findById(emp.getUserId()).map(User::getUsername).orElse(null);
+            User u = userRepository.findById(emp.getUserId()).orElse(null);
+            if (u != null) {
+                username = u.getUsername();
+                userStatus = u.getStatus();
+            }
+        }
+
+        Long assignedZoneId = null;
+        String assignedZoneName = null;
+        if (emp.getUserId() != null && emp.getFarmId() != null) {
+            FarmAssignment fa = farmAssignmentRepository.findByUserIdAndIsActiveTrue(emp.getUserId())
+                    .stream()
+                    .filter(a -> Objects.equals(a.getFarmId(), emp.getFarmId()) && a.getZoneId() != null)
+                    .findFirst()
+                    .orElse(null);
+            if (fa != null) {
+                assignedZoneId = fa.getZoneId();
+                assignedZoneName = productionZoneRepository.findById(fa.getZoneId()).map(ProductionZone::getName).orElse(null);
+            }
+        }
+        if (assignedZoneId == null && emp.getFarmId() != null && StringUtils.hasText(emp.getDepartment())) {
+            List<ProductionZone> zones = productionZoneRepository.findByFarmId(emp.getFarmId());
+            for (ProductionZone z : zones) {
+                if (emp.getDepartment().equalsIgnoreCase(z.getName()) || emp.getDepartment().contains(z.getName())) {
+                    assignedZoneId = z.getId();
+                    assignedZoneName = z.getName();
+                    break;
+                }
+            }
         }
 
         return EmployeeDetailResponse.builder()
@@ -727,8 +856,11 @@ public class EmployeeServiceImpl implements EmployeeService {
                 .tenantId(emp.getTenantId())
                 .farmId(emp.getFarmId())
                 .farmName(farmName)
+                .assignedZoneId(assignedZoneId)
+                .assignedZoneName(assignedZoneName)
                 .userId(emp.getUserId())
                 .username(username)
+                .userStatus(userStatus)
                 .employeeCode(emp.getEmployeeCode())
                 .fullName(emp.getFullName())
                 .phone(emp.getPhone())

@@ -7,6 +7,8 @@ import {
   Clock,
   Settings,
   Users,
+  X,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -15,6 +17,9 @@ import { Can } from '@/components/common/Can';
 import { ShiftScheduleModal } from './ShiftScheduleModal';
 import { hrService } from '@/services/modules/hrService';
 import { useNavigate } from 'react-router-dom';
+import { toast } from '@/store/useToastStore';
+import { extractApiErrors } from '@/utils/apiHelpers';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 /**
  * Lấy danh sách 7 ngày trong tuần từ một ngày mốc (Thứ 2 -> Chủ Nhật)
@@ -42,13 +47,26 @@ function getDaysOfWeek(baseDate) {
 
 export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
   const navigate = useNavigate();
+  const { notifyDataChanged } = useActiveFarmStore();
   const [currentBaseDate, setCurrentBaseDate] = useState(new Date());
   const [assignments, setAssignments] = useState([]);
+  const [localShifts, setLocalShifts] = useState(shifts || []);
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const daysOfWeek = getDaysOfWeek(currentBaseDate);
   const activeEmployees = employees.filter((e) => e.status === 'ACTIVE');
+
+  // Nạp danh sách ca làm việc nếu prop truyền vào trống
+  useEffect(() => {
+    if (shifts && shifts.length > 0) {
+      setLocalShifts(shifts);
+    } else {
+      hrService.getWorkShifts()
+        .then((data) => setLocalShifts(Array.isArray(data) ? data : []))
+        .catch((err) => console.error('Fetch shifts error:', err));
+    }
+  }, [shifts]);
 
   const fetchAssignments = async () => {
     if (!farmId) return;
@@ -88,12 +106,33 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
     setCurrentBaseDate(new Date());
   };
 
-  if (!shifts || shifts.length === 0) {
+  // Hủy ca làm việc chưa diễn ra (SCHEDULED -> CANCELLED)
+  const handleCancelAssignment = async (assign, emp, day) => {
+    if (
+      !window.confirm(
+        `Xác nhận hủy ca làm việc "${assign.shiftName}" của nhân viên "${emp.fullName}" ngày ${day.formattedDate}?\n\nTrạng thái ca sẽ được chuyển sang Đã Hủy (CANCELLED).`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await hrService.cancelShiftAssignment(assign.id);
+      toast.success(`Đã hủy ca "${assign.shiftName}" của "${emp.fullName}" thành công!`);
+      notifyDataChanged?.('employees');
+      await fetchAssignments();
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || 'Không thể hủy ca làm việc!');
+    }
+  };
+
+  if (!localShifts || localShifts.length === 0) {
     return (
       <SmartEmptyState
         icon={Clock}
         title="Chưa cấu hình Ca làm việc chuẩn"
-        description="Để phân ca cho nhân viên, bạn cần tạo ít nhất một ca làm việc chuẩn (VD: Ca Sáng, Ca Chiều) trong Trung tâm Cài đặt."
+        description="Để phân ca cho nhân viên, bạn cần tạo ít nhất một ca làm việc chuẩn (VD: Ca Sáng, Ca Chiều) trong Cài đặt hệ thống."
         actionLabel="Đến Cài Đặt Ca Làm Việc"
         onAction={() => navigate('/app/settings?tab=shifts')}
         permission="PERM_TENANT_MANAGE"
@@ -106,13 +145,13 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
       {/* Thanh điều hướng tuần & Nút phân ca */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handlePrevWeek}>
+          <Button variant="outline" size="sm" onClick={handlePrevWeek} title="Tuần trước">
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <Button variant="outline" size="sm" onClick={handleToday}>
             Tuần Này
           </Button>
-          <Button variant="outline" size="sm" onClick={handleNextWeek}>
+          <Button variant="outline" size="sm" onClick={handleNextWeek} title="Tuần kế tiếp">
             <ChevronRight className="h-4 w-4" />
           </Button>
 
@@ -121,16 +160,28 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
           </span>
         </div>
 
-        <Can permission="PERM_HR_EMPLOYEE_MANAGE">
+        <div className="flex items-center gap-2">
           <Button
-            variant="primary"
+            variant="outline"
             size="sm"
-            icon={<Plus className="h-4 w-4" />}
-            onClick={() => setIsModalOpen(true)}
+            icon={<RefreshCw className="h-3.5 w-3.5" />}
+            onClick={fetchAssignments}
+            isLoading={isLoading}
           >
-            Phân Ca Làm Việc
+            Làm Mới
           </Button>
-        </Can>
+
+          <Can permission="PERM_HR_EMPLOYEE_MANAGE">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => setIsModalOpen(true)}
+            >
+              + Phân Ca Làm Việc
+            </Button>
+          </Can>
+        </div>
       </div>
 
       {/* Bảng ma trận: Nhân viên x 7 ngày */}
@@ -139,12 +190,12 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
           <thead className="border-b border-slate-200 bg-slate-50 font-bold uppercase tracking-wider text-slate-600">
             <tr>
               <th className="px-4 py-3.5 min-w-[200px] sticky left-0 bg-slate-50 z-10 border-r border-slate-200">
-                Nhân Viên ({activeEmployees.length})
+                Nhân Viên Trại ({activeEmployees.length})
               </th>
               {daysOfWeek.map((day) => (
                 <th
                   key={day.dateStr}
-                  className={`px-3 py-3.5 text-center min-w-[130px] border-r border-slate-100 last:border-0 ${
+                  className={`px-3 py-3.5 text-center min-w-[140px] border-r border-slate-100 last:border-0 ${
                     day.isToday ? 'bg-emerald-50/80 text-emerald-900 font-black' : ''
                   }`}
                 >
@@ -169,7 +220,8 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
                   <td className="px-4 py-3 font-medium sticky left-0 bg-white z-10 border-r border-slate-200 shadow-xs">
                     <div className="font-bold text-slate-900 truncate">{emp.fullName}</div>
                     <div className="text-[10px] text-slate-500 font-mono">
-                      {emp.employeeCode} • {emp.position || 'Nhân sự'}
+                      {emp.employeeCode} • {emp.position || 'Nhân sự'}{' '}
+                      {emp.assignedZoneName ? `(Khu: ${emp.assignedZoneName})` : ''}
                     </div>
                   </td>
 
@@ -186,10 +238,37 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
                         }`}
                       >
                         {assign ? (
-                          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-2 text-left shadow-2xs space-y-1">
-                            <span className="font-bold text-emerald-900 block truncate text-[11px]">
-                              {assign.shiftName}
-                            </span>
+                          <div
+                            className={`rounded-xl border p-2 text-left shadow-2xs space-y-1 transition-all ${
+                              assign.status === 'CANCELLED'
+                                ? 'border-slate-200 bg-slate-50 opacity-60'
+                                : 'border-emerald-200 bg-emerald-50'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-1">
+                              <span
+                                className={`font-bold block truncate text-[11px] ${
+                                  assign.status === 'CANCELLED'
+                                    ? 'text-slate-500 line-through'
+                                    : 'text-emerald-900'
+                                }`}
+                              >
+                                {assign.shiftName}
+                              </span>
+
+                              {/* Nút Hủy Ca (CANCELLED) cho ca chưa diễn ra */}
+                              {assign.status === 'SCHEDULED' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelAssignment(assign, emp, day)}
+                                  title="Hủy ca làm việc này (CANCELLED)"
+                                  className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded p-0.5 transition-colors cursor-pointer shrink-0"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+
                             <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-mono">
                               <Clock className="h-3 w-3 shrink-0" />
                               <span>
@@ -197,8 +276,12 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
                                 {assign.endTime ? assign.endTime.substring(0, 5) : '—'}
                               </span>
                             </div>
-                            <div className="pt-0.5">
+
+                            <div className="flex items-center justify-between pt-0.5">
                               <StatusBadge status={assign.status || 'SCHEDULED'} size="sm" />
+                              {assign.status === 'SCHEDULED' && (
+                                <span className="text-[9px] text-slate-400 italic">Chưa vào ca</span>
+                              )}
                             </div>
                           </div>
                         ) : (
@@ -217,9 +300,12 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
       <ShiftScheduleModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSuccess={fetchAssignments}
+        onSuccess={() => {
+          fetchAssignments();
+          notifyDataChanged?.('employees');
+        }}
         employees={activeEmployees}
-        shifts={shifts}
+        shifts={localShifts}
         farmId={farmId}
       />
     </div>

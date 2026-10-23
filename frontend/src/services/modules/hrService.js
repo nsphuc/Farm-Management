@@ -34,6 +34,11 @@ export const hrService = {
     return res.data;
   },
 
+  updateUserStatus: async (userId, status) => {
+    const res = await apiClient.put(API_ENDPOINTS.USERS.STATUS(userId), { status });
+    return res.data;
+  },
+
   // ==========================================
   // 2. WORK SHIFTS (Bảng work_shifts #52)
   // ==========================================
@@ -62,6 +67,11 @@ export const hrService = {
 
   getShiftAssignments: async (params = {}) => {
     const res = await apiClient.get(API_ENDPOINTS.HR.SHIFT_ASSIGNMENTS, { params });
+    return res.data;
+  },
+
+  cancelShiftAssignment: async (id) => {
+    const res = await apiClient.put(API_ENDPOINTS.HR.SHIFT_ASSIGNMENT_CANCEL(id));
     return res.data;
   },
 
