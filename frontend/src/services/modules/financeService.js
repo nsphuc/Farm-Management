@@ -27,6 +27,12 @@ export const financeService = {
     return res.data;
   },
 
+  confirmExpense: async (farmId, id) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/expenses/${id}/confirm` : `/expenses/${id}/confirm`;
+    const res = await apiClient.post(url);
+    return res.data;
+  },
+
   allocateCost: async (farmId, expenseId, data) => {
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/expenses/${expenseId}/allocate` : `/expenses/${expenseId}/allocate`;
     const res = await apiClient.post(url, data);
@@ -51,6 +57,12 @@ export const financeService = {
     const targetFarmId = farmId || data.farmId;
     const url = targetFarmId && targetFarmId !== 'ALL' ? `/farms/${targetFarmId}/budgets` : '/budgets';
     const res = await apiClient.post(url, data);
+    return res.data;
+  },
+
+  approveBudget: async (farmId, id) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/budgets/${id}/approve` : `/budgets/${id}/approve`;
+    const res = await apiClient.post(url);
     return res.data;
   },
 
@@ -91,7 +103,20 @@ export const financeService = {
     return res.data;
   },
 
-  // 7. Đơn Bán Hàng & Tiến Độ Giao Hàng (Read-Only / Owner Monitor)
+  approveSettlement: async (farmId, cycleId, data = {}) => {
+    const res = await apiClient.post(`/farms/${farmId}/cycles/${cycleId}/approve-settlement`, data);
+    return res.data;
+  },
+
+  // 7. Giá Thành Đơn Vị (Costing)
+  getUnitCost: async (farmId, targetType, targetId) => {
+    const res = await apiClient.get(`/farms/${farmId}/costing/unit-cost`, {
+      params: { targetType, targetId }
+    });
+    return res.data;
+  },
+
+  // 8. Đơn Bán Hàng & Tiến Độ Giao Hàng (Read-Only / Owner Monitor)
   getSalesOrders: async (params = {}) => {
     const { farmId, ...rest } = params;
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/sales-orders` : '/sales-orders';
@@ -105,7 +130,51 @@ export const financeService = {
     return res.data;
   },
 
-  // 8. Sổ Công Nợ (Debt Records - Read-Only / Owner Monitor)
+  createSalesOrder: async (farmId, data) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/sales-orders` : '/sales-orders';
+    const res = await apiClient.post(url, data);
+    return res.data;
+  },
+
+  confirmSalesOrder: async (farmId, id) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/sales-orders/${id}/confirm` : `/sales-orders/${id}/confirm`;
+    const res = await apiClient.post(url);
+    return res.data;
+  },
+
+  cancelSalesOrder: async (farmId, id) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/sales-orders/${id}/cancel` : `/sales-orders/${id}/cancel`;
+    const res = await apiClient.post(url);
+    return res.data;
+  },
+
+  // 9. Đợt Giao Hàng (Sales Deliveries)
+  getDeliveries: async (farmId, params = {}) => {
+    const res = await apiClient.get(`/farms/${farmId}/sales-deliveries`, { params });
+    return res.data;
+  },
+
+  getDeliveryById: async (farmId, id) => {
+    const res = await apiClient.get(`/farms/${farmId}/sales-deliveries/${id}`);
+    return res.data;
+  },
+
+  createDelivery: async (farmId, data) => {
+    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries`, data);
+    return res.data;
+  },
+
+  dispatchDelivery: async (farmId, id) => {
+    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries/${id}/dispatch`);
+    return res.data;
+  },
+
+  updateDeliveryPod: async (farmId, id, data) => {
+    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries/${id}/pod`, data);
+    return res.data;
+  },
+
+  // 10. Sổ Công Nợ (Debt Records) & Thanh Toán (Payments)
   getDebts: async (params = {}) => {
     const { farmId, ...rest } = params;
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/debts` : '/finance/debts';
@@ -116,6 +185,30 @@ export const financeService = {
   getDebtById: async (id, farmId) => {
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/debts/${id}` : `/finance/debts/${id}`;
     const res = await apiClient.get(url);
+    return res.data;
+  },
+
+  createPayment: async (farmId, data) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/payments` : '/finance/payments';
+    const res = await apiClient.post(url, data);
+    return res.data;
+  },
+
+  confirmPayment: async (farmId, id) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/payments/${id}/confirm` : `/finance/payments/${id}/confirm`;
+    const res = await apiClient.post(url);
+    return res.data;
+  },
+
+  allocatePayment: async (farmId, id, data) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/payments/${id}/allocate` : `/finance/payments/${id}/allocate`;
+    const res = await apiClient.post(url, data);
+    return res.data;
+  },
+
+  offsetDebts: async (farmId, data) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/debts/offset` : '/finance/debts/offset';
+    const res = await apiClient.post(url, data);
     return res.data;
   },
 };

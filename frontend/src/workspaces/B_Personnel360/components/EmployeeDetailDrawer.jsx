@@ -26,13 +26,21 @@ import { Can } from '@/components/common/Can';
 import { FormField, Input, Select } from '@/components/ui/FormControls';
 import { formatCurrency, formatDate, formatNumber } from '@/utils/formatters';
 import { hrService } from '@/services/modules/hrService';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
-const SAAS_ROLES = [
+// Danh mục 4 Role Cấp 4 (Maker / Chuyên môn) dành cho Giám đốc trang trại bổ nhiệm
+const TIER4_ROLES = [
   { value: 'ROLE_FIELD_STAFF', label: 'Nhân viên hiện trường (ROLE_FIELD_STAFF)' },
-  { value: 'ROLE_TECHNICAL_STAFF', label: 'Kỹ sư kỹ thuật (ROLE_TECHNICAL_STAFF)' },
-  { value: 'ROLE_WAREHOUSE_STAFF', label: 'Thủ kho (ROLE_WAREHOUSE_STAFF)' },
-  { value: 'ROLE_ACCOUNTANT', label: 'Kế toán (ROLE_ACCOUNTANT)' },
-  { value: 'ROLE_FARM_OWNER', label: 'Chủ trang trại (ROLE_FARM_OWNER)' },
+  { value: 'ROLE_TECHNICAL_STAFF', label: 'Kỹ sư kỹ thuật / Thú y / KCS (ROLE_TECHNICAL_STAFF)' },
+  { value: 'ROLE_WAREHOUSE_STAFF', label: 'Thủ kho vật tư & hàng hóa (ROLE_WAREHOUSE_STAFF)' },
+  { value: 'ROLE_ACCOUNTANT', label: 'Kế toán trang trại (ROLE_ACCOUNTANT)' },
+];
+
+// Danh mục Role dành cho Chủ đầu tư (ROLE_FARM_OWNER) bổ nhiệm
+const OWNER_AVAILABLE_ROLES = [
+  { value: 'ROLE_FARM_MANAGER', label: 'Giám đốc / Quản lý trang trại (ROLE_FARM_MANAGER)' },
+  ...TIER4_ROLES,
 ];
 
 export function EmployeeDetailDrawer({
@@ -43,11 +51,20 @@ export function EmployeeDetailDrawer({
   onRefresh,
 }) {
   const [activeTab, setActiveTab] = useState('profile');
+  const { isOwner, isFarmManager } = useAuthStore();
+  const { activeFarmId } = useActiveFarmStore();
+  const owner = isOwner();
+  const farmManager = isFarmManager();
+
+  // Role options hiển thị theo cấp bậc phân quyền
+  const availableRoles = owner ? OWNER_AVAILABLE_ROLES : TIER4_ROLES;
 
   // Provisioning Form state
   const [username, setUsername] = useState('');
   const [initialPassword, setInitialPassword] = useState('Password@123');
-  const [selectedRole, setSelectedRole] = useState('ROLE_FIELD_STAFF');
+  const [selectedRole, setSelectedRole] = useState(
+    owner ? 'ROLE_FARM_MANAGER' : 'ROLE_FIELD_STAFF'
+  );
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisionError, setProvisionError] = useState(null);
   const [provisionSuccess, setProvisionSuccess] = useState(false);
@@ -381,11 +398,19 @@ export function EmployeeDetailDrawer({
                     />
                   </FormField>
 
-                  <FormField label="Vai Trò Cấp Quyền (Tenant Role)" required>
+                  <FormField
+                    label="Vai Trò Cấp Quyền (SaaS Role)"
+                    required
+                    hint={
+                      farmManager
+                        ? 'Giám đốc trại chỉ được phân quyền 4 vai trò Maker cấp trại'
+                        : 'Chủ đầu tư phân quyền Giám đốc hoặc nhân sự cấp trại'
+                    }
+                  >
                     <Select
                       value={selectedRole}
                       onChange={(e) => setSelectedRole(e.target.value)}
-                      options={SAAS_ROLES}
+                      options={availableRoles}
                     />
                   </FormField>
 

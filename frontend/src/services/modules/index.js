@@ -7,3 +7,4 @@ export * from './hrService';
 export * from './inventoryService';
 export * from './qaService';
 export * from './financeService';
+export * from './farmingService';

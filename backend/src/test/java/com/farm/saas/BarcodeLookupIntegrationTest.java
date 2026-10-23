@@ -73,6 +73,9 @@ public class BarcodeLookupIntegrationTest {
     @Autowired
     private WarehouseInventoryRepository inventoryRepository;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     private Long farmId;
     private Long warehouseId;
     private Material testMaterial;
@@ -161,7 +164,7 @@ public class BarcodeLookupIntegrationTest {
         conversionRepository.save(testConversion);
 
         // 6. Dọn dẹp và thêm tồn kho mẫu
-        inventoryRepository.deleteAll(inventoryRepository.findByFarmIdAndMaterialId(farmId, testMaterial.getId()));
+        jdbcTemplate.update("DELETE FROM warehouse_inventory WHERE warehouse_id = ?", warehouseId);
 
         // Lô 1: Hết hạn sau 6 tháng, tồn 100
         inventoryRepository.save(WarehouseInventory.builder()

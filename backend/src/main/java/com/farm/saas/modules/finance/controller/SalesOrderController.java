@@ -25,7 +25,7 @@ public class SalesOrderController {
     private final SalesOrderService salesOrderService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách đơn bán sỉ", description = "Lấy danh sách các đơn đặt hàng bán sỉ có phân trang")
     public ResponseEntity<Page<SalesOrderDetailResponse>> getOrders(
             @PathVariable(required = false) Long farmId,
@@ -36,7 +36,7 @@ public class SalesOrderController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết đơn bán sỉ & VietQR", description = "Lấy thông tin chi tiết đơn hàng, mặt hàng và URL VietQR thanh toán")
     public ResponseEntity<SalesOrderDetailResponse> getOrderById(
             @PathVariable(required = false) Long farmId,
@@ -54,8 +54,8 @@ public class SalesOrderController {
         return ResponseEntity.status(HttpStatus.CREATED).body(salesOrderService.createOrder(farmId, request));
     }
 
-    @PostMapping("/{id}/confirm")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and @farmSecurity.canAccessFarm(#farmId)")
+    @PostMapping({"/{id}/confirm", "/{id}/approve"})
+    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and @farmSecurity.isFarmManager(#farmId)")
     @Operation(summary = "Duyệt đơn hàng bán sỉ & Giữ chỗ tồn kho",
             description = "Phê duyệt đơn hàng và khóa bi quan để tăng reserved_quantity của các lô thành phẩm chỉ định")
     public ResponseEntity<SalesOrderDetailResponse> confirmOrder(

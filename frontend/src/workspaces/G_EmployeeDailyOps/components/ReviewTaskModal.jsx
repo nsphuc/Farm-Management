@@ -3,6 +3,7 @@ import { CheckCircle2, XCircle, AlertCircle, Camera, Check, Clock, MapPin, Users
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Textarea } from '@/components/ui/FormControls';
+import { Can } from '@/components/common/Can';
 import { hrService } from '@/services/modules/hrService';
 
 export function ReviewTaskModal({
@@ -193,18 +194,20 @@ export function ReviewTaskModal({
             <Button variant="outline" size="md" onClick={onClose} disabled={isSubmitting}>
               Đóng
             </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              className="bg-emerald-600 hover:bg-emerald-700 font-bold"
-              icon={<CheckCircle2 className="h-4 w-4" />}
-              onClick={handleApprove}
-              isLoading={isSubmitting}
-              loadingText="Đang duyệt..."
-            >
-              ✅ Duyệt Nghiệm Thu (DONE)
-            </Button>
+            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                className="bg-emerald-600 hover:bg-emerald-700 font-bold"
+                icon={<CheckCircle2 className="h-4 w-4" />}
+                onClick={handleApprove}
+                isLoading={isSubmitting}
+                loadingText="Đang duyệt..."
+              >
+                ✅ Duyệt Nghiệm Thu (DONE)
+              </Button>
+            </Can>
           </div>
         </div>
       </div>

@@ -20,7 +20,7 @@ public class CycleSettlementController {
     private final CycleSettlementService cycleSettlementService;
 
     @GetMapping("/api/v1/finance/cycle-settlements")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_REPORT') or hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_ACCOUNTANT')")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_REPORT') or hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_ACCOUNTANT', 'ROLE_FARM_MANAGER')")
     @Operation(summary = "Danh sách kết toán chu kỳ toàn chuỗi",
             description = "Lấy danh sách các đợt kết toán chu kỳ vận hành của tất cả trang trại, kèm doanh thu, chi phí, lợi nhuận ròng và VietQR Owner")
     public ResponseEntity<List<CycleSettlementSummaryResponse>> getCycleSettlements(
@@ -29,13 +29,24 @@ public class CycleSettlementController {
     }
 
     @GetMapping("/api/v1/farms/{farmId}/cycles/{cycleId}/settlement-summary")
-    @PreAuthorize("(hasAuthority('PERM_FINANCE_REPORT') or hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_FINANCE_REPORT') or hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_ACCOUNTANT', 'ROLE_FARM_MANAGER') or @farmSecurity.isFarmManager(#farmId)) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Chi tiết kết toán một chu kỳ",
             description = "Xem chi tiết đối soát bảng kê thu bán hàng, chi vận hành và mã VietQR tài khoản ngân hàng của Owner")
     public ResponseEntity<CycleSettlementSummaryResponse> getCycleSettlementSummary(
             @PathVariable Long farmId,
             @PathVariable Long cycleId) {
         return ResponseEntity.ok(cycleSettlementService.getCycleSettlementSummary(farmId, cycleId));
+    }
+
+    @PostMapping("/api/v1/farms/{farmId}/cycles/{cycleId}/approve-settlement")
+    @PreAuthorize("(hasAnyRole('ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN') or @farmSecurity.isFarmManager(#farmId)) and @farmSecurity.canAccessFarm(#farmId)")
+    @Operation(summary = "Giám đốc trại ký duyệt bảng kết toán chu kỳ",
+            description = "Giám đốc trại xác nhận số liệu Thu - Chi của trại mình, chuyển trạng thái sẵn sàng để Kế toán chuyển lãi về Owner")
+    public ResponseEntity<CycleSettlementSummaryResponse> approveSettlement(
+            @PathVariable Long farmId,
+            @PathVariable Long cycleId,
+            @RequestBody(required = false) ConfirmSettlementRequest request) {
+        return ResponseEntity.ok(cycleSettlementService.approveSettlement(farmId, cycleId, request));
     }
 
     @PostMapping("/api/v1/farms/{farmId}/cycles/{cycleId}/confirm-settlement")

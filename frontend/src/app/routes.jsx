@@ -173,10 +173,32 @@ export function AppRoutes() {
           }
         />
         <Route
+          path="farming/*"
+          element={
+            <OwnerRestrictedGuard>
+              <PermissionGuard anyPermissions={['PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_CROP_LOG']}>
+                <FarmingOpsWorkspace />
+              </PermissionGuard>
+            </OwnerRestrictedGuard>
+          }
+        />
+        <Route
           path="farming-ops"
           element={
             <OwnerRestrictedGuard>
-              <Navigate to="/app/farming" replace />
+              <PermissionGuard anyPermissions={['PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_CROP_LOG']}>
+                <FarmingOpsWorkspace />
+              </PermissionGuard>
+            </OwnerRestrictedGuard>
+          }
+        />
+        <Route
+          path="farming-ops/*"
+          element={
+            <OwnerRestrictedGuard>
+              <PermissionGuard anyPermissions={['PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_CROP_LOG']}>
+                <FarmingOpsWorkspace />
+              </PermissionGuard>
             </OwnerRestrictedGuard>
           }
         />

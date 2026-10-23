@@ -21,19 +21,19 @@ public class MaterialCategoryController {
     private final MaterialService materialService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<List<MaterialCategoryResponse>> getCategories() {
         return ResponseEntity.ok(materialService.getCategories());
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<MaterialCategoryResponse> createCategory(@Valid @RequestBody CreateMaterialCategoryRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(materialService.createCategory(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<MaterialCategoryResponse> updateCategory(
             @PathVariable Long id,
             @Valid @RequestBody UpdateMaterialCategoryRequest request) {

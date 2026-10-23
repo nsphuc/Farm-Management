@@ -54,7 +54,7 @@ export const ALL_WORKSPACES = {
   E_FarmingOps: {
     id: 'E_FarmingOps',
     label: 'WS-E: Canh Tác & Chăn Nuôi',
-    path: '/app/farming-ops',
+    path: '/app/farming',
     icon: Sprout,
     anyPermissions: ['PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_CROP_LOG'],
     badge: 'Hiện trường',
@@ -106,7 +106,7 @@ export const ALL_INDEPENDENT_MODULES = {
     label: 'Cài Đặt Danh Mục Tĩnh',
     path: '/app/settings',
     icon: Settings,
-    permission: 'PERM_TENANT_MANAGE',
+    anyPermissions: ['PERM_TENANT_MANAGE', 'PERM_FARM_UPDATE'],
   },
   reports: {
     id: 'reports',
@@ -241,6 +241,7 @@ export function getSidebarMenuConfig(operationalRole) {
         ],
         independentModules: [
           ALL_INDEPENDENT_MODULES.reports,
+          ALL_INDEPENDENT_MODULES.settings,
         ],
       };
 

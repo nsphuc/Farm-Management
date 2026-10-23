@@ -26,6 +26,8 @@ import com.farm.saas.modules.geography.entity.UserFarmAccess;
 import com.farm.saas.modules.geography.repository.FarmAssignmentRepository;
 import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.geography.repository.UserFarmAccessRepository;
+import com.farm.saas.modules.hr.entity.Employee;
+import com.farm.saas.modules.hr.repository.EmployeeRepository;
 import com.farm.saas.modules.platform.entity.Tenant;
 import com.farm.saas.modules.platform.entity.TenantSubscription;
 import com.farm.saas.modules.platform.repository.TenantRepository;
@@ -61,6 +63,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserFarmAccessRepository userFarmAccessRepository;
     private final FarmAssignmentRepository farmAssignmentRepository;
     private final FarmRepository farmRepository;
+    private final EmployeeRepository employeeRepository;
     private final TenantRepository tenantRepository;
     private final TenantSubscriptionRepository tenantSubscriptionRepository;
     private final JwtTokenProvider jwtTokenProvider;
@@ -102,6 +105,8 @@ public class AuthServiceImpl implements AuthService {
         if (!"ACTIVE".equalsIgnoreCase(user.getStatus())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_INACTIVE", "Tài khoản đang ở trạng thái không hoạt động.");
         }
+
+        validateFarmActiveForPersonnel(user);
 
         user.setFailedLogins(0);
         user.setLockUntil(null);
@@ -190,6 +195,8 @@ public class AuthServiceImpl implements AuthService {
                 throw new ApiException(HttpStatus.FORBIDDEN, "TENANT_SUSPENDED", "Khách thuê đã bị tạm ngưng hoặc vô hiệu hóa.");
             }
         }
+
+        validateFarmActiveForPersonnel(user);
 
         // Xoay vòng Refresh Token (Token Rotation)
         String newRefreshTokenStr = UUID.randomUUID().toString();
@@ -335,12 +342,19 @@ public class AuthServiceImpl implements AuthService {
         Set<Long> roleIds = userRoles.stream().map(UserRole::getRoleId).collect(Collectors.toSet());
         List<Role> roles = roleRepository.findAllById(roleIds);
 
-        List<UserInfoDto.RoleDto> roleDtos = roles.stream().map(r -> UserInfoDto.RoleDto.builder()
-                .id(r.getId())
-                .code(r.getCode())
-                .name(r.getName())
-                .scopeLevel(r.getScopeLevel())
-                .build()).toList();
+        Map<Long, Role> roleMap = roles.stream().collect(Collectors.toMap(Role::getId, r -> r));
+        List<UserInfoDto.RoleDto> roleDtos = userRoles.stream()
+                .filter(ur -> roleMap.containsKey(ur.getRoleId()))
+                .map(ur -> {
+                    Role r = roleMap.get(ur.getRoleId());
+                    return UserInfoDto.RoleDto.builder()
+                            .id(r.getId())
+                            .code(r.getCode())
+                            .name(r.getName())
+                            .scopeLevel(r.getScopeLevel())
+                            .assignedFarmId(ur.getFarmId())
+                            .build();
+                }).toList();
 
         List<String> permCodes = new ArrayList<>();
         if (!roleIds.isEmpty()) {
@@ -354,6 +368,30 @@ public class AuthServiceImpl implements AuthService {
         }
 
         boolean isSuperAdmin = Boolean.TRUE.equals(user.getIsSuperAdmin()) || roles.stream().anyMatch(r -> "ROLE_SUPER_ADMIN".equals(r.getCode()));
+        if (roleDtos.isEmpty() && isSuperAdmin) {
+            roleDtos = List.of(UserInfoDto.RoleDto.builder()
+                    .code("ROLE_SUPER_ADMIN")
+                    .name("Cấp 1: Quản trị viên nền tảng")
+                    .scopeLevel("SYSTEM")
+                    .build());
+        }
+
+        int highestTier;
+        String primaryScope;
+        if (isSuperAdmin) {
+            highestTier = 1;
+            primaryScope = "SYSTEM";
+        } else if (roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equals(r.getCode()))) {
+            highestTier = 2;
+            primaryScope = "TENANT";
+        } else if (roles.stream().anyMatch(r -> "ROLE_FARM_MANAGER".equals(r.getCode()))) {
+            highestTier = 3;
+            primaryScope = "FARM";
+        } else {
+            highestTier = 4;
+            primaryScope = "FARM";
+        }
+
         boolean isOwnerTenantScope = roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equals(r.getCode()) && "TENANT".equalsIgnoreCase(r.getScopeLevel()));
         boolean hasOwnerRole = roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equals(r.getCode()));
         boolean hasAccountantRole = roles.stream().anyMatch(r -> "ROLE_ACCOUNTANT".equals(r.getCode()));
@@ -489,6 +527,8 @@ public class AuthServiceImpl implements AuthService {
                 .accessibleFarms(farmDtos)
                 .farmAssignments(assignmentDtos)
                 .operationalRole(operationalRole)
+                .highestTier(highestTier)
+                .primaryScope(primaryScope)
                 .maxFarms(maxFarms)
                 .planType(planType)
                 .build();
@@ -509,6 +549,7 @@ public class AuthServiceImpl implements AuthService {
                 .roles(roleCodes)
                 .permissions(permCodes)
                 .accessibleFarmIds(accessibleFarmIds)
+                .tierLevel(userInfo.getHighestTier())
                 .build();
     }
 
@@ -538,5 +579,58 @@ public class AuthServiceImpl implements AuthService {
         if (request == null) return null;
         String xf = request.getHeader("X-Forwarded-For");
         return xf != null ? xf.split(",")[0] : request.getRemoteAddr();
+    }
+
+    private void validateFarmActiveForPersonnel(User user) {
+        if (Boolean.TRUE.equals(user.getIsSuperAdmin())) {
+            return;
+        }
+
+        List<UserRole> userRoles = userRoleRepository.findByUserId(user.getId());
+        Set<Long> roleIds = userRoles.stream().map(UserRole::getRoleId).collect(Collectors.toSet());
+        List<Role> roles = roleRepository.findAllById(roleIds);
+
+        boolean isSuperAdmin = roles.stream().anyMatch(r -> "ROLE_SUPER_ADMIN".equalsIgnoreCase(r.getCode()));
+        if (isSuperAdmin) {
+            return;
+        }
+
+        boolean isOwner = roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equalsIgnoreCase(r.getCode()));
+        if (isOwner) {
+            return;
+        }
+
+        // Với tất cả tài khoản nhân sự (Tier 3 Farm Manager & Tier 4 Staff):
+        // 1. Kiểm tra trang trại của nhân viên trong bảng employees
+        Optional<Employee> employeeOpt = employeeRepository.findByUserId(user.getId());
+        if (employeeOpt.isPresent() && employeeOpt.get().getFarmId() != null) {
+            Long farmId = employeeOpt.get().getFarmId();
+            Farm farm = farmRepository.findById(farmId).orElse(null);
+            if (farm != null && !"ACTIVE".equalsIgnoreCase(farm.getStatus())) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "FARM_INACTIVE", "Trang trại đã ngừng hoạt động");
+            }
+        }
+
+        // 2. Thu thập toàn bộ các trang trại liên kết với tài khoản này
+        Set<Long> associatedFarmIds = new LinkedHashSet<>();
+        employeeOpt.map(Employee::getFarmId).filter(Objects::nonNull).ifPresent(associatedFarmIds::add);
+        userRoles.stream().map(UserRole::getFarmId).filter(Objects::nonNull).forEach(associatedFarmIds::add);
+        userFarmAccessRepository.findByUserId(user.getId()).stream().map(UserFarmAccess::getFarmId).filter(Objects::nonNull).forEach(associatedFarmIds::add);
+        farmRepository.findByManagerUserId(user.getId()).stream().map(Farm::getId).forEach(associatedFarmIds::add);
+        farmAssignmentRepository.findByUserIdAndIsActiveTrue(user.getId()).stream().map(FarmAssignment::getFarmId).filter(Objects::nonNull).forEach(associatedFarmIds::add);
+
+        if (!associatedFarmIds.isEmpty()) {
+            boolean hasActiveFarm = false;
+            for (Long fId : associatedFarmIds) {
+                Optional<Farm> fOpt = farmRepository.findById(fId);
+                if (fOpt.isPresent() && "ACTIVE".equalsIgnoreCase(fOpt.get().getStatus())) {
+                    hasActiveFarm = true;
+                    break;
+                }
+            }
+            if (!hasActiveFarm) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "FARM_INACTIVE", "Trang trại đã ngừng hoạt động");
+            }
+        }
     }
 }

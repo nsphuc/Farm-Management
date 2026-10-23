@@ -107,6 +107,9 @@ public class CropFarmingLogAutoBackflushingIntegrationTest {
     @Autowired
     private FarmingLogRepository farmingLogRepository;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     private Long farmId;
     private Long warehouseId;
     private CropSeason testSeason;
@@ -129,7 +132,10 @@ public class CropFarmingLogAutoBackflushingIntegrationTest {
                         .status("ACTIVE")
                         .createdAt(Instant.now())
                         .build()));
+        farm.setManagerUserId(8L);
+        farmRepository.save(farm);
         this.farmId = farm.getId();
+        jdbcTemplate.update("INSERT IGNORE INTO user_farm_access (user_id, farm_id, tenant_id) VALUES (3, ?, 1), (8, ?, 1)", farmId, farmId);
 
         ProductionZone zone = zoneRepository.findByFarmIdAndCode(farmId, "ZONE_CROP_A")
                 .orElseGet(() -> zoneRepository.save(ProductionZone.builder()
@@ -224,7 +230,7 @@ public class CropFarmingLogAutoBackflushingIntegrationTest {
                                 .build())
                 );
 
-        CustomUserDetails user = (CustomUserDetails) userDetailsService.loadUserByUsername("owner");
+        CustomUserDetails user = (CustomUserDetails) userDetailsService.loadUserByUsername("staff");
         this.token = jwtTokenProvider.generateAccessToken(user);
     }
 

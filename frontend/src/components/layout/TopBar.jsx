@@ -7,7 +7,8 @@ import {
   Shield,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { apiClient } from '@/services/api/apiClient';
+import { API_ENDPOINTS } from '@/services/api/endpoints';
 import { FarmContextSwitcher } from './FarmContextSwitcher';
 import { NotificationBell } from './NotificationBell';
 import { Modal } from '@/components/ui/Modal';
@@ -25,7 +26,7 @@ import { cn } from '@/utils/formatters';
  */
 export function TopBar({ onMobileMenuToggle }) {
   const navigate = useNavigate();
-  const { userInfo, clearAuth, getOperationalRoleInfo, isOwner } = useAuthStore();
+  const { userInfo, clearAuth, logout, getOperationalRoleInfo, isOwner } = useAuthStore();
   const { clearActiveContext } = useActiveFarmStore();
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -34,11 +35,15 @@ export function TopBar({ onMobileMenuToggle }) {
 
   const handleLogout = async () => {
     try {
-      await axios.post('/api/v1/auth/logout', {}, { withCredentials: true });
+      if (logout) {
+        await logout();
+      } else {
+        await apiClient.post(API_ENDPOINTS.AUTH.LOGOUT);
+        clearAuth();
+      }
     } catch {
       // Ignored
     } finally {
-      clearAuth();
       clearActiveContext();
       navigate('/login');
     }

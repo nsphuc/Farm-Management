@@ -21,7 +21,7 @@ public class HarvestController {
     private final HarvestService harvestService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and hasAnyRole('ROLE_FIELD_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_SUPER_ADMIN') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<HarvestRecordDetailResponse> createHarvestRecord(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateHarvestRecordRequest request) {
@@ -30,7 +30,7 @@ public class HarvestController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Page<HarvestRecordDetailResponse>> getHarvestRecords(
             @PathVariable Long farmId,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -38,7 +38,7 @@ public class HarvestController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<HarvestRecordDetailResponse> getHarvestRecordById(
             @PathVariable Long farmId,
             @PathVariable Long id) {

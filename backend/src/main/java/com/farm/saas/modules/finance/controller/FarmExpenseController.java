@@ -28,7 +28,7 @@ public class FarmExpenseController {
     private final FarmExpenseService farmExpenseService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách chi phí nông trại", description = "Lấy danh sách các khoản chi phí có phân trang")
     public ResponseEntity<Page<FarmExpenseDetailResponse>> getExpenses(
             @PathVariable(required = false) Long farmId,
@@ -42,7 +42,7 @@ public class FarmExpenseController {
     }
 
     @GetMapping("/summary/multi-farm")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Bảng thống kê và so sánh chi phí từng trang trại", description = "Tổng hợp chi phí theo 4 nguồn, tổng chi và giá thành đơn vị giữa các trại")
     public ResponseEntity<MultiFarmExpenseSummaryResponse> getMultiFarmExpenseSummary(
             @PathVariable(required = false) Long farmId,
@@ -55,7 +55,7 @@ public class FarmExpenseController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết khoản chi phí", description = "Lấy chi tiết một khoản chi phí kèm các phân bổ")
     public ResponseEntity<FarmExpenseDetailResponse> getExpenseById(
             @PathVariable(required = false) Long farmId,
@@ -80,5 +80,14 @@ public class FarmExpenseController {
             @PathVariable Long id,
             @Valid @RequestBody AllocateCostRequest request) {
         return ResponseEntity.ok(farmExpenseService.allocateCost(farmId, id, request));
+    }
+
+    @PostMapping({"/{id}/confirm", "/{id}/approve"})
+    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and @farmSecurity.isFarmManager(#farmId)")
+    @Operation(summary = "Phê duyệt chi phí vận hành", description = "Giám đốc trang trại phê duyệt chi phí từ DRAFT sang CONFIRMED và cập nhật giải ngân ngân sách")
+    public ResponseEntity<FarmExpenseDetailResponse> confirmExpense(
+            @PathVariable Long farmId,
+            @PathVariable Long id) {
+        return ResponseEntity.ok(farmExpenseService.confirmExpense(farmId, id));
     }
 }

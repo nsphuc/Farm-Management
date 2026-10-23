@@ -26,6 +26,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Objects;
 import java.util.UUID;
 
 @Slf4j
@@ -224,5 +225,20 @@ public class CropSeasonServiceImpl implements CropSeasonService {
                 .createdAt(season.getCreatedAt())
                 .updatedAt(season.getUpdatedAt())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void deleteSeason(Long farmId, Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        CropSeason season = cropSeasonRepository.findById(id)
+                .filter(s -> Objects.equals(s.getFarmId(), farmId))
+                .filter(s -> tenantId == null || Objects.equals(s.getTenantId(), tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("CropSeason", id));
+
+        season.setStatus("CLOSED");
+        season.setUpdatedAt(Instant.now());
+        season.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        cropSeasonRepository.save(season);
     }
 }

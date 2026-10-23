@@ -22,6 +22,9 @@ import com.farm.saas.modules.hr.repository.TimeAttendanceRepository;
 import com.farm.saas.modules.hr.service.TimeAttendanceService;
 import com.farm.saas.modules.masterdata.entity.WorkShift;
 import com.farm.saas.modules.masterdata.repository.WorkShiftRepository;
+import com.farm.saas.common.security.FarmSecurityEvaluator;
+import com.farm.saas.modules.geography.entity.FarmAssignment;
+import com.farm.saas.modules.geography.repository.FarmAssignmentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,14 +37,11 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TimeAttendanceServiceImpl implements TimeAttendanceService {
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -51,12 +51,44 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
     private final WorkShiftRepository workShiftRepository;
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
+    private final FarmAssignmentRepository farmAssignmentRepository;
+    private final FarmSecurityEvaluator farmSecurity;
+
+    public TimeAttendanceServiceImpl(TimeAttendanceRepository timeAttendanceRepository,
+                                    EmployeeRepository employeeRepository,
+                                    WorkShiftRepository workShiftRepository,
+                                    FarmRepository farmRepository,
+                                    UserRepository userRepository) {
+        this(timeAttendanceRepository, employeeRepository, workShiftRepository, farmRepository, userRepository, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TimeAttendanceServiceImpl(TimeAttendanceRepository timeAttendanceRepository,
+                                    EmployeeRepository employeeRepository,
+                                    WorkShiftRepository workShiftRepository,
+                                    FarmRepository farmRepository,
+                                    UserRepository userRepository,
+                                    @org.springframework.beans.factory.annotation.Autowired(required = false) FarmAssignmentRepository farmAssignmentRepository,
+                                    @org.springframework.beans.factory.annotation.Autowired(required = false) FarmSecurityEvaluator farmSecurity) {
+        this.timeAttendanceRepository = timeAttendanceRepository;
+        this.employeeRepository = employeeRepository;
+        this.workShiftRepository = workShiftRepository;
+        this.farmRepository = farmRepository;
+        this.userRepository = userRepository;
+        this.farmAssignmentRepository = farmAssignmentRepository;
+        this.farmSecurity = farmSecurity;
+    }
 
     @Override
     @Transactional
     public CheckInAttendanceResponse checkIn(CheckInAttendanceRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+
+        if (currentUser != null && (currentUser.hasRole("ROLE_FARM_OWNER") || (!currentUser.isSuperAdmin() && currentUser.getRoles().contains("ROLE_FARM_OWNER")))) {
+            throw new BusinessException("FORBIDDEN", "Chủ trang trại không thực hiện chấm công cá nhân tại trang trại");
+        }
 
         Employee employee = resolveEmployee(tenantId, currentUserId, request.getEmployeeId());
         Farm farm = farmRepository.findById(request.getFarmId())
@@ -150,6 +182,11 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
     public TimeAttendanceDetailResponse checkOut(CheckOutAttendanceRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+
+        if (currentUser != null && (currentUser.hasRole("ROLE_FARM_OWNER") || (!currentUser.isSuperAdmin() && currentUser.getRoles().contains("ROLE_FARM_OWNER")))) {
+            throw new BusinessException("FORBIDDEN", "Chủ trang trại không thực hiện chấm công cá nhân tại trang trại");
+        }
 
         Employee employee = resolveEmployee(tenantId, currentUserId, request.getEmployeeId());
         Instant checkOutInstant = request.getCheckOutTime() != null ? request.getCheckOutTime() : Instant.now();
@@ -256,7 +293,55 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
     @Override
     @Transactional(readOnly = true)
     public List<TimeAttendanceDetailResponse> getAttendances(Long farmId, LocalDate workDate) {
-        return timeAttendanceRepository.findByFarmIdAndWorkDate(farmId, workDate).stream()
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        List<TimeAttendance> attendances = timeAttendanceRepository.findByFarmIdAndWorkDate(farmId, workDate);
+
+        if (user == null || user.isSuperAdmin()
+                || user.hasRole("ROLE_FARM_OWNER")
+                || user.hasRole("ROLE_FARM_MANAGER")
+                || user.hasRole("ROLE_ACCOUNTANT")) {
+            return attendances.stream()
+                    .map(this::enrichDetailResponse)
+                    .collect(Collectors.toList());
+        }
+
+        // Check if user is ZONE_MANAGER on this farm
+        if (farmAssignmentRepository != null) {
+            List<FarmAssignment> userAssignments = farmAssignmentRepository.findByUserIdAndIsActiveTrue(currentUserId);
+            Optional<FarmAssignment> zoneMgrAssignment = userAssignments.stream()
+                    .filter(a -> a.getFarmId().equals(farmId) && "ZONE_MANAGER".equalsIgnoreCase(a.getRoleInFarm()) && a.getZoneId() != null)
+                    .findFirst();
+
+            if (zoneMgrAssignment.isPresent()) {
+                Long zoneId = zoneMgrAssignment.get().getZoneId();
+                Set<Long> userIdsInZone = farmAssignmentRepository.findByFarmIdAndIsActiveTrue(farmId).stream()
+                        .filter(a -> zoneId.equals(a.getZoneId()))
+                        .map(FarmAssignment::getUserId)
+                        .collect(Collectors.toSet());
+                userIdsInZone.add(currentUserId);
+
+                Set<Long> employeeIdsInZone = employeeRepository.findAll().stream()
+                        .filter(e -> farmId.equals(e.getFarmId()) && e.getUserId() != null && userIdsInZone.contains(e.getUserId()))
+                        .map(Employee::getId)
+                        .collect(Collectors.toSet());
+
+                return attendances.stream()
+                        .filter(a -> employeeIdsInZone.contains(a.getEmployeeId()))
+                        .map(this::enrichDetailResponse)
+                        .collect(Collectors.toList());
+            }
+        }
+
+        // Normal staff (FIELD_WORKER, WAREHOUSE_STAFF, TECHNICAL_STAFF): only see own attendances
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Optional<Employee> myEmp = employeeRepository.findByTenantIdAndUserId(tenantId, currentUserId);
+        if (myEmp.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Long myEmpId = myEmp.get().getId();
+        return attendances.stream()
+                .filter(a -> myEmpId.equals(a.getEmployeeId()))
                 .map(this::enrichDetailResponse)
                 .collect(Collectors.toList());
     }
@@ -280,26 +365,17 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
             throw new BusinessException("UNAUTHORIZED", "Người dùng chưa đăng nhập");
         }
 
-        // 1. Kiểm tra quyền: Người gọi phải là FARM_MANAGER, ROLE_TECHNICAL_STAFF hoặc ROLE_WAREHOUSE_STAFF (hoặc Owner/SuperAdmin)
-        boolean isAllowedRole = currentUser.isSuperAdmin()
-                || currentUser.getRoles().contains("ROLE_SUPER_ADMIN")
-                || currentUser.getRoles().contains("ROLE_FARM_OWNER")
-                || currentUser.getRoles().contains("ROLE_FARM_MANAGER")
-                || currentUser.getRoles().contains("ROLE_TECHNICAL_STAFF")
-                || currentUser.getRoles().contains("ROLE_WAREHOUSE_STAFF");
-
-        if (!isAllowedRole) {
-            throw new BusinessException("FORBIDDEN",
-                    "Chỉ Quản lý trang trại, Trưởng phân khu / Kỹ thuật hoặc Thủ kho mới có quyền điểm danh tập thể");
-        }
-
-        // Kiểm tra quyền truy cập farmId
-        if (!currentUser.isSuperAdmin()
-                && !currentUser.getRoles().contains("ROLE_SUPER_ADMIN")
-                && !currentUser.getRoles().contains("ROLE_FARM_OWNER")) {
-            if (!currentUser.getAccessibleFarmIds().contains(request.getFarmId())) {
-                throw new BusinessException("FARM_ACCESS_DENIED",
-                        "Bạn không có quyền tác nghiệp tại trang trại #" + request.getFarmId());
+        // 1. Kiểm tra quyền: Người gọi phải là FARM_MANAGER, TECHNICAL_STAFF hoặc ZONE_MANAGER / TECHNICAL_LEAD tại farm
+        if (farmSecurity != null) {
+            if (!farmSecurity.canPerformBatchRollCall(request.getFarmId())) {
+                throw new BusinessException("FORBIDDEN",
+                        "Chỉ Quản lý trang trại, Kỹ thuật viên hoặc Trưởng phân khu mới có quyền điểm danh theo ca");
+            }
+        } else {
+            boolean isAllowed = currentUser.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_MANAGER", "ROLE_TECHNICAL_STAFF");
+            if (!isAllowed) {
+                throw new BusinessException("FORBIDDEN",
+                        "Chỉ Quản lý trang trại, Kỹ thuật viên hoặc Trưởng phân khu mới có quyền điểm danh theo ca");
             }
         }
 

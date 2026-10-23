@@ -18,7 +18,7 @@ public class CostingController {
     private final FarmExpenseService farmExpenseService;
 
     @GetMapping("/unit-cost")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_REPORT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_FINANCE_REPORT') or hasAnyRole('ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN') or @farmSecurity.isFarmManager(#farmId)) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Tính giá thành sản xuất đơn vị",
             description = "Tổng hợp toàn bộ chi phí trực tiếp và chi phí gián tiếp phân bổ chia cho tổng sản lượng thực tế")
     public ResponseEntity<UnitCostReportResponse> getUnitCost(

@@ -30,6 +30,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.persistence.EntityManager;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -62,6 +64,9 @@ public class SystemSubscriptionAndLimitsIntegrationTest {
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private String getAccessToken(String username) {
         CustomUserDetails user = (CustomUserDetails) userDetailsService.loadUserByUsername(username);
@@ -128,12 +133,15 @@ public class SystemSubscriptionAndLimitsIntegrationTest {
                 .address("Đà Lạt, Lâm Đồng")
                 .build();
 
-        mockMvc.perform(post("/api/v1/farms")
+        var farm1Result = mockMvc.perform(post("/api/v1/farms")
                         .header("Authorization", "Bearer " + tokenOwner)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(farm1Req)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.code").value("FARM_LIMIT_01"));
+                .andExpect(jsonPath("$.code").value("FARM_LIMIT_01"))
+                .andReturn();
+        JsonNode farm1Node = objectMapper.readTree(farm1Result.getResponse().getContentAsString());
+        Long farm1Id = farm1Node.get("id").asLong();
 
         // 4. Owner cố tình tạo Farm 2 -> Bị chặn 403 SUBSCRIPTION_FARM_LIMIT_EXCEEDED
         CreateFarmRequest farm2Req = CreateFarmRequest.builder()
@@ -165,6 +173,7 @@ public class SystemSubscriptionAndLimitsIntegrationTest {
                 .fullName("Nhân Viên 2")
                 .password("Password@2026")
                 .roleIds(List.of(techRole.getId()))
+                .assignedFarmIds(List.of(farm1Id))
                 .build();
 
         mockMvc.perform(post("/api/v1/users")
@@ -181,6 +190,7 @@ public class SystemSubscriptionAndLimitsIntegrationTest {
                 .fullName("Nhân Viên 3 (Vượt hạn mức)")
                 .password("Password@2026")
                 .roleIds(List.of(techRole.getId()))
+                .assignedFarmIds(List.of(farm1Id))
                 .build();
 
         mockMvc.perform(post("/api/v1/users")
@@ -282,6 +292,7 @@ public class SystemSubscriptionAndLimitsIntegrationTest {
                 .andExpect(jsonPath("$.errorCode").value("TENANT_SUSPENDED"));
 
         // 6. Kiểm tra trong DB: Toàn bộ refresh_tokens của user thuộc Tenant đó đã bị thu hồi
+        entityManager.clear();
         List<RefreshToken> tokens = refreshTokenRepository.findByUserId(user.getId());
         assertFalse(tokens.isEmpty());
         for (RefreshToken rt : tokens) {

@@ -91,11 +91,15 @@ public class InventoryPurchaseAndDebtIntegrationTest {
     @Autowired
     private DebtRecordRepository debtRecordRepository;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     private Long farmId;
     private Long warehouseId;
     private Material testMaterial;
     private Partner testSupplier;
-    private String token;
+    private String tokenWarehouse;
+    private String tokenManager;
 
     @BeforeEach
     void setUp() {
@@ -162,8 +166,28 @@ public class InventoryPurchaseAndDebtIntegrationTest {
                         .createdAt(Instant.now())
                         .build()));
 
-        CustomUserDetails user = (CustomUserDetails) userDetailsService.loadUserByUsername("owner");
-        this.token = jwtTokenProvider.generateAccessToken(user);
+        // Gán quyền truy cập Farm cho warehouse (id=4)
+        jdbcTemplate.update("INSERT IGNORE INTO user_farm_access (user_id, farm_id, tenant_id) VALUES (4, ?, ?)", farmId, tenantId);
+
+        // Đảm bảo có user farm_manager
+        Long managerUserId;
+        try {
+            managerUserId = jdbcTemplate.queryForObject("SELECT id FROM users WHERE username = 'farm_manager'", Long.class);
+        } catch (Exception ex) {
+            jdbcTemplate.update("INSERT INTO users (tenant_id, is_super_admin, username, email, password_hash, full_name, phone, status, must_change_password) " +
+                    "VALUES (?, FALSE, 'farm_manager', 'manager.dalat@greenfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Giám Đốc Trại', '0978901234', 'ACTIVE', FALSE)", tenantId);
+            managerUserId = jdbcTemplate.queryForObject("SELECT id FROM users WHERE username = 'farm_manager'", Long.class);
+            Long fmRoleId = jdbcTemplate.queryForObject("SELECT id FROM roles WHERE code = 'ROLE_FARM_MANAGER'", Long.class);
+            jdbcTemplate.update("INSERT IGNORE INTO user_roles (tenant_id, user_id, role_id, farm_id) VALUES (?, ?, ?, ?)", tenantId, managerUserId, fmRoleId, farmId);
+        }
+        jdbcTemplate.update("INSERT IGNORE INTO user_farm_access (user_id, farm_id, tenant_id) VALUES (?, ?, ?)", managerUserId, farmId, tenantId);
+        jdbcTemplate.update("UPDATE farms SET manager_user_id = ? WHERE id = ?", managerUserId, farmId);
+
+        CustomUserDetails warehouseUser = (CustomUserDetails) userDetailsService.loadUserByUsername("warehouse");
+        this.tokenWarehouse = jwtTokenProvider.generateAccessToken(warehouseUser);
+
+        CustomUserDetails managerUser = (CustomUserDetails) userDetailsService.loadUserByUsername("farm_manager");
+        this.tokenManager = jwtTokenProvider.generateAccessToken(managerUser);
     }
 
     @Test
@@ -172,7 +196,7 @@ public class InventoryPurchaseAndDebtIntegrationTest {
         String batchNumber = "LOT-PUR-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         LocalDate receiptDate = LocalDate.now();
 
-        // 1. Tạo phiếu nhập mua DRAFT với đơn vị quy đổi BAG (4 bao = 100 kg)
+        // 1. Tạo phiếu nhập mua DRAFT với đơn vị quy đổi BAG (4 bao = 100 kg) (Maker: Warehouse)
         CreateWarehouseReceiptRequest createRequest = CreateWarehouseReceiptRequest.builder()
                 .warehouseId(warehouseId)
                 .receiptType("PURCHASE")
@@ -194,7 +218,7 @@ public class InventoryPurchaseAndDebtIntegrationTest {
                 .build();
 
         var createResult = mockMvc.perform(post("/api/v1/farms/{farmId}/inventory/receipts", farmId)
-                        .header("Authorization", "Bearer " + token)
+                        .header("Authorization", "Bearer " + tokenWarehouse)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createRequest)))
                 .andExpect(status().isCreated())
@@ -206,9 +230,9 @@ public class InventoryPurchaseAndDebtIntegrationTest {
                 createResult.getResponse().getContentAsString(), WarehouseReceiptDetailResponse.class);
         Long receiptId = receipt.getId();
 
-        // 2. Gọi API /complete
+        // 2. Gọi API /complete (Checker: Farm Manager)
         mockMvc.perform(post("/api/v1/farms/{farmId}/inventory/receipts/{id}/complete", farmId, receiptId)
-                        .header("Authorization", "Bearer " + token))
+                        .header("Authorization", "Bearer " + tokenManager))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.approvedBy").isNotEmpty());

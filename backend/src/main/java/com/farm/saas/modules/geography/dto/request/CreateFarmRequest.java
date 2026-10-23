@@ -17,13 +17,16 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class CreateFarmRequest {
 
-    @NotBlank(message = "Mã trang trại không được để trống")
     private String code;
 
     @NotBlank(message = "Tên trang trại không được để trống")
     private String name;
 
     @NotBlank(message = "Loại hình trang trại không được để trống")
+    @jakarta.validation.constraints.Pattern(
+            regexp = "^(?i)(CROP|LIVESTOCK|MIXED)$",
+            message = "Loại hình trang trại phải là CROP, LIVESTOCK hoặc MIXED"
+    )
     private String farmType;
 
     @NotNull(message = "Tổng diện tích không được để trống")

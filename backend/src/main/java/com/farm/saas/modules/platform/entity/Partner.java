@@ -71,14 +71,17 @@ public class Partner {
     @Column(name = "credit_rating", length = 30)
     private String creditRating;
 
+    @Builder.Default
     @Column(name = "credit_limit", nullable = false, precision = 14, scale = 2)
-    private BigDecimal creditLimit;
+    private BigDecimal creditLimit = BigDecimal.ZERO;
 
+    @Builder.Default
     @Column(name = "payment_term_days", nullable = false)
-    private Integer paymentTermDays;
+    private Integer paymentTermDays = 0;
 
+    @Builder.Default
     @Column(name = "status", nullable = false, length = 30)
-    private String status;
+    private String status = "ACTIVE";
 
     @Column(name = "created_at")
     private Instant createdAt;

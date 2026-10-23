@@ -21,7 +21,7 @@ public class WarehouseController {
     private final WarehouseService warehouseService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<List<WarehouseResponse>> getWarehouses(
             @PathVariable Long farmId,
             @RequestParam(required = false) String warehouseType) {
@@ -29,7 +29,7 @@ public class WarehouseController {
     }
 
     @GetMapping("/{warehouseId}")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseResponse> getWarehouseById(
             @PathVariable Long farmId,
             @PathVariable Long warehouseId) {
@@ -37,7 +37,7 @@ public class WarehouseController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_INVENTORY_RECEIPT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseResponse> createWarehouse(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateWarehouseRequest request) {
@@ -45,7 +45,7 @@ public class WarehouseController {
     }
 
     @PutMapping("/{warehouseId}")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_INVENTORY_RECEIPT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseResponse> updateWarehouse(
             @PathVariable Long farmId,
             @PathVariable Long warehouseId,

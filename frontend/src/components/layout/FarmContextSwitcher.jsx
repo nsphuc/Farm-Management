@@ -8,7 +8,6 @@ import { cn } from '@/utils/formatters';
 const FARM_TYPE_LABELS = {
   CROP: 'Trồng trọt',
   LIVESTOCK: 'Chăn nuôi',
-  AQUACULTURE: 'Thủy sản',
   MIXED: 'Hỗn hợp',
 };
 

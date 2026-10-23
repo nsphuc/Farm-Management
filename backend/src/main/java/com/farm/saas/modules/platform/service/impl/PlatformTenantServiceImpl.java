@@ -160,7 +160,7 @@ public class PlatformTenantServiceImpl implements PlatformTenantService {
 
         String oldStatus = tenant.getStatus();
         tenant.setStatus(request.getStatus());
-        tenant = tenantRepository.save(tenant);
+        tenant = tenantRepository.saveAndFlush(tenant);
 
         // Nếu chuyển sang SUSPENDED hoặc INACTIVE -> thu hồi toàn bộ refresh token
         if ("SUSPENDED".equals(request.getStatus()) || "INACTIVE".equals(request.getStatus())) {

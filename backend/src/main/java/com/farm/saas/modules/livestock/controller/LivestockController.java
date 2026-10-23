@@ -66,12 +66,31 @@ public class LivestockController {
         return ResponseEntity.ok(livestockService.updateGroup(farmId, id, request));
     }
 
+    @PostMapping("/livestock-groups/{id}/close")
+    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @Operation(summary = "Đóng / Kết thúc đàn nuôi (SOLD)", description = "Kết thúc đàn nuôi khi xuất chuồng và hủy các nhiệm vụ thường nhật")
+    public ResponseEntity<LivestockGroupDetailResponse> closeGroup(
+            @PathVariable Long farmId,
+            @PathVariable Long id) {
+        return ResponseEntity.ok(livestockService.closeGroup(farmId, id));
+    }
+
+    @DeleteMapping("/livestock-groups/{id}")
+    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @Operation(summary = "Xóa đàn nuôi", description = "Xóa hoặc xuất bán kết thúc đàn nuôi")
+    public ResponseEntity<Void> deleteGroup(
+            @PathVariable Long farmId,
+            @PathVariable Long id) {
+        livestockService.deleteGroup(farmId, id);
+        return ResponseEntity.noContent().build();
+    }
+
     // ==========================================
     // 2. LIVESTOCK INDIVIDUALS
     // ==========================================
 
     @GetMapping("/livestock-individuals")
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_LIVESTOCK_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Danh sách cá thể RFID", description = "Lấy danh sách cá thể gắn thẻ RFID, lọc theo đàn hoặc sức khỏe")
     public ResponseEntity<Page<LivestockIndividualDetailResponse>> getIndividuals(
             @PathVariable Long farmId,
@@ -82,7 +101,7 @@ public class LivestockController {
     }
 
     @GetMapping("/livestock-individuals/{id}")
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_LIVESTOCK_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Chi tiết cá thể RFID", description = "Lấy thông tin cá thể RFID kèm chỉ số tăng trọng ADG gần nhất")
     public ResponseEntity<LivestockIndividualDetailResponse> getIndividualById(
             @PathVariable Long farmId,
@@ -109,12 +128,22 @@ public class LivestockController {
         return ResponseEntity.ok(livestockService.updateIndividual(farmId, id, request));
     }
 
+    @DeleteMapping("/livestock-individuals/{id}")
+    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @Operation(summary = "Xóa cá thể RFID", description = "Xóa hoặc đào thải cá thể")
+    public ResponseEntity<Void> deleteIndividual(
+            @PathVariable Long farmId,
+            @PathVariable Long id) {
+        livestockService.deleteIndividual(farmId, id);
+        return ResponseEntity.noContent().build();
+    }
+
     // ==========================================
     // 3. WEIGH-IN & ADG
     // ==========================================
 
     @PostMapping("/livestock-groups/{id}/weigh-in")
-    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Ghi nhật ký cân nặng đàn nuôi", description = "Ghi nhận cân nặng theo đàn, tự động tính tốc độ tăng trọng ADG so với lần cân liền trước")
     public ResponseEntity<WeightLogDetailResponse> recordGroupWeighIn(
             @PathVariable Long farmId,
@@ -129,8 +158,17 @@ public class LivestockController {
         return ResponseEntity.status(HttpStatus.CREATED).body(livestockService.recordWeighIn(farmId, request));
     }
 
+    @GetMapping("/livestock-groups/{id}/weight-logs")
+    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @Operation(summary = "Lịch sử cân nặng đàn nuôi", description = "Lấy lịch sử cân nặng và tính ADG của đàn nuôi")
+    public ResponseEntity<java.util.List<WeightLogDetailResponse>> getGroupWeightLogs(
+            @PathVariable Long farmId,
+            @PathVariable Long id) {
+        return ResponseEntity.ok(livestockService.getGroupWeightLogs(farmId, id));
+    }
+
     @PostMapping("/livestock/weigh-in")
-    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Ghi nhật ký cân nặng linh hoạt", description = "Ghi nhận cân nặng cho cá thể hoặc đàn theo luật XOR và tính ADG")
     public ResponseEntity<WeightLogDetailResponse> recordWeighIn(
             @PathVariable Long farmId,
@@ -154,7 +192,7 @@ public class LivestockController {
     }
 
     @PostMapping("/livestock-groups/{id}/events")
-    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_VET', 'PERM_LIVESTOCK_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VET') and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Ghi sự kiện chăn nuôi đàn & Auto-Backflushing",
             description = "Ghi sự kiện vắc-xin/thú y cho đàn nuôi, tự động tính ngày hết cách ly thuốc và trừ kho nguyên tử")
     public ResponseEntity<LivestockEventDetailResponse> createGroupEvent(
@@ -171,7 +209,7 @@ public class LivestockController {
     }
 
     @PostMapping("/livestock-events")
-    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_VET', 'PERM_LIVESTOCK_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VET') and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Tạo sự kiện chăn nuôi / thú y linh hoạt",
             description = "Tạo sự kiện chăn nuôi cho cá thể hoặc đàn, xử lý cách ly, biến động đàn và Atomic Auto-Backflushing vật tư tiêu hao")
     public ResponseEntity<LivestockEventDetailResponse> createEvent(

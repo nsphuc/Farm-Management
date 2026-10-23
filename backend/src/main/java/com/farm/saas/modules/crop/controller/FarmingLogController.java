@@ -28,7 +28,7 @@ public class FarmingLogController {
     private final FarmingLogService farmingLogService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_CROP_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_VIEW', 'PERM_CROP_LOG') and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Danh sách nhật ký canh tác", description = "Truy vấn danh sách nhật ký có phân trang và lọc theo mùa vụ hoặc khoảng ngày")
     public ResponseEntity<Page<FarmingLogDetailResponse>> getFarmingLogs(
             @PathVariable Long farmId,
@@ -40,7 +40,7 @@ public class FarmingLogController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_CROP_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_VIEW', 'PERM_CROP_LOG') and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Chi tiết nhật ký canh tác", description = "Lấy chi tiết nhật ký kèm danh sách vật tư đã trích xuất")
     public ResponseEntity<FarmingLogDetailResponse> getFarmingLogById(
             @PathVariable Long farmId,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -8,32 +8,39 @@ import {
   Search,
   Filter,
   CheckCircle2,
+  Plus,
+  Edit2,
 } from 'lucide-react';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { Can } from '@/components/common/Can';
 
 const FARM_TYPES = [
   { value: '', label: 'Tất cả loại trang trại' },
   { value: 'CROP', label: 'Trồng trọt (CROP)' },
   { value: 'LIVESTOCK', label: 'Chăn nuôi (LIVESTOCK)' },
-  { value: 'MIXED', label: 'Kết hợp (MIXED)' },
-  { value: 'AQUACULTURE', label: 'Thủy sản (AQUACULTURE)' },
+  { value: 'MIXED', label: 'Hỗn hợp (MIXED)' },
 ];
 
 const ZONE_TYPES = [
   { value: '', label: 'Tất cả loại phân khu' },
-  { value: 'GREENHOUSE', label: 'Nhà kính (GREENHOUSE)' },
-  { value: 'OPEN_FIELD', label: 'Cánh đồng mở (OPEN_FIELD)' },
+  { value: 'GREENHOUSE', label: 'Nhà màng / Nhà kính (GREENHOUSE)' },
+  { value: 'OPEN_FIELD', label: 'Cánh đồng mở / Bãi chăn thả (OPEN_FIELD)' },
   { value: 'BARN', label: 'Chuồng trại (BARN)' },
-  { value: 'POND', label: 'Ao nuôi (POND)' },
-  { value: 'STORAGE', label: 'Kho bãi (STORAGE)' },
-  { value: 'ISOLATION', label: 'Khu cách ly (ISOLATION)' },
+  { value: 'STORAGE', label: 'Kho bãi & Sân phơi (STORAGE)' },
+  { value: 'ISOLATION', label: 'Khu cách ly & Kiểm dịch (ISOLATION)' },
 ];
 
 export function MasterGeographicTree({
   farms = [],
   selectedNode = null,
   onSelectNode,
+  onAddZone,
+  onEditFarm,
+  onAddLocation,
+  onEditZone,
+  onEditLocation,
+  expandedNodeKeys,
 }) {
   const { setActiveFarmId, setActiveZoneId } = useActiveFarmStore();
 
@@ -41,6 +48,12 @@ export function MasterGeographicTree({
   const [searchTerm, setSearchTerm] = useState('');
   const [farmTypeFilter, setFarmTypeFilter] = useState('');
   const [zoneTypeFilter, setZoneTypeFilter] = useState('');
+
+  useEffect(() => {
+    if (expandedNodeKeys && typeof expandedNodeKeys === 'object') {
+      setExpandedNodes((prev) => ({ ...prev, ...expandedNodeKeys }));
+    }
+  }, [expandedNodeKeys]);
 
   const toggleExpand = (nodeKey, e) => {
     e.stopPropagation();
@@ -198,9 +211,40 @@ export function MasterGeographicTree({
                     )}
                   </div>
 
-                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                    {farm.code}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-hover:hidden">
+                      {farm.code}
+                    </span>
+                    <div className="hidden group-hover:flex items-center gap-1">
+                      <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                        <button
+                          type="button"
+                          title="Thêm phân khu vào trang trại này"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAddZone?.(farm);
+                          }}
+                          className="p-1 rounded text-emerald-700 bg-emerald-50 hover:bg-emerald-100 ring-1 ring-emerald-600/20 transition-all flex items-center gap-0.5 text-[10px] font-bold"
+                        >
+                          <Plus className="h-3 w-3" />
+                          <span className="hidden sm:inline">Khu</span>
+                        </button>
+                      </Can>
+                      <Can permission="PERM_FARM_UPDATE" role="ROLE_FARM_OWNER">
+                        <button
+                          type="button"
+                          title="Sửa thông số trang trại"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditFarm?.(farm);
+                          }}
+                          className="p-1 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-200 transition-all"
+                        >
+                          <Edit2 className="h-3 w-3" />
+                        </button>
+                      </Can>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Node Tầng 2: Zones */}
@@ -212,6 +256,13 @@ export function MasterGeographicTree({
                       const isZoneSelected =
                         selectedNode?.type === 'ZONE' && selectedNode?.item?.id === zone.id;
                       const isMaintenance = zone.status === 'MAINTENANCE';
+
+                      const locationActionLabel =
+                        zone.zoneType === 'BARN'
+                          ? 'Thêm ô / dãy chuồng vào phân khu này'
+                          : zone.zoneType === 'STORAGE'
+                          ? 'Thêm kệ / vị trí kho vào phân khu này'
+                          : 'Thêm luống / ô đất vào phân khu này';
 
                       return (
                         <div key={zone.id} className="space-y-0.5">
@@ -244,9 +295,40 @@ export function MasterGeographicTree({
                               )}
                             </div>
 
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {zone.areaM2 ? `${zone.areaM2}m²` : ''}
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-slate-400 font-mono group-hover:hidden">
+                                {zone.areaM2 ? `${zone.areaM2}m²` : ''}
+                              </span>
+                              <div className="hidden group-hover:flex items-center gap-0.5">
+                                <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                                  {zone.status === 'ACTIVE' && (
+                                    <button
+                                      type="button"
+                                      title={locationActionLabel}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onAddLocation?.(farm, zone);
+                                      }}
+                                      className="p-1 rounded text-blue-700 bg-blue-50 hover:bg-blue-100 ring-1 ring-blue-500/20 transition-all flex items-center gap-0.5 text-[10px] font-bold"
+                                    >
+                                      <Plus className="h-2.5 w-2.5" />
+                                      <span className="hidden sm:inline">Vị trí</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    title="Sửa thông số phân khu"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onEditZone?.(farm, zone);
+                                    }}
+                                    className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-all"
+                                  >
+                                    <Edit2 className="h-3 w-3" />
+                                  </button>
+                                </Can>
+                              </div>
+                            </div>
                           </div>
 
                           {/* Node Tầng 3: Locations */}
@@ -260,7 +342,7 @@ export function MasterGeographicTree({
                                   <div
                                     key={loc.id}
                                     onClick={() => handleSelect('LOCATION', loc, farm, zone)}
-                                    className={`flex items-center justify-between rounded-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
+                                    className={`group flex items-center justify-between rounded-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
                                       isLocSelected
                                         ? 'bg-purple-50 text-purple-900 font-bold'
                                         : 'text-slate-500 hover:bg-slate-50'
@@ -270,7 +352,22 @@ export function MasterGeographicTree({
                                       <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
                                       <span className="truncate">{loc.name}</span>
                                     </div>
-                                    <StatusBadge status={loc.status} size="xs" />
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <StatusBadge status={loc.status} size="xs" />
+                                      <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                                        <button
+                                          type="button"
+                                          title="Sửa thông tin vị trí"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEditLocation?.(farm, zone, loc);
+                                          }}
+                                          className="hidden group-hover:inline-flex p-0.5 text-slate-400 hover:text-purple-700 hover:bg-purple-100 rounded transition-all"
+                                        >
+                                          <Edit2 className="h-2.5 w-2.5" />
+                                        </button>
+                                      </Can>
+                                    </div>
                                   </div>
                                 );
                               })}

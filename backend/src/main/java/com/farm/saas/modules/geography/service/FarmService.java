@@ -11,4 +11,5 @@ public interface FarmService {
     FarmDetailResponse getFarmById(Long id);
     FarmDetailResponse createFarm(CreateFarmRequest request);
     FarmDetailResponse updateFarm(Long id, UpdateFarmRequest request);
+    FarmDetailResponse updateFarmStatus(Long id, String status);
 }

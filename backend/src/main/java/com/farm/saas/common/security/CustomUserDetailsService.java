@@ -38,24 +38,60 @@ public class CustomUserDetailsService implements UserDetailsService {
         );
         Set<String> roles = new HashSet<>(roleCodes);
 
-        // 2. Query permissions
-        List<String> permissionCodes = jdbcTemplate.query(
-                "SELECT DISTINCT p.code FROM user_roles ur " +
-                        "JOIN role_permissions rp ON ur.role_id = rp.role_id " +
-                        "JOIN permissions p ON rp.permission_id = p.id " +
-                        "WHERE ur.user_id = ?",
-                (rs, rowNum) -> rs.getString("code"),
-                user.getId()
-        );
+        // 2. Query permissions (Super Admin automatically gets all permissions)
+        List<String> permissionCodes;
+        if (Boolean.TRUE.equals(user.getIsSuperAdmin()) || roles.contains("ROLE_SUPER_ADMIN")) {
+            permissionCodes = jdbcTemplate.query(
+                    "SELECT code FROM permissions",
+                    (rs, rowNum) -> rs.getString("code")
+            );
+        } else {
+            permissionCodes = jdbcTemplate.query(
+                    "SELECT DISTINCT p.code FROM user_roles ur " +
+                            "JOIN role_permissions rp ON ur.role_id = rp.role_id " +
+                            "JOIN permissions p ON rp.permission_id = p.id " +
+                            "WHERE ur.user_id = ?",
+                    (rs, rowNum) -> rs.getString("code"),
+                    user.getId()
+            );
+        }
         Set<String> permissions = new HashSet<>(permissionCodes);
 
-        // 3. Query accessible farm IDs
-        List<Long> farmIds = jdbcTemplate.query(
-                "SELECT farm_id FROM user_farm_access WHERE user_id = ?",
-                (rs, rowNum) -> rs.getLong("farm_id"),
-                user.getId()
-        );
-        Set<Long> accessibleFarmIds = new HashSet<>(farmIds);
+        // 3. Determine tier level
+        int tierLevel;
+        if (Boolean.TRUE.equals(user.getIsSuperAdmin()) || roles.contains("ROLE_SUPER_ADMIN")) {
+            tierLevel = 1;
+        } else if (roles.contains("ROLE_FARM_OWNER")) {
+            tierLevel = 2;
+        } else if (roles.contains("ROLE_FARM_MANAGER")) {
+            tierLevel = 3;
+        } else {
+            tierLevel = 4;
+        }
+
+        // 4. Query accessible farm IDs:
+        // Only ROLE_FARM_OWNER (Cấp 2) automatically loads all farmIds belonging to Tenant.
+        // For ROLE_FARM_MANAGER (Cấp 3) and Tier 4 roles (including ROLE_ACCOUNTANT), accessibleFarmIds is only taken
+        // from user_farm_access, user_roles.farm_id, farms.manager_user_id, and farm_assignments of that user.
+        Set<Long> accessibleFarmIds = new HashSet<>();
+        if (tierLevel == 2 && user.getTenantId() != null) {
+            List<Long> tenantFarmIds = jdbcTemplate.query(
+                    "SELECT id FROM farms WHERE tenant_id = ? AND status != 'DELETED'",
+                    (rs, rowNum) -> rs.getLong(1),
+                    user.getTenantId()
+            );
+            accessibleFarmIds.addAll(tenantFarmIds);
+        } else {
+            List<Long> farmIds = jdbcTemplate.query(
+                    "SELECT farm_id FROM user_farm_access WHERE user_id = ? AND farm_id IS NOT NULL " +
+                            "UNION SELECT farm_id FROM user_roles WHERE user_id = ? AND farm_id IS NOT NULL " +
+                            "UNION SELECT id AS farm_id FROM farms WHERE manager_user_id = ? AND status != 'DELETED' " +
+                            "UNION SELECT farm_id FROM farm_assignments WHERE user_id = ? AND is_active = TRUE",
+                    (rs, rowNum) -> rs.getLong(1),
+                    user.getId(), user.getId(), user.getId(), user.getId()
+            );
+            accessibleFarmIds.addAll(farmIds);
+        }
 
         return CustomUserDetails.builder()
                 .id(user.getId())
@@ -67,6 +103,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .roles(roles)
                 .permissions(permissions)
                 .accessibleFarmIds(accessibleFarmIds)
+                .tierLevel(tierLevel)
                 .build();
     }
 }

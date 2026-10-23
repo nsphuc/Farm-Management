@@ -297,7 +297,7 @@ export function AttendanceAdjustTab({ farmId, geofenceRadiusM = 300 }) {
       align: 'center',
       width: '140px',
       render: (row) => (
-        <Can permission="PERM_HR_EMPLOYEE_MANAGE">
+        <Can permission="PERM_HR_EMPLOYEE_MANAGE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
           <Button
             size="xs"
             variant="outline"

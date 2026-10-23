@@ -280,8 +280,12 @@ export function Personnel360Workspace() {
     notifyDataChanged?.('farms');
   };
 
-  // Client-side search bổ trợ
+  // Client-side search bổ trợ & Lọc bỏ Quản lý trang trại khỏi bảng nhân sự
   const filteredEmployees = employees.filter((emp) => {
+    // Bảng nhân sự không cần hiện thông tin quản lý trang trại
+    if (emp.position === 'FARM_MANAGER') {
+      return false;
+    }
     if (!searchTerm) return true;
     const q = searchTerm.toLowerCase();
     return (

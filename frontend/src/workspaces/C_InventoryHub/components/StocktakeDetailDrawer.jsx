@@ -12,10 +12,32 @@ import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable } from '@/components/common/DataTable';
+import { Can } from '@/components/common/Can';
+import { inventoryService } from '@/services/modules/inventoryService';
 import { formatDate, formatNumber } from '@/utils/formatters';
 
-export function StocktakeDetailDrawer({ isOpen, onClose, stocktake }) {
+export function StocktakeDetailDrawer({ isOpen, onClose, stocktake, farmId, onSuccess }) {
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
   if (!stocktake) return null;
+
+  const targetFarmId = farmId || stocktake.farmId;
+
+  const handleAdjust = async () => {
+    if (!window.confirm(`Xác nhận phê duyệt đợt kiểm kê ${stocktake.stocktakeCode}? Hệ thống sẽ tự động cân chỉnh tồn kho (ADJUST_IN / ADJUST_OUT) và cập nhật số dư cuối cùng.`)) return;
+    try {
+      setIsSubmitting(true);
+      await inventoryService.adjustStocktake(targetFarmId, stocktake.id);
+      alert('Đã phê duyệt và cân chỉnh tồn kho thành công!');
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      console.error('Lỗi khi duyệt kiểm kê:', err);
+      alert('Không thể duyệt kiểm kê: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const itemColumns = [
     {
@@ -111,14 +133,46 @@ export function StocktakeDetailDrawer({ isOpen, onClose, stocktake }) {
       icon={<ClipboardCheck className="h-5 w-5 text-purple-600" />}
       width="max-w-3xl"
       footer={
-        <div className="flex items-center justify-between w-full">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">Trạng thái đợt kiểm:</span>
             <StatusBadge status={stocktake.status} size="sm" />
+            {(stocktake.status === 'IN_PROGRESS' || stocktake.status === 'DRAFT') && (
+              <span className="text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-purple-200">
+                Chờ Giám đốc trại phê duyệt & cân chỉnh
+              </span>
+            )}
           </div>
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Đóng Khay
-          </Button>
+          <div className="flex items-center gap-2">
+            {(stocktake.status === 'IN_PROGRESS' || stocktake.status === 'DRAFT') && (
+              <>
+                <Can permission="PERM_INVENTORY_STOCKTAKE" role="ROLE_WAREHOUSE_STAFF">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => alert('Thủ kho nhập số liệu kiểm đếm thực tế')}
+                  >
+                    Nhập Số Lượng Đếm
+                  </Button>
+                </Can>
+                <Can permission="PERM_INVENTORY_STOCKTAKE" role="ROLE_FARM_MANAGER">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<CheckCircle2 className="h-4 w-4" />}
+                    loading={isSubmitting}
+                    onClick={handleAdjust}
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold"
+                  >
+                    Phê Duyệt & Chốt Kiểm Kê
+                  </Button>
+                </Can>
+              </>
+            )}
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={isSubmitting}>
+              Đóng Khay
+            </Button>
+          </div>
         </div>
       }
     >
@@ -150,7 +204,7 @@ export function StocktakeDetailDrawer({ isOpen, onClose, stocktake }) {
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Thời Gian Duyệt</span>
             <span className="text-xs font-medium text-slate-700 block">
-              {stocktake.approvedAt ? formatDate(stocktake.approvedAt) : 'Chờ thủ kho chốt'}
+              {stocktake.approvedAt ? formatDate(stocktake.approvedAt) : (stocktake.status === 'IN_PROGRESS' ? 'Chờ GĐ trại phê duyệt' : 'Đang kiểm đếm')}
             </span>
           </div>
         </div>

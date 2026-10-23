@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { Can } from '@/components/common/Can';
 import { Input } from '@/components/ui/FormControls';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { financeService } from '@/services/modules/financeService';
@@ -155,6 +157,21 @@ export function MultiFarmExpenseSummary() {
   // Chọn hàng để xem chi tiết
   const handleRowClick = (item) => {
     setActiveDetailTarget(item);
+  };
+
+  const handleConfirmExpense = async (row) => {
+    if (!window.confirm(`Xác nhận phê duyệt chứng từ chi phí ${row.expenseCode}? Chi phí sẽ được ghi sổ chính thức và phân bổ vào hạn mức ngân sách.`)) return;
+    try {
+      await financeService.confirmExpense(row.farmId, row.id);
+      alert('Đã phê duyệt chi phí thành công!');
+      if (activeDetailTarget) {
+        fetchDetailExpenses(activeDetailTarget);
+      }
+      fetchSummary();
+    } catch (err) {
+      console.error('Lỗi khi duyệt chi phí:', err);
+      alert('Không thể duyệt chi phí: ' + (err.response?.data?.message || err.message));
+    }
   };
 
   // Chuẩn bị danh sách hàng hiển thị dựa trên activeFarmId, viewMode & tìm kiếm
@@ -494,6 +511,37 @@ export function MultiFarmExpenseSummary() {
             Chi Phí Quản Lý
           </span>
         ),
+    },
+    {
+      key: 'status',
+      header: 'Trạng Thái',
+      align: 'center',
+      width: '120px',
+      render: (row) => <StatusBadge status={row.status || 'CONFIRMED'} size="sm" />,
+    },
+    {
+      key: 'actions',
+      header: 'Thao Tác',
+      align: 'center',
+      width: '130px',
+      render: (row) => {
+        if (row.status === 'DRAFT') {
+          return (
+            <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
+              <Button
+                size="xs"
+                variant="primary"
+                icon={<CheckCircle2 className="h-3 w-3" />}
+                onClick={() => handleConfirmExpense(row)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              >
+                Phê Duyệt
+              </Button>
+            </Can>
+          );
+        }
+        return <span className="text-[10px] text-slate-400">Đã chốt sổ</span>;
+      },
     },
   ];
 

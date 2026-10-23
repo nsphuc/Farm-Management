@@ -21,19 +21,19 @@ public class CostCategoryController {
     private final MasterCatalogService masterCatalogService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE')")
+    @PreAuthorize("hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<List<CostCategoryResponse>> getCostCategories() {
         return ResponseEntity.ok(masterCatalogService.getCostCategories());
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE')")
+    @PreAuthorize("hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<CostCategoryResponse> createCostCategory(@Valid @RequestBody CreateCostCategoryRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(masterCatalogService.createCostCategory(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE')")
+    @PreAuthorize("hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<CostCategoryResponse> updateCostCategory(
             @PathVariable Long id,
             @Valid @RequestBody UpdateCostCategoryRequest request) {

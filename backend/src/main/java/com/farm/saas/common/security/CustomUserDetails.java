@@ -36,6 +36,24 @@ public class CustomUserDetails implements UserDetails {
     @Builder.Default
     private Set<Long> accessibleFarmIds = new HashSet<>();
 
+    private Integer tierLevel;
+
+    public Integer getTierLevel() {
+        if (tierLevel != null) {
+            return tierLevel;
+        }
+        if (isSuperAdmin || hasRole("ROLE_SUPER_ADMIN")) {
+            return 1;
+        }
+        if (hasRole("ROLE_FARM_OWNER")) {
+            return 2;
+        }
+        if (hasRole("ROLE_FARM_MANAGER")) {
+            return 3;
+        }
+        return 4;
+    }
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         Set<GrantedAuthority> authorities = new HashSet<>();
@@ -43,6 +61,9 @@ public class CustomUserDetails implements UserDetails {
             for (String role : roles) {
                 authorities.add(new SimpleGrantedAuthority(role));
             }
+        }
+        if (isSuperAdmin) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
         }
         if (permissions != null) {
             for (String perm : permissions) {
@@ -83,13 +104,17 @@ public class CustomUserDetails implements UserDetails {
     }
 
     public boolean hasRole(String role) {
+        if (isSuperAdmin && "ROLE_SUPER_ADMIN".equalsIgnoreCase(role)) return true;
         return roles != null && roles.contains(role);
     }
 
     public boolean hasAnyRole(String... checkRoles) {
-        if (roles == null) return false;
+        if (checkRoles == null) return false;
         for (String r : checkRoles) {
-            if (roles.contains(r)) {
+            if (isSuperAdmin && "ROLE_SUPER_ADMIN".equalsIgnoreCase(r)) {
+                return true;
+            }
+            if (roles != null && roles.contains(r)) {
                 return true;
             }
         }
@@ -97,6 +122,7 @@ public class CustomUserDetails implements UserDetails {
     }
 
     public boolean hasPermission(String permission) {
+        if (isSuperAdmin) return true;
         return permissions != null && permissions.contains(permission);
     }
 }

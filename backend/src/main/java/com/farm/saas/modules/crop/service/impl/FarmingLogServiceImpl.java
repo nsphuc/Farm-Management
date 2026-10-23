@@ -134,6 +134,22 @@ public class FarmingLogServiceImpl implements FarmingLogService {
             }
         }
 
+        // 2b. Pre-validate stock availability for all supplies before persisting
+        if (request.getSupplies() != null && !request.getSupplies().isEmpty()) {
+            for (var sReq : request.getSupplies()) {
+                WarehouseInventory inv = warehouseInventoryRepository.findByWarehouseIdAndMaterialIdAndBatchNumber(
+                        sReq.getWarehouseId(), sReq.getMaterialId(), sReq.getBatchNumber())
+                        .orElseThrow(() -> new InsufficientStockException(
+                                "Vật tư #" + sReq.getMaterialId() + " lô " + sReq.getBatchNumber() + " không có tồn kho trong kho #" + sReq.getWarehouseId()));
+
+                BigDecimal available = inv.getQuantityOnHand().subtract(inv.getReservedQuantity());
+                if (available.compareTo(sReq.getActualQuantity()) < 0) {
+                    throw new InsufficientStockException(
+                            "Không đủ tồn kho khả dụng cho vật tư #" + sReq.getMaterialId() + " lô " + sReq.getBatchNumber() + ". Cần: " + sReq.getActualQuantity() + ", Khả dụng: " + available);
+                }
+            }
+        }
+
         FarmingLog farmingLog = FarmingLog.builder()
                 .tenantId(tenantId)
                 .farmId(farmId)

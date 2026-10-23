@@ -21,26 +21,26 @@ public class LivestockBreedController {
     private final MasterCatalogService masterCatalogService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VIEW')")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<List<LivestockBreedResponse>> getLivestockBreeds(
             @RequestParam(required = false) String species) {
         return ResponseEntity.ok(masterCatalogService.getLivestockBreeds(species));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VIEW')")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<LivestockBreedResponse> getLivestockBreedById(@PathVariable Long id) {
         return ResponseEntity.ok(masterCatalogService.getLivestockBreedById(id));
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_MANAGE')")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<LivestockBreedResponse> createLivestockBreed(@Valid @RequestBody CreateLivestockBreedRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(masterCatalogService.createLivestockBreed(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_MANAGE')")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<LivestockBreedResponse> updateLivestockBreed(
             @PathVariable Long id,
             @Valid @RequestBody UpdateLivestockBreedRequest request) {

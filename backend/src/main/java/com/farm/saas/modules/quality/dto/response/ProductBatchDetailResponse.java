@@ -58,6 +58,7 @@ public class ProductBatchDetailResponse {
     private String harvestInfoJson;
     private String qcInspectionJson;
     private String qcInspectionCode;
+    private String qcOverallResult;
     private List<ProductBatchSourceResponse> sources;
     private Instant createdAt;
     private Instant updatedAt;

@@ -52,7 +52,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class EmployeeServiceImpl implements EmployeeService {
 
     private final EmployeeRepository employeeRepository;
@@ -65,6 +64,47 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final FarmAssignmentRepository farmAssignmentRepository;
     private final TenantSubscriptionRepository tenantSubscriptionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.farm.saas.common.security.FarmSecurityEvaluator farmSecurity;
+
+    public EmployeeServiceImpl(EmployeeRepository employeeRepository,
+                               FarmRepository farmRepository,
+                               ProductionZoneRepository productionZoneRepository,
+                               UserRepository userRepository,
+                               RoleRepository roleRepository,
+                               UserRoleRepository userRoleRepository,
+                               UserFarmAccessRepository userFarmAccessRepository,
+                               FarmAssignmentRepository farmAssignmentRepository,
+                               TenantSubscriptionRepository tenantSubscriptionRepository,
+                               PasswordEncoder passwordEncoder) {
+        this(employeeRepository, farmRepository, productionZoneRepository, userRepository, roleRepository,
+                userRoleRepository, userFarmAccessRepository, farmAssignmentRepository, tenantSubscriptionRepository,
+                passwordEncoder, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public EmployeeServiceImpl(EmployeeRepository employeeRepository,
+                               FarmRepository farmRepository,
+                               ProductionZoneRepository productionZoneRepository,
+                               UserRepository userRepository,
+                               RoleRepository roleRepository,
+                               UserRoleRepository userRoleRepository,
+                               UserFarmAccessRepository userFarmAccessRepository,
+                               FarmAssignmentRepository farmAssignmentRepository,
+                               TenantSubscriptionRepository tenantSubscriptionRepository,
+                               PasswordEncoder passwordEncoder,
+                               @org.springframework.beans.factory.annotation.Autowired(required = false) com.farm.saas.common.security.FarmSecurityEvaluator farmSecurity) {
+        this.employeeRepository = employeeRepository;
+        this.farmRepository = farmRepository;
+        this.productionZoneRepository = productionZoneRepository;
+        this.userRepository = userRepository;
+        this.roleRepository = roleRepository;
+        this.userRoleRepository = userRoleRepository;
+        this.userFarmAccessRepository = userFarmAccessRepository;
+        this.farmAssignmentRepository = farmAssignmentRepository;
+        this.tenantSubscriptionRepository = tenantSubscriptionRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.farmSecurity = farmSecurity;
+    }
 
     /**
      * Tự động suy diễn phòng ban chuẩn từ chức danh / vị trí công việc.
@@ -116,7 +156,11 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (user == null) {
             return false;
         }
-        return user.isSuperAdmin() || user.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER", "ROLE_ACCOUNTANT");
+        return user.isSuperAdmin()
+                || user.hasRole("ROLE_SUPER_ADMIN")
+                || user.hasRole("ROLE_FARM_OWNER")
+                || user.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER")
+                || user.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER", "ROLE_ACCOUNTANT");
     }
 
     @Override
@@ -131,20 +175,22 @@ public class EmployeeServiceImpl implements EmployeeService {
         LocalDate checkDate = request.getJoinedDate() != null ? request.getJoinedDate() : LocalDate.now();
         if (dob != null && ChronoUnit.YEARS.between(dob, checkDate) < 18) {
             log.warn("UNDERAGE_EMPLOYEE violation: dob={} checkDate={}", dob, checkDate);
-            throw new BusinessException("UNDERAGE_EMPLOYEE", "Nhân viên chưa đủ 18 tuổi lao động tính đến ngày gia nhập (" + dob + " -> " + checkDate + ")");
-        }
-
-        if (employeeRepository.findByTenantIdAndEmployeeCode(tenantId, request.getEmployeeCode()).isPresent()) {
-            throw new BusinessException("DUPLICATE_EMPLOYEE_CODE", "Mã nhân viên đã tồn tại: " + request.getEmployeeCode());
+            throw new BusinessException("UNDERAGE_EMPLOYEE",
+                    "Nhân viên chưa đủ 18 tuổi lao động tính đến ngày gia nhập (" + dob + " -> " + checkDate + ")",
+                    Map.of("dateOfBirth", "Nhân viên chưa đủ 18 tuổi lao động tính đến ngày gia nhập"));
         }
 
         // Rào chắn phân quyền trang trại (The Farm Barrier Guard)
         if (!tenantScope) {
-            if (request.getFarmId() == null) {
-                throw new BusinessException("FARM_ID_REQUIRED", "Cán bộ quản lý cơ sở chỉ được tạo nhân sự thuộc trang trại mình phụ trách");
-            }
             Set<Long> accessibleFarmIds = SecurityUtils.getCurrentAccessibleFarmIds();
-            if (!accessibleFarmIds.contains(request.getFarmId())) {
+            if (request.getFarmId() == null) {
+                if (accessibleFarmIds != null && accessibleFarmIds.size() == 1) {
+                    request.setFarmId(accessibleFarmIds.iterator().next());
+                } else {
+                    throw new BusinessException("FARM_ID_REQUIRED", "Cán bộ quản lý cơ sở chỉ được tạo nhân sự thuộc trang trại mình phụ trách");
+                }
+            }
+            if (accessibleFarmIds == null || !accessibleFarmIds.contains(request.getFarmId())) {
                 throw new AccessDeniedException("Bạn không có quyền tiếp nhận nhân sự cho trang trại ID: " + request.getFarmId());
             }
         }
@@ -152,9 +198,16 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (request.getFarmId() != null) {
             Farm farm = farmRepository.findById(request.getFarmId())
                     .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.getFarmId()));
-            if (!farm.getTenantId().equals(tenantId)) {
+            if (tenantId != null && !farm.getTenantId().equals(tenantId)) {
                 throw new BusinessException("FARM_NOT_IN_TENANT", "Trang trại không thuộc tổ chức này");
             }
+            if (tenantId == null) {
+                tenantId = farm.getTenantId();
+            }
+        }
+
+        if (employeeRepository.findByTenantIdAndEmployeeCode(tenantId, request.getEmployeeCode()).isPresent()) {
+            throw new BusinessException("DUPLICATE_EMPLOYEE_CODE", "Mã nhân viên đã tồn tại: " + request.getEmployeeCode());
         }
 
         // Chặn trùng Kế toán: Mỗi trại chỉ có tối đa 1 Kế toán đang ACTIVE
@@ -302,6 +355,10 @@ public class EmployeeServiceImpl implements EmployeeService {
             }
 
             final String finalRoleCode = targetRoleCode;
+            if (farmSecurity != null) {
+                farmSecurity.canAssignRole(finalRoleCode, employee.getFarmId());
+            }
+
             Role role = roleRepository.findByCode(finalRoleCode)
                     .or(() -> roleRepository.findByCode("ROLE_" + finalRoleCode))
                     .or(() -> roleRepository.findByCode("ROLE_TECHNICAL_STAFF"))
@@ -357,14 +414,28 @@ public class EmployeeServiceImpl implements EmployeeService {
                         .createdBy(currentUserId)
                         .build();
                 farmAssignmentRepository.save(assignment);
-            } else if (employee.getFarmId() != null && request.getAssignedZoneId() != null) {
-                // Tạo bản ghi farm_assignments cho phân khu được chỉ định
+            } else if (employee.getFarmId() != null) {
+                String mappedRoleInFarm;
+                if ("ROLE_TECHNICAL_STAFF".equalsIgnoreCase(finalRoleCode)) {
+                    String pos = employee.getPosition() != null ? employee.getPosition().toUpperCase() : "";
+                    if (pos.contains("ZONE_MANAGER")) mappedRoleInFarm = "ZONE_MANAGER";
+                    else if (pos.contains("VET")) mappedRoleInFarm = "VETERINARIAN";
+                    else if (pos.contains("AGRONOMIST")) mappedRoleInFarm = "AGRONOMIST";
+                    else mappedRoleInFarm = "TECHNICAL_LEAD";
+                } else if ("ROLE_WAREHOUSE_STAFF".equalsIgnoreCase(finalRoleCode)) {
+                    mappedRoleInFarm = "WAREHOUSE_KEEPER";
+                } else if ("ROLE_ACCOUNTANT".equalsIgnoreCase(finalRoleCode)) {
+                    mappedRoleInFarm = "ACCOUNTANT";
+                } else {
+                    mappedRoleInFarm = "FIELD_WORKER";
+                }
+
                 FarmAssignment assignment = FarmAssignment.builder()
                         .tenantId(tenantId)
                         .farmId(employee.getFarmId())
                         .zoneId(request.getAssignedZoneId())
                         .userId(user.getId())
-                        .roleInFarm(employee.getPosition() != null ? employee.getPosition() : "TECHNICAL_STAFF")
+                        .roleInFarm(mappedRoleInFarm)
                         .assignedFrom(request.getJoinedDate() != null ? request.getJoinedDate() : LocalDate.now())
                         .isActive(true)
                         .createdAt(Instant.now())
@@ -383,12 +454,13 @@ public class EmployeeServiceImpl implements EmployeeService {
     @Override
     @Transactional
     public EmployeeDetailResponse updateEmployee(Long id, UpdateEmployeeRequest request) {
-        Long tenantId = SecurityUtils.getCurrentTenantId();
+        final Long currentTenantId = SecurityUtils.getCurrentTenantId();
         boolean tenantScope = isTenantScopeUser();
 
         Employee employee = employeeRepository.findById(id)
-                .filter(e -> e.getTenantId().equals(tenantId))
+                .filter(e -> currentTenantId == null || e.getTenantId().equals(currentTenantId))
                 .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", id));
+        Long tenantId = currentTenantId != null ? currentTenantId : employee.getTenantId();
 
         // Rào chắn phân quyền trang trại
         if (!tenantScope) {
@@ -407,7 +479,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (request.getFarmId() != null) {
             Farm farm = farmRepository.findById(request.getFarmId())
                     .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", request.getFarmId()));
-            if (!farm.getTenantId().equals(tenantId)) {
+            if (tenantId != null && !farm.getTenantId().equals(tenantId)) {
                 throw new BusinessException("FARM_NOT_IN_TENANT", "Trang trại không thuộc tổ chức này");
             }
             employee.setFarmId(request.getFarmId());
@@ -417,7 +489,9 @@ public class EmployeeServiceImpl implements EmployeeService {
         LocalDate joined = request.getJoinedDate() != null ? request.getJoinedDate() : employee.getJoinedDate();
         if (dob != null && joined != null && ChronoUnit.YEARS.between(dob, joined) < 18) {
             log.warn("UNDERAGE_EMPLOYEE violation on update: dob={} joined={}", dob, joined);
-            throw new BusinessException("UNDERAGE_EMPLOYEE", "Nhân viên chưa đủ 18 tuổi lao động tính đến ngày gia nhập (" + dob + " -> " + joined + ")");
+            throw new BusinessException("UNDERAGE_EMPLOYEE",
+                    "Nhân viên chưa đủ 18 tuổi lao động tính đến ngày gia nhập (" + dob + " -> " + joined + ")",
+                    Map.of("dateOfBirth", "Nhân viên chưa đủ 18 tuổi lao động tính đến ngày gia nhập"));
         }
 
         if (request.getDateOfBirth() != null) {
@@ -490,7 +564,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         final Long empFarmId = employee.getFarmId();
 
         // Xử lý chuyển phân khu (assignedZoneId)
-        if (request.getAssignedZoneId() != null && empFarmId != null) {
+        if (request.getAssignedZoneId() != null && request.getAssignedZoneId() > 0 && empFarmId != null) {
             ProductionZone targetZone = productionZoneRepository.findById(request.getAssignedZoneId())
                     .filter(z -> Objects.equals(z.getFarmId(), empFarmId))
                     .orElseThrow(() -> new BusinessException("ZONE_NOT_FOUND", "Phân khu được chỉ định không thuộc trang trại này"));
@@ -613,13 +687,14 @@ public class EmployeeServiceImpl implements EmployeeService {
     @Override
     @Transactional(readOnly = true)
     public Page<EmployeeDetailResponse> getEmployees(Long farmId, String department, String status, String search, Pageable pageable) {
-        Long tenantId = SecurityUtils.getCurrentTenantId();
+        final Long currentTenantId = SecurityUtils.getCurrentTenantId();
         boolean tenantScope = isTenantScopeUser();
         Set<Long> accessibleFarmIds = SecurityUtils.getCurrentAccessibleFarmIds();
 
         // Biến xác định farmId lọc thực tế (null nếu truy vấn toàn bộ trang trại)
         Long effectiveFarmId = null;
         Set<Long> effectiveFarmIds = null;
+        Long resolvedTenantId = currentTenantId;
 
         // 1. LOGIC PHÂN QUYỀN VÀ LỌC CỨNG (THE FARM BARRIER GUARD):
         if (!tenantScope) {
@@ -647,19 +722,25 @@ public class EmployeeServiceImpl implements EmployeeService {
             if (farmId != null) {
                 // Khi có truyền ?farmId=X: Chỉ lọc đúng các nhân sự có employees.farm_id = X
                 Farm farm = farmRepository.findById(farmId)
-                        .filter(f -> f.getTenantId().equals(tenantId))
+                        .filter(f -> currentTenantId == null || f.getTenantId().equals(currentTenantId))
                         .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
                 effectiveFarmId = farm.getId();
+                if (resolvedTenantId == null) {
+                    resolvedTenantId = farm.getTenantId();
+                }
             }
             // Khi không truyền farmId: effectiveFarmId = null -> Trả về toàn bộ nhân sự tất cả các trang trại thuộc Tenant
         }
 
         final Long finalFarmId = effectiveFarmId;
         final Set<Long> finalFarmIds = effectiveFarmIds;
+        final Long finalTenantId = resolvedTenantId;
 
         Specification<Employee> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            predicates.add(cb.equal(root.get("tenantId"), tenantId));
+            if (finalTenantId != null) {
+                predicates.add(cb.equal(root.get("tenantId"), finalTenantId));
+            }
 
             if (finalFarmId != null) {
                 predicates.add(cb.equal(root.get("farmId"), finalFarmId));
@@ -688,7 +769,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         };
 
         // Pre-fetch tên trang trại để điền farmName đầy đủ trong bảng tổng hợp
-        Map<Long, String> farmNameMap = farmRepository.findByTenantId(tenantId).stream()
+        Map<Long, String> farmNameMap = (resolvedTenantId != null ? farmRepository.findByTenantId(resolvedTenantId) : farmRepository.findAll()).stream()
                 .collect(Collectors.toMap(Farm::getId, Farm::getName, (a, b) -> a));
 
         return employeeRepository.findAll(spec, pageable).map(emp -> mapToDetailResponse(emp, farmNameMap));
@@ -701,7 +782,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         boolean tenantScope = isTenantScopeUser();
 
         Employee employee = employeeRepository.findById(id)
-                .filter(e -> e.getTenantId().equals(tenantId))
+                .filter(e -> tenantId == null || e.getTenantId().equals(tenantId))
                 .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", id));
 
         if (!tenantScope) {
@@ -717,12 +798,13 @@ public class EmployeeServiceImpl implements EmployeeService {
     @Override
     @Transactional
     public EmployeeDetailResponse provisionAccount(Long id, ProvisionAccountRequest request) {
-        Long tenantId = SecurityUtils.getCurrentTenantId();
+        final Long currentTenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
         Employee employee = employeeRepository.findById(id)
-                .filter(e -> e.getTenantId().equals(tenantId))
+                .filter(e -> currentTenantId == null || e.getTenantId().equals(currentTenantId))
                 .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", id));
+        Long tenantId = currentTenantId != null ? currentTenantId : employee.getTenantId();
 
         if (employee.getUserId() != null) {
             throw new BusinessException("USER_ALREADY_EXISTS", "Nhân viên này đã được cấp tài khoản đăng nhập hệ thống (User ID: " + employee.getUserId() + ")");
@@ -761,13 +843,17 @@ public class EmployeeServiceImpl implements EmployeeService {
                 .createdBy(currentUserId)
                 .build();
 
-        user = userRepository.save(user);
+        User savedUser = userRepository.save(user);
 
         // Link user to employee
-        employee.setUserId(user.getId());
+        employee.setUserId(savedUser.getId());
         employee.setUpdatedAt(Instant.now());
         employee.setUpdatedBy(currentUserId);
-        employee = employeeRepository.save(employee);
+        Employee savedEmployee = employeeRepository.save(employee);
+
+        final Long finalUserId = savedUser.getId();
+        final Long finalFarmId = savedEmployee.getFarmId();
+        final String empPosition = savedEmployee.getPosition();
 
         // Assign roles
         List<String> roleCodes = (request.getRoles() != null && !request.getRoles().isEmpty())
@@ -775,25 +861,85 @@ public class EmployeeServiceImpl implements EmployeeService {
                 : List.of("ROLE_TECHNICAL_STAFF");
 
         for (String rCode : roleCodes) {
+            farmSecurity.canAssignRole(rCode, finalFarmId);
+
             Role role = roleRepository.findByCode(rCode).orElse(null);
             if (role != null) {
                 UserRole ur = UserRole.builder()
                         .tenantId(tenantId)
-                        .userId(user.getId())
+                        .userId(finalUserId)
                         .roleId(role.getId())
-                        .farmId(employee.getFarmId())
+                        .farmId(finalFarmId)
                         .assignedAt(Instant.now())
                         .assignedBy(currentUserId)
                         .build();
                 userRoleRepository.save(ur);
             }
+
+            // Đồng bộ bổ nhiệm FARM_MANAGER hoặc nhân sự Cấp 4
+            if ("ROLE_FARM_MANAGER".equalsIgnoreCase(rCode) && finalFarmId != null) {
+                farmRepository.findById(finalFarmId).ifPresent(farm -> {
+                    farm.setManagerUserId(finalUserId);
+                    farm.setUpdatedAt(Instant.now());
+                    farm.setUpdatedBy(currentUserId);
+                    farmRepository.save(farm);
+                });
+
+                boolean hasAssignment = farmAssignmentRepository.findByUserIdAndIsActiveTrue(finalUserId)
+                        .stream().anyMatch(a -> a.getFarmId().equals(finalFarmId) && "FARM_MANAGER".equalsIgnoreCase(a.getRoleInFarm()));
+                if (!hasAssignment) {
+                    farmAssignmentRepository.save(FarmAssignment.builder()
+                            .tenantId(tenantId)
+                            .farmId(finalFarmId)
+                            .userId(finalUserId)
+                            .roleInFarm("FARM_MANAGER")
+                            .assignedFrom(LocalDate.now())
+                            .isActive(true)
+                            .createdAt(Instant.now())
+                            .createdBy(currentUserId)
+                            .build());
+                }
+            } else if (finalFarmId != null && ("ROLE_TECHNICAL_STAFF".equalsIgnoreCase(rCode)
+                    || "ROLE_WAREHOUSE_STAFF".equalsIgnoreCase(rCode)
+                    || "ROLE_ACCOUNTANT".equalsIgnoreCase(rCode)
+                    || "ROLE_FIELD_STAFF".equalsIgnoreCase(rCode))) {
+                String mappedRoleInFarm;
+                if ("ROLE_TECHNICAL_STAFF".equalsIgnoreCase(rCode)) {
+                    String pos = empPosition != null ? empPosition.toUpperCase() : "";
+                    if (pos.contains("ZONE_MANAGER")) mappedRoleInFarm = "ZONE_MANAGER";
+                    else if (pos.contains("VET")) mappedRoleInFarm = "VETERINARIAN";
+                    else if (pos.contains("AGRONOMIST")) mappedRoleInFarm = "AGRONOMIST";
+                    else mappedRoleInFarm = "TECHNICAL_LEAD";
+                } else if ("ROLE_WAREHOUSE_STAFF".equalsIgnoreCase(rCode)) {
+                    mappedRoleInFarm = "WAREHOUSE_KEEPER";
+                } else if ("ROLE_ACCOUNTANT".equalsIgnoreCase(rCode)) {
+                    mappedRoleInFarm = "ACCOUNTANT";
+                } else {
+                    mappedRoleInFarm = "FIELD_WORKER";
+                }
+
+                boolean hasAssignment = farmAssignmentRepository.findByUserIdAndIsActiveTrue(finalUserId)
+                        .stream().anyMatch(a -> a.getFarmId().equals(finalFarmId) && mappedRoleInFarm.equalsIgnoreCase(a.getRoleInFarm()));
+                if (!hasAssignment) {
+                    farmAssignmentRepository.save(FarmAssignment.builder()
+                            .tenantId(tenantId)
+                            .farmId(finalFarmId)
+                            .userId(finalUserId)
+                            .roleInFarm(mappedRoleInFarm)
+                            .assignedFrom(LocalDate.now())
+                            .isActive(true)
+                            .createdAt(Instant.now())
+                            .createdBy(currentUserId)
+                            .build());
+                }
+            }
         }
 
         // Assign farm access if employee has farm
-        if (employee.getFarmId() != null) {
+        if (finalFarmId != null) {
             UserFarmAccess access = UserFarmAccess.builder()
-                    .userId(user.getId())
-                    .farmId(employee.getFarmId())
+                    .userId(finalUserId)
+                    .farmId(finalFarmId)
                     .tenantId(tenantId)
                     .grantedAt(Instant.now())
                     .grantedBy(currentUserId)
@@ -801,8 +947,8 @@ public class EmployeeServiceImpl implements EmployeeService {
             userFarmAccessRepository.save(access);
         }
 
-        log.info("Provisioned user account id={}, username={} for employee id={}", user.getId(), user.getUsername(), employee.getId());
-        return mapToDetailResponse(employee);
+        log.info("Provisioned user account id={}, username={} for employee id={}", finalUserId, savedUser.getUsername(), savedEmployee.getId());
+        return mapToDetailResponse(savedEmployee);
     }
 
     private EmployeeDetailResponse mapToDetailResponse(Employee emp) {

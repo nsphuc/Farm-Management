@@ -2,6 +2,7 @@ package com.farm.saas.modules.geography.controller;
 
 import com.farm.saas.modules.geography.dto.request.CreateFarmRequest;
 import com.farm.saas.modules.geography.dto.request.UpdateFarmRequest;
+import com.farm.saas.modules.geography.dto.request.UpdateFarmStatusRequest;
 import com.farm.saas.modules.geography.dto.response.FarmDetailResponse;
 import com.farm.saas.modules.geography.service.FarmService;
 import jakarta.validation.Valid;
@@ -49,5 +50,21 @@ public class FarmController {
             @PathVariable Long farmId,
             @Valid @RequestBody UpdateFarmRequest request) {
         return ResponseEntity.ok(farmService.updateFarm(farmId, request));
+    }
+
+    @RequestMapping(value = "/{farmId}/status", method = {RequestMethod.PATCH, RequestMethod.PUT})
+    @PreAuthorize("(hasAuthority('PERM_FARM_UPDATE') or hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
+    public ResponseEntity<FarmDetailResponse> updateFarmStatus(
+            @PathVariable Long farmId,
+            @RequestBody(required = false) java.util.Map<String, Object> body,
+            @RequestParam(required = false) String status) {
+        String effectiveStatus = status;
+        if ((effectiveStatus == null || effectiveStatus.isBlank()) && body != null) {
+            Object statusObj = body.get("status");
+            if (statusObj != null) {
+                effectiveStatus = statusObj.toString();
+            }
+        }
+        return ResponseEntity.ok(farmService.updateFarmStatus(farmId, effectiveStatus));
     }
 }

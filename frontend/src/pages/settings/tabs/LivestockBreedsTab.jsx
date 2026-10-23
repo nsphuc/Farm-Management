@@ -15,7 +15,6 @@ const SPECIES_OPTIONS = [
   { value: 'POULTRY', label: 'POULTRY - Gia cầm (Gà, Vịt, Cút)' },
   { value: 'GOAT', label: 'GOAT - Dê' },
   { value: 'SHEEP', label: 'SHEEP - Cừu' },
-  { value: 'AQUA', label: 'AQUA - Thủy sản (Tôm, Cá)' },
 ];
 
 export function LivestockBreedsTab() {

@@ -69,7 +69,10 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
   }, [shifts]);
 
   const fetchAssignments = async () => {
-    if (!farmId) return;
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) {
+      setAssignments([]);
+      return;
+    }
     try {
       setIsLoading(true);
       // Fetch assignments for the week
@@ -171,7 +174,7 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
             Làm Mới
           </Button>
 
-          <Can permission="PERM_HR_EMPLOYEE_MANAGE">
+          <Can permission="PERM_HR_EMPLOYEE_MANAGE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
             <Button
               variant="primary"
               size="sm"
@@ -258,14 +261,16 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
 
                               {/* Nút Hủy Ca (CANCELLED) cho ca chưa diễn ra */}
                               {assign.status === 'SCHEDULED' && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleCancelAssignment(assign, emp, day)}
-                                  title="Hủy ca làm việc này (CANCELLED)"
-                                  className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded p-0.5 transition-colors cursor-pointer shrink-0"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
+                                <Can permission="PERM_HR_EMPLOYEE_MANAGE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelAssignment(assign, emp, day)}
+                                    title="Hủy ca làm việc này (CANCELLED)"
+                                    className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded p-0.5 transition-colors cursor-pointer shrink-0"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </Can>
                               )}
                             </div>
 

@@ -1,5 +1,6 @@
 package com.farm.saas.modules.geography.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -15,11 +16,18 @@ import java.math.BigDecimal;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class UpdateFarmRequest {
+
+    private String code;
 
     @NotBlank(message = "Tên trang trại không được để trống")
     private String name;
 
+    @jakarta.validation.constraints.Pattern(
+            regexp = "^(?i)(CROP|LIVESTOCK|MIXED|AQUACULTURE)$",
+            message = "Loại hình trang trại phải là CROP, LIVESTOCK hoặc MIXED"
+    )
     private String farmType;
 
     @NotNull(message = "Tổng diện tích không được để trống")

@@ -26,7 +26,7 @@ public class CropSeasonController {
     private final CropSeasonService cropSeasonService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_CROP_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_CROP_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Danh sách mùa vụ", description = "Lấy danh sách các mùa vụ có phân trang và lọc theo trạng thái")
     public ResponseEntity<Page<CropSeasonDetailResponse>> getSeasons(
             @PathVariable Long farmId,
@@ -37,7 +37,7 @@ public class CropSeasonController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_CROP_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_CROP_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Chi tiết mùa vụ", description = "Lấy chi tiết mùa vụ kèm kiểm tra thời gian cách ly PHI và tổng chi phí")
     public ResponseEntity<CropSeasonDetailResponse> getSeasonById(
             @PathVariable Long farmId,
@@ -65,11 +65,21 @@ public class CropSeasonController {
     }
 
     @PostMapping("/{id}/close")
-    @PreAuthorize("hasAuthority('PERM_CROP_PLAN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_CROP_PLAN') and @farmSecurity.isFarmManager(#farmId)")
     @Operation(summary = "Đóng mùa vụ", description = "Đóng mùa vụ và ghi nhận ngày thu hoạch thực tế")
     public ResponseEntity<CropSeasonDetailResponse> closeSeason(
             @PathVariable Long farmId,
             @PathVariable Long id) {
         return ResponseEntity.ok(cropSeasonService.closeSeason(farmId, id));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAuthority('PERM_CROP_PLAN') and @farmSecurity.isFarmManager(#farmId)")
+    @Operation(summary = "Xóa mùa vụ", description = "Xóa hoặc đóng mùa vụ")
+    public ResponseEntity<Void> deleteSeason(
+            @PathVariable Long farmId,
+            @PathVariable Long id) {
+        cropSeasonService.deleteSeason(farmId, id);
+        return ResponseEntity.noContent().build();
     }
 }

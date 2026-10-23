@@ -362,7 +362,7 @@ export function LeaveAndOvertimeTab({ farmId, employees = [] }) {
         const isExceeded = isAnnual && reqDays > quota;
 
         return (
-          <Can permission="PERM_HR_EMPLOYEE_MANAGE">
+          <Can permission="PERM_HR_EMPLOYEE_MANAGE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
             <div className="flex items-center justify-center gap-1.5">
               {/* Nút Phê Duyệt: Nếu vượt quỹ phép thì KHÓA NÚT và BÁO ĐỎ */}
               <Button
@@ -544,7 +544,7 @@ export function LeaveAndOvertimeTab({ farmId, employees = [] }) {
         }
 
         return (
-          <Can permission="PERM_HR_EMPLOYEE_MANAGE">
+          <Can permission="PERM_HR_EMPLOYEE_MANAGE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
             <div className="flex items-center justify-center gap-1.5">
               {/* Nút Duyệt Tăng Ca OT */}
               <Button

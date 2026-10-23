@@ -161,20 +161,23 @@ export function EmployeeFormModal({
 
   // Nạp danh sách phân khu của trang trại
   useEffect(() => {
-    const targetFarmId = formData.farmId || activeFarmId;
-    if (isOpen && targetFarmId) {
-      geographyService.getZones(targetFarmId)
-        .then((res) => {
-          const list = Array.isArray(res) ? res : (res?.data || res?.content || []);
-          setZones(list);
-        })
-        .catch((err) => {
-          console.warn('Lỗi khi tải danh sách phân khu:', err);
-          setZones([]);
-        });
-    } else {
+    const selectedFarmId = formData.farmId || (activeFarmId !== 'ALL' ? activeFarmId : '');
+    const isValidFarmId = selectedFarmId && selectedFarmId !== 'ALL' && !Number.isNaN(Number(selectedFarmId));
+
+    if (!isOpen || !isValidFarmId) {
       setZones([]);
+      return;
     }
+
+    geographyService.getZones(selectedFarmId)
+      .then((res) => {
+        const list = Array.isArray(res) ? res : (res?.data || res?.content || []);
+        setZones(list);
+      })
+      .catch((err) => {
+        console.warn('Lỗi khi tải danh sách phân khu:', err);
+        setZones([]);
+      });
   }, [isOpen, formData.farmId, activeFarmId]);
 
   useEffect(() => {
@@ -216,11 +219,12 @@ export function EmployeeFormModal({
       // ========================================================
       // Chế độ Thêm Mới: Phân nhánh thông minh theo Role
       // ========================================================
+      const isNumericFarmId = (id) => id && id !== 'ALL' && !Number.isNaN(Number(id));
       let defaultFarmId = '';
-      if (activeFarmId) {
+      if (isNumericFarmId(activeFarmId)) {
         defaultFarmId = String(activeFarmId);
-      } else if (effectiveFarms.length > 0) {
-        defaultFarmId = String(effectiveFarms[0]?.id || '');
+      } else if (!owner && effectiveFarms.length > 0 && isNumericFarmId(effectiveFarms[0]?.id)) {
+        defaultFarmId = String(effectiveFarms[0]?.id);
       }
 
       const initialCode = generateEntityCode(CODE_PREFIXES.EMPLOYEE);
@@ -234,7 +238,7 @@ export function EmployeeFormModal({
           phone: '',
           email: '',
           joinedDate: new Date().toISOString().split('T')[0],
-          farmId: defaultFarmId,
+          farmId: defaultFarmId, // Rỗng nếu activeFarmId là 'ALL' để bắt buộc Owner chọn trại cụ thể
           assignedZoneId: '',
           position: 'FARM_MANAGER', // Khóa cứng FARM_MANAGER
           contractType: 'FULL_TIME',
@@ -249,7 +253,7 @@ export function EmployeeFormModal({
         });
       } else {
         // TRƯỜNG HỢP B: Quản lý trại (Farm Manager) -> Tiếp nhận nhân sự nội bộ trại
-        const initialFarmId = activeFarmId ? String(activeFarmId) : defaultFarmId;
+        const initialFarmId = isNumericFarmId(activeFarmId) ? String(activeFarmId) : defaultFarmId;
         const initialPos = defaultPosition || 'ZONE_MANAGER';
         const staffConfig = FARM_STAFF_POSITIONS.find((p) => p.value === initialPos) || FARM_STAFF_POSITIONS[0];
 
@@ -280,15 +284,15 @@ export function EmployeeFormModal({
     setGeneralError(null);
   }, [isOpen, employee]);
 
-  // Tự động gán farm đầu tiên khi danh sách trang trại tải xong mà KHÔNG reset các trường người dùng đang nhập
+  // Tự động gán farm đầu tiên khi danh sách trang trại tải xong (chỉ áp dụng cho Quản lý trại nếu chưa có farmId)
   useEffect(() => {
-    if (isOpen && effectiveFarms.length > 0) {
+    if (isOpen && !owner && effectiveFarms.length > 0) {
       setFormData((prev) => {
-        if (prev.farmId) return prev;
+        if (prev.farmId && prev.farmId !== 'ALL' && !Number.isNaN(Number(prev.farmId))) return prev;
         return { ...prev, farmId: String(effectiveFarms[0]?.id || '') };
       });
     }
-  }, [isOpen, effectiveFarms]);
+  }, [isOpen, owner, effectiveFarms]);
 
   const handleChange = (field, value) => {
     setFormData((prev) => {
@@ -438,9 +442,10 @@ export function EmployeeFormModal({
       const isSeasonalWorker = formData.position === 'SEASONAL_NO_ACCOUNT';
       const shouldCreateAccount = !isSeasonalWorker && Boolean(formData.enableProvisioning);
 
+      const isFarmManagerRole = formData.position === 'FARM_MANAGER' || formData.selectedRole === 'ROLE_FARM_MANAGER';
       const payload = {
         farmId: formData.farmId ? Number(formData.farmId) : null,
-        assignedZoneId: formData.assignedZoneId ? Number(formData.assignedZoneId) : null,
+        assignedZoneId: isFarmManagerRole ? null : (formData.assignedZoneId ? Number(formData.assignedZoneId) : null),
         employeeCode: formData.employeeCode.trim().toUpperCase(),
         fullName: formData.fullName.trim(),
         phone: formData.phone?.trim() || null,
@@ -726,8 +731,8 @@ export function EmployeeFormModal({
             <FormField
               label="Giao Về Phân Khu / Bộ Phận Quản Lý"
               hint={
-                formData.position === 'FARM_MANAGER'
-                  ? 'Quản lý bao quát toàn bộ trang trại'
+                formData.position === 'FARM_MANAGER' || formData.selectedRole === 'ROLE_FARM_MANAGER'
+                  ? 'Giám đốc quản lý bao quát toàn bộ trang trại (Không gắn phân khu)'
                   : formData.position === 'WAREHOUSE_STAFF'
                   ? 'Trực thuộc bộ phận Kho Vận trang trại'
                   : 'Phân công nhân sự về phân khu sản xuất (Trưởng khu quản lý)'
@@ -735,11 +740,15 @@ export function EmployeeFormModal({
               error={errors.assignedZoneId}
             >
               <Select
-                value={formData.assignedZoneId}
+                value={formData.position === 'FARM_MANAGER' || formData.selectedRole === 'ROLE_FARM_MANAGER' ? '' : formData.assignedZoneId}
                 onChange={(e) => handleChange('assignedZoneId', e.target.value)}
-                disabled={formData.position === 'FARM_MANAGER'}
+                disabled={formData.position === 'FARM_MANAGER' || formData.selectedRole === 'ROLE_FARM_MANAGER'}
               >
-                <option value="">-- Chưa chỉ định / Theo phân công sau --</option>
+                <option value="">
+                  {formData.position === 'FARM_MANAGER' || formData.selectedRole === 'ROLE_FARM_MANAGER'
+                    ? '-- Quản lý toàn trang trại (Không gắn phân khu) --'
+                    : '-- Chưa chỉ định / Theo phân công sau --'}
+                </option>
                 {zones.map((z) => (
                   <option key={z.id} value={z.id}>
                     Phân khu: {z.name} ({z.code || `ZON-${z.id}`}) {z.zoneType ? `— ${z.zoneType}` : ''}

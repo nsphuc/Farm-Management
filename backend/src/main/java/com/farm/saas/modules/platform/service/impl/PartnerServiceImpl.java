@@ -160,15 +160,17 @@ public class PartnerServiceImpl implements PartnerService {
         Partner partner = partnerRepository.findByTenantIdAndId(tenantId, id)
                 .orElseThrow(() -> new ResourceNotFoundException("Đối tác", id));
 
-        if (!isOwner) {
-            // Cán bộ cấp cơ sở không được chỉnh sửa đối tác của trang trại khác
+        boolean canApproveCredit = isOwner || (user != null && user.hasRole("ROLE_FARM_MANAGER"));
+        if (!canApproveCredit) {
+            // Cán bộ cấp cơ sở (Maker - Kế toán trại):
             if (partner.getFarmId() != null && (accessibleFarmIds == null || !accessibleFarmIds.contains(partner.getFarmId()))) {
                 throw new BusinessException("FORBIDDEN_PARTNER_EDIT", "Bạn không có quyền chỉnh sửa đối tác của trang trại khác");
             }
-            // Khóa cứng không cho nhân sự cơ sở tự đổi creditLimit
+            // Khóa cứng không cho Maker tự đổi creditLimit hoặc status
         } else {
-            if (request.getFarmId() != null) partner.setFarmId(request.getFarmId());
+            if (request.getFarmId() != null && isOwner) partner.setFarmId(request.getFarmId());
             if (request.getCreditLimit() != null) partner.setCreditLimit(request.getCreditLimit());
+            if (request.getStatus() != null) partner.setStatus(request.getStatus());
         }
 
         partner.setName(request.getName().trim());
@@ -206,6 +208,12 @@ public class PartnerServiceImpl implements PartnerService {
     @Transactional
     public PartnerResponse updatePartnerStatus(Long id, UpdatePartnerStatusRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
+        com.farm.saas.common.security.CustomUserDetails user = SecurityUtils.getCurrentUser();
+        boolean canApproveStatus = user != null && (user.isSuperAdmin() || user.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"));
+        if (!canApproveStatus) {
+            throw new BusinessException("FORBIDDEN_STATUS_CHANGE", "Chỉ Giám đốc trang trại hoặc Chủ đầu tư mới có quyền thay đổi trạng thái đối tác");
+        }
+
         Partner partner = partnerRepository.findByTenantIdAndId(tenantId, id)
                 .orElseThrow(() -> new ResourceNotFoundException("Đối tác", id));
 
@@ -226,6 +234,34 @@ public class PartnerServiceImpl implements PartnerService {
                 .build());
 
         return toPartnerResponse(partner);
+    }
+
+    @Override
+    @Transactional
+    public void deletePartner(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        com.farm.saas.common.security.CustomUserDetails user = SecurityUtils.getCurrentUser();
+        boolean canDelete = user != null && (user.isSuperAdmin() || user.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"));
+        if (!canDelete) {
+            throw new BusinessException("FORBIDDEN_PARTNER_DELETE", "Chỉ Giám đốc trang trại hoặc Chủ đầu tư mới có quyền xóa/ngưng hoạt động đối tác");
+        }
+
+        Partner partner = partnerRepository.findByTenantIdAndId(tenantId, id)
+                .orElseThrow(() -> new ResourceNotFoundException("Đối tác", id));
+
+        // Soft delete bằng cách chuyển sang INACTIVE để bảo toàn lịch sử công nợ
+        partner.setStatus("INACTIVE");
+        partner.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        partnerRepository.save(partner);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(tenantId)
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("DELETE_PARTNER")
+                .module("COMMERCIAL")
+                .endpoint("/api/v1/partners/" + id)
+                .method("DELETE")
+                .build());
     }
 
     private PartnerResponse toPartnerResponse(Partner p) {

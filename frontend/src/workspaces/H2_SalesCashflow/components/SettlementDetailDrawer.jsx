@@ -7,14 +7,21 @@ import {
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { useAuthStore } from '@/store/useAuthStore';
 
 export function SettlementDetailDrawer({
   isOpen,
   onClose,
   settlement,
   onConfirmSettlement,
-  isConfirming = false
+  onApproveSettlement,
+  isConfirming = false,
+  isApproving = false,
 }) {
+  const { isOwner, isFarmManager } = useAuthStore();
+  const owner = isOwner();
+  const manager = isFarmManager();
+
   const [copiedAccount, setCopiedAccount] = useState(false);
   const [copiedContent, setCopiedContent] = useState(false);
   const [notes, setNotes] = useState('');
@@ -400,11 +407,24 @@ export function SettlementDetailDrawer({
           </div>
 
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" onClick={onClose}>
+            <Button variant="outline" size="sm" onClick={onClose} disabled={isConfirming || isApproving}>
               Đóng
             </Button>
 
-            {!isClosed && (
+            {manager && !isClosed && (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<CheckCircle2 className="h-4 w-4" />}
+                loading={isApproving}
+                onClick={() => onApproveSettlement?.(settlement, notes)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-600/20"
+              >
+                ✍️ Ký Duyệt Bảng Kết Toán Chu Kỳ (Cho Phép Kế Toán Chuyển Lãi Về Owner)
+              </Button>
+            )}
+
+            {owner && !isClosed && (
               <Button
                 variant="primary"
                 size="sm"

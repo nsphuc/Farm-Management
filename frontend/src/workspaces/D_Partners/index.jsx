@@ -150,6 +150,27 @@ export function PartnersWorkspace() {
     }
   };
 
+  const handleDeletePartner = async (item, e) => {
+    e?.stopPropagation();
+    if (
+      !window.confirm(
+        `Xác nhận xóa đối tác "${item.name}" (${item.code})?\n\nLưu ý: Đối tác sẽ được chuyển trạng thái INACTIVE để đảm bảo toàn vẹn dữ liệu cho các chứng từ, hóa đơn quá khứ.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await partnerService.deletePartner(item.id);
+      toast.success(`Đã xóa đối tác "${item.name}"!`);
+      notifyDataChanged?.('partners');
+      fetchPartners();
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || 'Không thể xóa đối tác!');
+    }
+  };
+
   // Summary Metrics
   const supplierCount = partners.filter((p) => p.partnerType === 'SUPPLIER').length;
   const buyerCount = partners.filter((p) => p.partnerType === 'BUYER').length;
@@ -287,28 +308,40 @@ export function PartnersWorkspace() {
       header: 'Thao Tác',
       title: 'Thao Tác',
       align: 'center',
-      width: owner ? '230px' : '150px',
+      width: owner ? '260px' : '190px',
       render: (item) => {
         const isBlacklisted = item.status === 'BLACKLISTED';
-        const isEditableByFarm = item.farmId && Number(item.farmId) === Number(activeFarmId);
 
-        // THAO TÁC DÀNH CHO OWNER
-        if (owner) {
-          return (
-            <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-              <Button
-                size="xs"
-                variant="outline"
-                icon={<Eye className="h-3.5 w-3.5" />}
-                onClick={() => {
-                  setSelectedPartner(item);
-                  setDrawerOpen(true);
-                }}
-                title="Hồ sơ 360°"
-              >
-                360°
-              </Button>
+        return (
+          <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            {/* Nút 360 độ */}
+            <Button
+              size="xs"
+              variant="outline"
+              icon={<Eye className="h-3.5 w-3.5" />}
+              onClick={() => {
+                setSelectedPartner(item);
+                setDrawerOpen(true);
+              }}
+              title="Hồ sơ 360°"
+            >
+              360°
+            </Button>
 
+            {/* Nút Xem Mã VietQR Thanh Toán Cho NCC */}
+            <Button
+              size="xs"
+              variant="outline"
+              icon={<QrCode className="h-3.5 w-3.5 text-blue-600" />}
+              onClick={(e) => handleQuickQr(item, e)}
+              title="Xem mã VietQR Napas247 thanh toán"
+              className="text-blue-700 border-blue-200 hover:bg-blue-50"
+            >
+              QR
+            </Button>
+
+            {/* Nút Duyệt Hạn Mức Tín Dụng & Khóa Đối Tác (Checker: ROLE_FARM_MANAGER, ROLE_FARM_OWNER) */}
+            <Can role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
               <Button
                 size="xs"
                 variant="outline"
@@ -330,7 +363,10 @@ export function PartnersWorkspace() {
               >
                 {isBlacklisted ? 'Mở' : 'Khóa'}
               </Button>
+            </Can>
 
+            {/* Nút Sửa Thông Tin Đối Tác (Chỉ Kế Toán & Giám Đốc Trại) */}
+            <Can permission="PERM_FINANCE_SALES_ORDER" role={['ROLE_ACCOUNTANT', 'ROLE_FARM_MANAGER']}>
               <button
                 type="button"
                 onClick={(e) => {
@@ -338,67 +374,24 @@ export function PartnersWorkspace() {
                   setEditingPartner(item);
                   setFormModalOpen(true);
                 }}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-800 transition-colors"
-                title="Sửa hồ sơ"
+                className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                title="Sửa thông tin đối tác"
               >
                 <Edit2 className="h-4 w-4" />
               </button>
-            </div>
-          );
-        }
+            </Can>
 
-        // THAO TÁC DÀNH CHO FARM_MANAGER & KẾ TOÁN TRẠI:
-        // Tuyệt đối KHÔNG có nút Duyệt hạn mức hay Khóa đen của Owner!
-        return (
-          <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-            {/* Nút 360 độ */}
-            <Button
-              size="xs"
-              variant="outline"
-              icon={<Eye className="h-3.5 w-3.5" />}
-              onClick={() => {
-                setSelectedPartner(item);
-                setDrawerOpen(true);
-              }}
-              title="Hồ sơ đối tác 360°"
-            >
-              360°
-            </Button>
-
-            {/* Nút Xem Mã VietQR Thanh Toán Cho NCC */}
-            <Button
-              size="xs"
-              variant="outline"
-              icon={<QrCode className="h-3.5 w-3.5 text-blue-600" />}
-              onClick={(e) => handleQuickQr(item, e)}
-              title="Xem mã VietQR Napas247 thanh toán"
-              className="text-blue-700 border-blue-200 hover:bg-blue-50"
-            >
-              QR
-            </Button>
-
-            {/* Nút Sửa Thông Tin Liên Hệ & Ngân Hàng: Chỉ cho phép sửa đối tác thuộc farmId == activeFarmId */}
-            {isEditableByFarm ? (
+            {/* Nút Xóa Đối Tác (Chỉ Manager & Owner) */}
+            <Can role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditingPartner(item);
-                  setFormModalOpen(true);
-                }}
-                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-                title="Sửa thông tin liên hệ & ngân hàng"
+                onClick={(e) => handleDeletePartner(item, e)}
+                className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors"
+                title="Xóa đối tác"
               >
-                <Edit2 className="h-4 w-4" />
+                <Trash2 className="h-4 w-4" />
               </button>
-            ) : (
-              <span
-                className="p-1.5 text-slate-300 cursor-not-allowed"
-                title="Đối tác dùng chung toàn chuỗi do Chủ đầu tư (Owner) quản lý"
-              >
-                <Lock className="h-4 w-4" />
-              </span>
-            )}
+            </Can>
           </div>
         );
       },
@@ -432,24 +425,26 @@ export function PartnersWorkspace() {
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               {owner
-                ? 'Đặc quyền Chủ Đầu Tư: Quản trị danh bạ, độc quyền phê duyệt hạn mức tín dụng và khóa đen đối tác'
+                ? 'Chế độ xem giám sát toàn chuỗi: Độc quyền phê duyệt hạn mức tín dụng và khóa đen đối tác'
                 : 'Quản lý danh bạ nhà cung cấp vật tư, thương lái thu mua và đơn vị vận chuyển của trang trại'}
             </p>
           </div>
         </div>
 
-        {/* Nút Thêm Mới Đối Tác */}
-        <Button
-          variant="primary"
-          size="md"
-          icon={<Plus className="h-4 w-4" />}
-          onClick={() => {
-            setEditingPartner(null);
-            setFormModalOpen(true);
-          }}
-        >
-          {owner ? '+ Thêm Đối Tác Toàn Chuỗi' : '+ Thêm Đối Tác Cho Trang Trại'}
-        </Button>
+        {/* Nút Thêm Mới Đối Tác (Chỉ Kế toán & Giám đốc trại) */}
+        <Can permission="PERM_FINANCE_SALES_ORDER" role={['ROLE_ACCOUNTANT', 'ROLE_FARM_MANAGER']}>
+          <Button
+            variant="primary"
+            size="md"
+            icon={<Plus className="h-4 w-4" />}
+            onClick={() => {
+              setEditingPartner(null);
+              setFormModalOpen(true);
+            }}
+          >
+            + Thêm Đối Tác Cho Trang Trại
+          </Button>
+        </Can>
       </div>
 
       {/* Summary Stat Cards */}

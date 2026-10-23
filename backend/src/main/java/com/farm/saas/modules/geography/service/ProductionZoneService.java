@@ -14,6 +14,7 @@ public interface ProductionZoneService {
     ProductionZoneResponse getZoneById(Long farmId, Long zoneId);
     ProductionZoneResponse createZone(Long farmId, CreateProductionZoneRequest request);
     ProductionZoneResponse updateZone(Long farmId, Long zoneId, UpdateProductionZoneRequest request);
+    void deleteZone(Long farmId, Long zoneId);
 
     List<ZoneLocationResponse> getLocations(Long farmId, Long zoneId);
     ZoneLocationResponse createLocation(Long farmId, Long zoneId, CreateZoneLocationRequest request);

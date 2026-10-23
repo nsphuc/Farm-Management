@@ -39,7 +39,7 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
     private final ApplicationEventPublisher eventPublisher;
 
     private static final Set<String> VALID_SPECIES = Set.of(
-            "CATTLE", "SWINE", "POULTRY", "GOAT", "SHEEP", "AQUA"
+            "CATTLE", "SWINE", "POULTRY", "GOAT", "SHEEP"
     );
 
     private static final Set<String> VALID_COST_TYPES = Set.of(

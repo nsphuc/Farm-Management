@@ -21,19 +21,19 @@ public class WorkShiftController {
     private final MasterCatalogService masterCatalogService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAnyAuthority('PERM_HR_EMPLOYEE_MANAGE', 'PERM_HR_ATTENDANCE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<List<WorkShiftResponse>> getWorkShifts() {
         return ResponseEntity.ok(masterCatalogService.getWorkShifts());
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<WorkShiftResponse> createWorkShift(@Valid @RequestBody CreateWorkShiftRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(masterCatalogService.createWorkShift(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<WorkShiftResponse> updateWorkShift(
             @PathVariable Long id,
             @Valid @RequestBody UpdateWorkShiftRequest request) {

@@ -99,6 +99,15 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
 
         String paymentCode = "PAY-" + farmId + "-" + (System.currentTimeMillis() % 10000000);
 
+        boolean isChecker = SecurityUtils.getCurrentUser() != null &&
+                SecurityUtils.getCurrentUser().hasAnyRole("ROLE_FARM_MANAGER", "ROLE_FARM_OWNER", "ROLE_SUPER_ADMIN");
+        boolean isExpenseOrRefund = "PAYMENT".equalsIgnoreCase(request.getPaymentType()) || "REFUND".equalsIgnoreCase(request.getPaymentType());
+        boolean shouldBePending = !isChecker && isExpenseOrRefund;
+
+        String status = shouldBePending ? "PENDING" : "COMPLETED";
+        Long confirmedBy = shouldBePending ? null : currentUserId;
+        Instant confirmedAt = shouldBePending ? null : Instant.now();
+
         PaymentTransaction payment = PaymentTransaction.builder()
                 .tenantId(tenantId)
                 .farmId(farmId)
@@ -115,9 +124,9 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
                 .proofImageUrl(request.getProofImageUrl())
                 .paymentDate(request.getPaymentDate())
                 .notes(request.getNotes())
-                .status("COMPLETED")
-                .confirmedByUserId(currentUserId)
-                .confirmedAt(Instant.now())
+                .status(status)
+                .confirmedByUserId(confirmedBy)
+                .confirmedAt(confirmedAt)
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
                 .createdBy(currentUserId)
@@ -126,14 +135,49 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
 
         payment = paymentTransactionRepository.save(payment);
 
-        // If allocations provided in request, process them sorted by debtRecordId ASC
-        if (request.getAllocations() != null && !request.getAllocations().isEmpty()) {
-            List<CreatePaymentTransactionRequest.PaymentAllocationItemRequest> sortedItems = new ArrayList<>(request.getAllocations());
-            sortedItems.sort(Comparator.comparing(CreatePaymentTransactionRequest.PaymentAllocationItemRequest::getDebtRecordId));
+        // If completed and allocations provided in request, process them sorted by debtRecordId ASC
+        if ("COMPLETED".equals(status)) {
+            if (request.getAllocations() != null && !request.getAllocations().isEmpty()) {
+                List<CreatePaymentTransactionRequest.PaymentAllocationItemRequest> sortedItems = new ArrayList<>(request.getAllocations());
+                sortedItems.sort(Comparator.comparing(CreatePaymentTransactionRequest.PaymentAllocationItemRequest::getDebtRecordId));
 
-            for (CreatePaymentTransactionRequest.PaymentAllocationItemRequest item : sortedItems) {
-                applyAllocation(tenantId, farmId, payment, item.getDebtRecordId(), item.getAllocatedAmount(), item.getNotes());
+                for (CreatePaymentTransactionRequest.PaymentAllocationItemRequest item : sortedItems) {
+                    applyAllocation(tenantId, farmId, payment, item.getDebtRecordId(), item.getAllocatedAmount(), item.getNotes());
+                }
+            } else if (payment.getDebtRecordId() != null) {
+                applyAllocation(tenantId, farmId, payment, payment.getDebtRecordId(), payment.getAmount(), payment.getNotes());
             }
+        }
+
+        return toPaymentDetailResponse(payment);
+    }
+
+    @Override
+    @Transactional
+    public PaymentTransactionDetailResponse confirmPayment(Long farmId, Long paymentId) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        validateFarm(farmId);
+
+        PaymentTransaction payment = paymentTransactionRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Payment transaction not found: " + paymentId));
+        if (!payment.getFarmId().equals(farmId)) {
+            throw new BusinessException("BAD_REQUEST", "Payment does not belong to specified farm");
+        }
+
+        if ("COMPLETED".equals(payment.getStatus())) {
+            return toPaymentDetailResponse(payment);
+        }
+
+        payment.setStatus("COMPLETED");
+        payment.setConfirmedByUserId(currentUserId);
+        payment.setConfirmedAt(Instant.now());
+        payment.setUpdatedAt(Instant.now());
+        payment.setUpdatedBy(currentUserId);
+        payment = paymentTransactionRepository.save(payment);
+
+        if (payment.getDebtRecordId() != null && payment.getAllocatedAmount().compareTo(BigDecimal.ZERO) == 0) {
+            applyAllocation(tenantId, farmId, payment, payment.getDebtRecordId(), payment.getAmount(), payment.getNotes());
         }
 
         return toPaymentDetailResponse(payment);

@@ -158,26 +158,33 @@ export const hrService = {
   // 7. FARM TASKS (Bảng farm_tasks #57 & farm_task_assignees #58)
   // ==========================================
   getTasks: async (farmId, params = {}) => {
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) {
+      return [];
+    }
     const res = await apiClient.get(API_ENDPOINTS.HR.TASKS(farmId), { params });
     return res.data;
   },
 
   getTaskById: async (farmId, id) => {
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) return null;
     const res = await apiClient.get(API_ENDPOINTS.HR.TASK_DETAIL(farmId, id));
     return res.data;
   },
 
   createTask: async (farmId, data) => {
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) return null;
     const res = await apiClient.post(API_ENDPOINTS.HR.TASKS(farmId), data);
     return res.data;
   },
 
   updateTask: async (farmId, id, data) => {
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) return null;
     const res = await apiClient.put(API_ENDPOINTS.HR.TASK_DETAIL(farmId, id), data);
     return res.data;
   },
 
   deleteTask: async (farmId, id) => {
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) return null;
     const res = await apiClient.delete(API_ENDPOINTS.HR.TASK_DETAIL(farmId, id));
     return res.data;
   },
@@ -188,6 +195,7 @@ export const hrService = {
   },
 
   generateDailyRoutines: async (farmId) => {
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) return null;
     const res = await apiClient.post(API_ENDPOINTS.HR.TASK_GENERATE_DAILY_ROUTINES(farmId));
     return res.data;
   },

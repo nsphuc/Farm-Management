@@ -26,7 +26,7 @@ public class WarehouseIssueController {
     private final InventoryService inventoryService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW')")
+    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<Page<WarehouseIssueDetailResponse>> getIssues(
             @PathVariable(required = false) Long farmId,
             @RequestParam(required = false) Long warehouseId,
@@ -46,15 +46,15 @@ public class WarehouseIssueController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW')")
+    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<WarehouseIssueDetailResponse> getIssueById(
             @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
         return ResponseEntity.ok(inventoryService.getIssueById(farmId, id));
     }
 
-    @PostMapping("/{id}/complete")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_ISSUE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PostMapping({"/{id}/complete", "/{id}/approve"})
+    @PreAuthorize("hasAuthority('PERM_INVENTORY_ISSUE') and @farmSecurity.isFarmManager(#farmId)")
     public ResponseEntity<WarehouseIssueDetailResponse> completeIssue(
             @PathVariable Long farmId,
             @PathVariable Long id) {

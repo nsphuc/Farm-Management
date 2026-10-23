@@ -11,10 +11,49 @@ import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable } from '@/components/common/DataTable';
+import { Can } from '@/components/common/Can';
+import { inventoryService } from '@/services/modules/inventoryService';
 import { formatCurrency, formatDate, formatNumber } from '@/utils/formatters';
+import { CheckCircle2 } from 'lucide-react';
 
-export function TransferDetailDrawer({ isOpen, onClose, transfer }) {
+export function TransferDetailDrawer({ isOpen, onClose, transfer, farmId, onSuccess }) {
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
   if (!transfer) return null;
+
+  const targetFarmId = farmId || transfer.fromFarmId || transfer.farmId;
+
+  const handleDispatch = async () => {
+    if (!window.confirm(`Xác nhận phê duyệt lệnh xuất điều chuyển ${transfer.transferCode}? Hàng sẽ được trừ khỏi kho xuất và chuyển sang trạng thái IN_TRANSIT.`)) return;
+    try {
+      setIsSubmitting(true);
+      await inventoryService.dispatchTransfer(targetFarmId, transfer.id);
+      alert('Đã phê duyệt lệnh xuất điều chuyển thành công!');
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      console.error('Lỗi khi duyệt xuất điều chuyển:', err);
+      alert('Không thể duyệt xuất điều chuyển: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleReceive = async () => {
+    if (!window.confirm(`Xác nhận tiếp nhận hàng điều chuyển của lệnh ${transfer.transferCode}? Hàng sẽ được cộng dồn vào kho đích và hoàn tất lệnh.`)) return;
+    try {
+      setIsSubmitting(true);
+      await inventoryService.receiveTransfer(targetFarmId, transfer.id);
+      alert('Đã tiếp nhận hàng điều chuyển thành công!');
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      console.error('Lỗi khi tiếp nhận điều chuyển:', err);
+      alert('Không thể tiếp nhận điều chuyển: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const itemColumns = [
     {
@@ -89,14 +128,56 @@ export function TransferDetailDrawer({ isOpen, onClose, transfer }) {
       icon={<ArrowLeftRight className="h-5 w-5 text-blue-600" />}
       width="max-w-3xl"
       footer={
-        <div className="flex items-center justify-between w-full">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">Trạng thái lệnh:</span>
             <StatusBadge status={transfer.status} size="sm" />
+            {(transfer.status === 'DRAFT' || transfer.status === 'PENDING') && (
+              <span className="text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-amber-200">
+                Chờ Giám đốc trại duyệt xuất chuyển
+              </span>
+            )}
+            {transfer.status === 'IN_TRANSIT' && (
+              <span className="text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-blue-200">
+                Đang luân chuyển trên đường
+              </span>
+            )}
           </div>
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Đóng Khay
-          </Button>
+          <div className="flex items-center gap-2">
+            {(transfer.status === 'DRAFT' || transfer.status === 'PENDING') && (
+              <Can permission="PERM_INVENTORY_TRANSFER" role="ROLE_FARM_MANAGER">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<CheckCircle2 className="h-4 w-4" />}
+                  loading={isSubmitting}
+                  onClick={handleDispatch}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                >
+                  Duyệt Lệnh Xuất Điều Chuyển
+                </Button>
+              </Can>
+            )}
+
+            {transfer.status === 'IN_TRANSIT' && (
+              <Can permission="PERM_INVENTORY_TRANSFER" role={['ROLE_FARM_MANAGER', 'ROLE_WAREHOUSE_STAFF']}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<CheckCircle2 className="h-4 w-4" />}
+                  loading={isSubmitting}
+                  onClick={handleReceive}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                >
+                  Tiếp Nhận Hàng Điều Chuyển
+                </Button>
+              </Can>
+            )}
+
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={isSubmitting}>
+              Đóng Khay
+            </Button>
+          </div>
         </div>
       }
     >

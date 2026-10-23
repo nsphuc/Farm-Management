@@ -191,7 +191,7 @@ export function PersonalTaskKanban({
               </button>
             </div>
 
-            {canManageTasks && (
+            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
               <Button
                 variant="primary"
                 size="sm"
@@ -204,12 +204,12 @@ export function PersonalTaskKanban({
               >
                 + Giao Việc Phát Sinh
               </Button>
-            )}
+            </Can>
           </div>
         </div>
 
         {/* Nút Giao Việc Phát Sinh Nhanh Theo Vai Trò (Role 3 vs Role 4) */}
-        {canManageTasks && (
+        <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
           <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-slate-500 font-medium flex items-center gap-1 text-[11px]">
               <Sparkles className="h-3.5 w-3.5 text-amber-500" />
@@ -298,7 +298,7 @@ export function PersonalTaskKanban({
               </>
             )}
           </div>
-        )}
+        </Can>
       </div>
 
       {/* Lưới 4 Cột Kanban */}
@@ -444,16 +444,18 @@ export function PersonalTaskKanban({
                                 Bắt Đầu Nhiệm Vụ
                               </Button>
 
-                              {/* Nếu là Quản lý / Kỹ thuật / Thủ kho và việc giao cho người Không có TK (Role 6B): Có thể bấm thẳng Hoàn thành */}
+                              {/* Nếu là Quản lý / Kỹ thuật và việc giao cho người Không có TK (Role 6B): Có thể bấm thẳng Hoàn thành */}
                               {canManageTasks && hasNoAccountWorker && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDirectConfirmDoneNoAccount(task)}
-                                  className="w-full py-1 px-2 rounded-lg text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                                  <span>✅ Xác Nhận Đã Làm Xong (Role 6B)</span>
-                                </button>
+                                <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDirectConfirmDoneNoAccount(task)}
+                                    className="w-full py-1 px-2 rounded-lg text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors flex items-center justify-center gap-1"
+                                  >
+                                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                                    <span>✅ Xác Nhận Đã Làm Xong (Role 6B)</span>
+                                  </button>
+                                </Can>
                               )}
                             </>
                           )}
@@ -474,35 +476,39 @@ export function PersonalTaskKanban({
                                 📸 Báo Cáo & Gửi Nghiệm Thu
                               </Button>
 
-                              {/* Quản lý xác nhận làm xong trực tiếp tại thực địa cho Role 6B */}
+                              {/* Quản lý / Kỹ thuật xác nhận làm xong trực tiếp tại thực địa cho Role 6B */}
                               {canManageTasks && hasNoAccountWorker && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDirectConfirmDoneNoAccount(task)}
-                                  className="w-full py-1 px-2 rounded-lg text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                                  <span>✅ Xác Nhận Đã Làm Xong (Role 6B)</span>
-                                </button>
+                                <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDirectConfirmDoneNoAccount(task)}
+                                    className="w-full py-1 px-2 rounded-lg text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors flex items-center justify-center gap-1"
+                                  >
+                                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                                    <span>✅ Xác Nhận Đã Làm Xong (Role 6B)</span>
+                                  </button>
+                                </Can>
                               )}
                             </>
                           )}
 
-                          {/* Cột 3: PENDING_REVIEW (Chờ nghiệm thu - Role 3 & Role 4 xem ảnh và duyệt) */}
+                          {/* Cột 3: PENDING_REVIEW (Chờ nghiệm thu - Quản lý / Kỹ thuật xem ảnh và duyệt) */}
                           {col.id === 'PENDING_REVIEW' && (
                             <div className="space-y-1">
-                              <Button
-                                variant="success"
-                                size="sm"
-                                className="w-full text-xs font-bold bg-emerald-600 hover:bg-emerald-700"
-                                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                                onClick={() => {
-                                  setReviewTarget(task);
-                                  setIsReviewModalOpen(true);
-                                }}
-                              >
-                                🔍 Xem Ảnh & Duyệt (DONE)
-                              </Button>
+                              <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+                                <Button
+                                  variant="success"
+                                  size="sm"
+                                  className="w-full text-xs font-bold bg-emerald-600 hover:bg-emerald-700"
+                                  icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                                  onClick={() => {
+                                    setReviewTarget(task);
+                                    setIsReviewModalOpen(true);
+                                  }}
+                                >
+                                  🔍 Xem Ảnh & Duyệt (DONE)
+                                </Button>
+                              </Can>
                             </div>
                           )}
 

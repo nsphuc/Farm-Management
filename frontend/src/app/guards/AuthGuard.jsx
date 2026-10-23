@@ -12,15 +12,33 @@ import { Loader2 } from 'lucide-react';
  */
 export function AuthGuard({ children }) {
   const location = useLocation();
-  const { isAuthenticated, accessToken, userInfo, setAuth, isInitialized, setInitialized } = useAuthStore();
+  const {
+    isAuthenticated,
+    accessToken,
+    userInfo,
+    setAuth,
+    isInitialized,
+    setInitialized,
+    isLoggingOut,
+    hasLoggedOut,
+  } = useAuthStore();
   const { syncFromAccessibleFarms } = useActiveFarmStore();
-  const [isVerifying, setIsVerifying] = useState(!accessToken);
+  const [isVerifying, setIsVerifying] = useState(!accessToken && !hasLoggedOut && !isLoggingOut);
 
   useEffect(() => {
     let isMounted = true;
 
     async function restoreSession() {
       if (accessToken && userInfo) {
+        if (isMounted) {
+          setIsVerifying(false);
+          setInitialized(true);
+        }
+        return;
+      }
+
+      // Nếu đang hoặc đã chủ động đăng xuất: TUYỆT ĐỐI KHÔNG gọi refresh token
+      if (!accessToken && (hasLoggedOut || isLoggingOut)) {
         if (isMounted) {
           setIsVerifying(false);
           setInitialized(true);
@@ -69,7 +87,11 @@ export function AuthGuard({ children }) {
     return () => {
       isMounted = false;
     };
-  }, [accessToken, userInfo, setAuth, setInitialized, syncFromAccessibleFarms]);
+  }, [accessToken, userInfo, isLoggingOut, hasLoggedOut, setAuth, setInitialized, syncFromAccessibleFarms]);
+
+  if (!accessToken && (hasLoggedOut || isLoggingOut)) {
+    return <Navigate to="/login" replace />;
+  }
 
   if (isVerifying || !isInitialized) {
     return (

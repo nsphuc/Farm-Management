@@ -12,8 +12,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 const FARM_TYPES = [
   { value: 'CROP', label: 'CROP - Chuyên Trồng Trọt' },
   { value: 'LIVESTOCK', label: 'LIVESTOCK - Chuyên Chăn Nuôi' },
-  { value: 'MIXED', label: 'MIXED - Nông Nghiệp Kết Hợp (Vườn - Ao - Chuồng)' },
-  { value: 'AQUACULTURE', label: 'AQUACULTURE - Chuyên Thủy Hải Sản' },
+  { value: 'MIXED', label: 'MIXED - Hỗn Hợp (Trồng Trọt & Chăn Nuôi)' },
 ];
 
 export function FarmFormModal({
@@ -48,7 +47,7 @@ export function FarmFormModal({
       setFormData({
         code: editingItem.code || '',
         name: editingItem.name || '',
-        farmType: editingItem.farmType || 'MIXED',
+        farmType: ['CROP', 'LIVESTOCK', 'MIXED'].includes(editingItem.farmType) ? editingItem.farmType : 'MIXED',
         totalAreaM2: editingItem.totalAreaM2 ?? 10000,
         latitude: editingItem.latitude ?? 10.7725,
         longitude: editingItem.longitude ?? 106.6812,

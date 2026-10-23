@@ -45,7 +45,7 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
     private final com.farm.saas.modules.notification.service.NotificationService notificationService;
 
     private static final Set<String> VALID_ZONE_TYPES = Set.of(
-            "GREENHOUSE", "OPEN_FIELD", "BARN", "POND", "STORAGE", "ISOLATION"
+            "GREENHOUSE", "OPEN_FIELD", "BARN", "STORAGE", "ISOLATION"
     );
 
     private static final Set<String> VALID_ZONE_STATUSES = Set.of(
@@ -87,6 +87,16 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                     "Loại phân khu không hợp lệ. Cho phép: " + VALID_ZONE_TYPES);
         }
 
+        // Kiểm tra tính tương thích giữa farmType và zoneType
+        if ("CROP".equalsIgnoreCase(farm.getFarmType()) && "BARN".equals(type)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ZONE_TYPE_FOR_FARM",
+                    "Trang trại trồng trọt (CROP) không thể tạo phân khu loại Chuồng trại (BARN).");
+        }
+        if ("LIVESTOCK".equalsIgnoreCase(farm.getFarmType()) && "GREENHOUSE".equals(type)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ZONE_TYPE_FOR_FARM",
+                    "Trang trại chăn nuôi (LIVESTOCK) không thể tạo phân khu loại Nhà màng / Nhà kính (GREENHOUSE).");
+        }
+
         if (productionZoneRepository.existsByFarmIdAndCode(farmId, request.getCode().trim().toUpperCase())) {
             throw new ApiException(HttpStatus.CONFLICT, "ZONE_CODE_ALREADY_EXISTS", "Mã phân khu đã tồn tại trong trang trại.");
         }
@@ -104,14 +114,14 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
         boolean isOwnerOrAdmin = currentUser != null && (currentUser.isSuperAdmin() || currentUser.hasRole("ROLE_FARM_OWNER"));
 
         String initialStatus = "ACTIVE";
-        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+        if (!isOwnerOrAdmin) {
+            // FARM_MANAGER hoặc nhân sự cấp cơ sở tạo phân khu -> Bắt buộc trạng thái MAINTENANCE (Chờ Owner phê duyệt)
+            initialStatus = "MAINTENANCE";
+        } else if (request.getStatus() != null && !request.getStatus().isBlank()) {
             String candidate = request.getStatus().trim().toUpperCase();
             if (VALID_ZONE_STATUSES.contains(candidate)) {
                 initialStatus = candidate;
             }
-        } else if (!isOwnerOrAdmin) {
-            // FARM_MANAGER hoặc nhân sự cấp cơ sở tạo phân khu -> Trạng thái MAINTENANCE (Chờ Owner phê duyệt)
-            initialStatus = "MAINTENANCE";
         }
 
         ProductionZone zone = ProductionZone.builder()
@@ -184,13 +194,27 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
             if (!VALID_ZONE_TYPES.contains(type)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ZONE_TYPE", "Loại phân khu không hợp lệ.");
             }
+            if ("CROP".equalsIgnoreCase(farm.getFarmType()) && "BARN".equals(type)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ZONE_TYPE_FOR_FARM",
+                        "Trang trại trồng trọt (CROP) không thể tạo phân khu loại Chuồng trại (BARN).");
+            }
+            if ("LIVESTOCK".equalsIgnoreCase(farm.getFarmType()) && "GREENHOUSE".equals(type)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ZONE_TYPE_FOR_FARM",
+                        "Trang trại chăn nuôi (LIVESTOCK) không thể tạo phân khu loại Nhà màng / Nhà kính (GREENHOUSE).");
+            }
             zone.setZoneType(type);
         }
+
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+        boolean isOwnerOrAdmin = currentUser != null && (currentUser.isSuperAdmin() || currentUser.hasRole("ROLE_FARM_OWNER"));
 
         if (request.getStatus() != null) {
             String status = request.getStatus().toUpperCase();
             if (!VALID_ZONE_STATUSES.contains(status)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_ZONE_STATUS", "Trạng thái phân khu không hợp lệ.");
+            }
+            if ("ACTIVE".equals(status) && "MAINTENANCE".equals(zone.getStatus()) && !isOwnerOrAdmin) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN_ZONE_APPROVAL", "Chỉ Chủ đầu tư (Owner) mới có quyền phê duyệt kích hoạt phân khu.");
             }
             zone.setStatus(status);
         }
@@ -225,6 +249,29 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                 .build());
 
         return toZoneResponse(updated, farm.getName());
+    }
+
+    @Override
+    @Transactional
+    public void deleteZone(Long farmId, Long zoneId) {
+        Farm farm = getFarmOrThrow(farmId);
+        ProductionZone zone = productionZoneRepository.findByFarmIdAndId(farmId, zoneId)
+                .orElseThrow(() -> new ResourceNotFoundException("Phân khu", zoneId));
+
+        zone.setStatus("DELETED");
+        zone.setUpdatedAt(Instant.now());
+        zone.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        productionZoneRepository.save(zone);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(farm.getTenantId())
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("DELETE_ZONE")
+                .module("GEOGRAPHY")
+                .endpoint("/api/v1/farms/" + farmId + "/zones/" + zoneId)
+                .method("DELETE")
+                .newValue("Deleted zone: " + zone.getCode())
+                .build());
     }
 
     @Override
