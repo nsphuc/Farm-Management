@@ -29,7 +29,7 @@ public class ShiftAssignmentController {
     }
 
     @GetMapping("/assignments")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<List<ShiftAssignmentResponse>> getAssignments(
             @RequestParam(required = false) Long farmId,
             @RequestParam(required = false) Long employeeId,

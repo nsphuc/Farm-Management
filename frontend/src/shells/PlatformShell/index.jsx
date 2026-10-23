@@ -10,7 +10,8 @@ import {
   User,
   Sparkles,
 } from 'lucide-react';
-import axios from 'axios';
+import { apiClient } from '@/services/api/apiClient';
+import { API_ENDPOINTS } from '@/services/api/endpoints';
 import { useAuthStore } from '@/store/useAuthStore';
 import { cn } from '@/utils/formatters';
 import { renderIcon } from '@/utils/iconHelper';
@@ -49,15 +50,19 @@ const PLATFORM_NAV = [
  */
 export function PlatformShell() {
   const navigate = useNavigate();
-  const { userInfo, clearAuth } = useAuthStore();
+  const { userInfo, clearAuth, logout } = useAuthStore();
 
   const handleLogout = async () => {
     try {
-      await axios.post('/api/v1/auth/logout', {}, { withCredentials: true });
+      if (logout) {
+        await logout();
+      } else {
+        await apiClient.post(API_ENDPOINTS.AUTH.LOGOUT);
+        clearAuth();
+      }
     } catch {
       // Ignored
     } finally {
-      clearAuth();
       navigate('/login');
     }
   };

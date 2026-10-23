@@ -23,7 +23,7 @@ public class FarmTaskController {
     private final FarmTaskService farmTaskService;
 
     @PostMapping("/api/v1/farms/{farmId}/tasks")
-    @PreAuthorize("(hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or hasAuthority('PERM_TASK_ASSIGN')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<FarmTaskDetailResponse> createTask(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateFarmTaskRequest request) {
@@ -32,14 +32,14 @@ public class FarmTaskController {
     }
 
     @PostMapping("/api/v1/farms/{farmId}/tasks/generate-daily-routines")
-    @PreAuthorize("(hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or hasAuthority('PERM_TASK_ASSIGN')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<List<FarmTaskDetailResponse>> generateDailyRoutines(
             @PathVariable Long farmId) {
         return ResponseEntity.ok(farmTaskService.generateDailyRoutines(farmId));
     }
 
     @PutMapping("/api/v1/farms/{farmId}/tasks/{id}")
-    @PreAuthorize("(hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or hasAuthority('PERM_TASK_ASSIGN')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<FarmTaskDetailResponse> updateTask(
             @PathVariable Long farmId,
             @PathVariable Long id,
@@ -48,7 +48,7 @@ public class FarmTaskController {
     }
 
     @DeleteMapping("/api/v1/farms/{farmId}/tasks/{id}")
-    @PreAuthorize("(hasAnyRole('ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or hasAuthority('PERM_TASK_ASSIGN')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Void> deleteTask(
             @PathVariable Long farmId,
             @PathVariable Long id) {

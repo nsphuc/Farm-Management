@@ -27,7 +27,6 @@ import { formatNumber } from '@/utils/formatters';
 const ZONE_TYPE_LABELS = {
   CROP: 'Trồng Trọt',
   LIVESTOCK: 'Chăn Nuôi',
-  AQUACULTURE: 'Thủy Sản',
   PROCESSING: 'Sơ Chế & Chế Biến',
   GREENHOUSE: 'Nhà Màng / Nhà Kính',
   OPEN_FIELD: 'Đồng Ruộng Mở',

@@ -54,6 +54,15 @@ public class ProductionZoneController {
         return ResponseEntity.ok(productionZoneService.updateZone(farmId, zoneId, request));
     }
 
+    @DeleteMapping("/{zoneId}")
+    @PreAuthorize("hasAuthority('PERM_ZONE_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    public ResponseEntity<Void> deleteZone(
+            @PathVariable Long farmId,
+            @PathVariable Long zoneId) {
+        productionZoneService.deleteZone(farmId, zoneId);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{zoneId}/locations")
     @PreAuthorize("hasAuthority('PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<List<ZoneLocationResponse>> getLocations(

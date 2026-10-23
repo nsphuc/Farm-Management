@@ -19,6 +19,10 @@ public class UpdateProductionZoneRequest {
     @NotBlank(message = "Tên phân khu không được để trống")
     private String name;
 
+    @jakarta.validation.constraints.Pattern(
+            regexp = "^(?i)(GREENHOUSE|OPEN_FIELD|BARN|STORAGE|ISOLATION)$",
+            message = "Loại phân khu phải là GREENHOUSE, OPEN_FIELD, BARN, STORAGE hoặc ISOLATION"
+    )
     private String zoneType;
 
     @NotNull(message = "Diện tích không được để trống")

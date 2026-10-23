@@ -2,6 +2,7 @@ package com.farm.saas.modules.quality.service.impl;
 
 import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
+import com.farm.saas.common.security.CustomUserDetails;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.geography.repository.FarmRepository;
@@ -46,12 +47,14 @@ public class QcInspectionServiceImpl implements QcInspectionService {
                 .filter(b -> b.getFarmId().equals(farmId))
                 .orElseThrow(() -> new ResourceNotFoundException("ProductBatch", "id", request.getProductBatchId()));
 
-        if (!batch.getTenantId().equals(tenantId)) {
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+        boolean isSuperAdmin = currentUser != null && (currentUser.isSuperAdmin() || currentUser.hasRole("ROLE_SUPER_ADMIN"));
+        if (!isSuperAdmin && (tenantId == null || !batch.getTenantId().equals(tenantId))) {
             throw new BusinessException("BATCH_ACCESS_DENIED", "Lô thành phẩm không thuộc quyền quản lý của khách thuê hiện tại");
         }
 
         QcInspection inspection = QcInspection.builder()
-                .tenantId(tenantId)
+                .tenantId(tenantId != null ? tenantId : batch.getTenantId())
                 .farmId(farmId)
                 .productBatchId(batch.getId())
                 .inspectionCode(request.getInspectionCode())

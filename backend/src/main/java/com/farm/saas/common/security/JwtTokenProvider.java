@@ -46,6 +46,7 @@ public class JwtTokenProvider {
                 .claim("roles", user.getRoles())
                 .claim("permissions", user.getPermissions())
                 .claim("accessibleFarmIds", user.getAccessibleFarmIds())
+                .claim("tierLevel", user.getTierLevel())
                 .issuedAt(now)
                 .expiration(validity)
                 .signWith(secretKey)
@@ -99,6 +100,9 @@ public class JwtTokenProvider {
                 ? farmIdsList.stream().map(Number::longValue).collect(Collectors.toSet())
                 : new HashSet<>();
 
+        Number tierLevelNum = claims.get("tierLevel", Number.class);
+        Integer tierLevel = tierLevelNum != null ? tierLevelNum.intValue() : null;
+
         return CustomUserDetails.builder()
                 .id(id)
                 .username(username)
@@ -108,6 +112,7 @@ public class JwtTokenProvider {
                 .roles(roles)
                 .permissions(permissions)
                 .accessibleFarmIds(accessibleFarmIds)
+                .tierLevel(tierLevel)
                 .build();
     }
 }

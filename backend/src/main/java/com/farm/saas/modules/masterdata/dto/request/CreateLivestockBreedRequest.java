@@ -17,7 +17,11 @@ import java.math.BigDecimal;
 public class CreateLivestockBreedRequest {
 
     @NotBlank(message = "Loài động vật không được để trống")
-    private String species; // 'CATTLE', 'SWINE', 'POULTRY', 'GOAT', 'SHEEP', 'AQUA'
+    @jakarta.validation.constraints.Pattern(
+            regexp = "^(?i)(CATTLE|SWINE|POULTRY|GOAT|SHEEP)$",
+            message = "Loài động vật phải là CATTLE, SWINE, POULTRY, GOAT hoặc SHEEP"
+    )
+    private String species; // 'CATTLE', 'SWINE', 'POULTRY', 'GOAT', 'SHEEP'
 
     @NotBlank(message = "Tên giống không được để trống")
     private String breedName;

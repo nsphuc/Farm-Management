@@ -21,25 +21,25 @@ public class CropTypeController {
     private final MasterCatalogService masterCatalogService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_CROP_VIEW')")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<List<CropTypeResponse>> getCropTypes() {
         return ResponseEntity.ok(masterCatalogService.getCropTypes());
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_CROP_VIEW')")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<CropTypeResponse> getCropTypeById(@PathVariable Long id) {
         return ResponseEntity.ok(masterCatalogService.getCropTypeById(id));
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_CROP_PLAN')")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<CropTypeResponse> createCropType(@Valid @RequestBody CreateCropTypeRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(masterCatalogService.createCropType(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_CROP_PLAN')")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<CropTypeResponse> updateCropType(
             @PathVariable Long id,
             @Valid @RequestBody UpdateCropTypeRequest request) {

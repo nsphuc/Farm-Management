@@ -14,10 +14,48 @@ import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable } from '@/components/common/DataTable';
+import { Can } from '@/components/common/Can';
+import { inventoryService } from '@/services/modules/inventoryService';
 import { formatCurrency, formatDate, formatNumber } from '@/utils/formatters';
 
-export function ReceiptDetailDrawer({ isOpen, onClose, receipt }) {
+export function ReceiptDetailDrawer({ isOpen, onClose, receipt, farmId, onSuccess }) {
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
   if (!receipt) return null;
+
+  const targetFarmId = farmId || receipt.farmId;
+
+  const handleComplete = async () => {
+    if (!window.confirm(`Xác nhận phê duyệt và hoàn tất nhập kho cho phiếu ${receipt.receiptCode}? Số lượng tồn kho sẽ được cộng dồn và công nợ phải trả sẽ được tự động ghi nhận.`)) return;
+    try {
+      setIsSubmitting(true);
+      await inventoryService.completeReceipt(targetFarmId, receipt.id);
+      alert('Đã phê duyệt và hoàn tất nhập kho thành công!');
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      console.error('Lỗi khi hoàn tất nhập kho:', err);
+      alert('Không thể hoàn tất nhập kho: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!window.confirm(`Bạn có chắc chắn muốn hủy phiếu nhập kho ${receipt.receiptCode}?`)) return;
+    try {
+      setIsSubmitting(true);
+      await inventoryService.cancelReceipt(targetFarmId, receipt.id);
+      alert('Đã hủy phiếu nhập kho!');
+      onSuccess?.();
+      onClose?.();
+    } catch (err) {
+      console.error('Lỗi khi hủy phiếu:', err);
+      alert('Không thể hủy phiếu: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const itemColumns = [
     {
@@ -99,14 +137,43 @@ export function ReceiptDetailDrawer({ isOpen, onClose, receipt }) {
       icon={<FileText className="h-5 w-5 text-emerald-600" />}
       width="max-w-3xl"
       footer={
-        <div className="flex items-center justify-between w-full">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">Trạng thái phiếu:</span>
             <StatusBadge status={receipt.status} size="sm" />
+            {receipt.status === 'DRAFT' && (
+              <span className="text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-amber-200">
+                Chờ Giám đốc trại phê duyệt
+              </span>
+            )}
           </div>
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Đóng Khay
-          </Button>
+          <div className="flex items-center gap-2">
+            {receipt.status === 'DRAFT' && (
+              <Can permission="PERM_INVENTORY_RECEIPT" role="ROLE_FARM_MANAGER">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<CheckCircle2 className="h-4 w-4" />}
+                  loading={isSubmitting}
+                  onClick={handleComplete}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                >
+                  Phê Duyệt & Hoàn Tất Nhập Kho
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  loading={isSubmitting}
+                  onClick={handleCancel}
+                >
+                  Hủy Phiếu
+                </Button>
+              </Can>
+            )}
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={isSubmitting}>
+              Đóng Khay
+            </Button>
+          </div>
         </div>
       }
     >
@@ -141,7 +208,7 @@ export function ReceiptDetailDrawer({ isOpen, onClose, receipt }) {
             <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-800 text-[10px] font-bold px-2 py-0.5 border border-blue-200">
               <CheckCircle2 className="h-3 w-3" />
               <span>
-                {receipt.status === 'COMPLETED' ? 'Đã Vào Sổ Kế Toán' : 'Chờ Thủ Kho Hoàn Tất'}
+                {receipt.status === 'COMPLETED' ? 'Đã Vào Sổ Kho & Công Nợ' : 'Chờ GĐ Trại Duyệt'}
               </span>
             </span>
           </div>

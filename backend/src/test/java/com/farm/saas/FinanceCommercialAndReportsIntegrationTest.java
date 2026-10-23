@@ -136,6 +136,9 @@ public class FinanceCommercialAndReportsIntegrationTest {
     @Autowired
     private ApplicationEventPublisher eventPublisher;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     private Long farmId;
     private Long zoneId;
     private String token;
@@ -187,7 +190,21 @@ public class FinanceCommercialAndReportsIntegrationTest {
                     .build());
         });
 
-        this.ownerUser = (CustomUserDetails) userDetailsService.loadUserByUsername("owner");
+        // Đảm bảo có user farm_manager
+        Long managerUserId;
+        try {
+            managerUserId = jdbcTemplate.queryForObject("SELECT id FROM users WHERE username = 'farm_manager'", Long.class);
+        } catch (Exception ex) {
+            jdbcTemplate.update("INSERT INTO users (tenant_id, is_super_admin, username, email, password_hash, full_name, phone, status, must_change_password) " +
+                    "VALUES (?, FALSE, 'farm_manager', 'manager.dalat@greenfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Giám Đốc Trại', '0978901234', 'ACTIVE', FALSE)", tenantId);
+            managerUserId = jdbcTemplate.queryForObject("SELECT id FROM users WHERE username = 'farm_manager'", Long.class);
+            Long fmRoleId = jdbcTemplate.queryForObject("SELECT id FROM roles WHERE code = 'ROLE_FARM_MANAGER'", Long.class);
+            jdbcTemplate.update("INSERT IGNORE INTO user_roles (tenant_id, user_id, role_id, farm_id) VALUES (?, ?, ?, ?)", tenantId, managerUserId, fmRoleId, farmId);
+        }
+        jdbcTemplate.update("INSERT IGNORE INTO user_farm_access (user_id, farm_id, tenant_id) VALUES (?, ?, ?)", managerUserId, farmId, tenantId);
+        jdbcTemplate.update("UPDATE farms SET manager_user_id = ? WHERE id = ?", managerUserId, farmId);
+
+        this.ownerUser = (CustomUserDetails) userDetailsService.loadUserByUsername("farm_manager");
         this.token = jwtTokenProvider.generateAccessToken(ownerUser);
     }
 

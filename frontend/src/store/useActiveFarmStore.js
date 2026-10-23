@@ -3,6 +3,36 @@ import { geographyService } from '@/services/modules/geographyService';
 import { useAuthStore } from './useAuthStore';
 
 /**
+ * Helper tính toán metadata loại hình trang trại thích ứng (CROP, LIVESTOCK, MIXED)
+ */
+export const resolveFarmTypeMeta = (activeFarmId, activeFarm, farms = []) => {
+  if (!activeFarmId || activeFarmId === 'ALL') {
+    return {
+      activeFarmType: 'MIXED',
+      supportsCrop: true,
+      supportsLivestock: true,
+    };
+  }
+  let type = activeFarm?.farmType;
+  if (!type && farms && farms.length > 0) {
+    const matched = farms.find((f) => Number(f.farmId || f.id) === Number(activeFarmId));
+    type = matched?.farmType;
+  }
+  if (!type) {
+    const authStore = useAuthStore.getState();
+    const accessible = authStore?.accessibleFarms || [];
+    const matched = accessible.find((f) => Number(f.farmId || f.id) === Number(activeFarmId));
+    type = matched?.farmType;
+  }
+  const cleanType = type ? String(type).toUpperCase() : 'MIXED';
+  return {
+    activeFarmType: cleanType,
+    supportsCrop: cleanType === 'CROP' || cleanType === 'MIXED',
+    supportsLivestock: cleanType === 'LIVESTOCK' || cleanType === 'MIXED',
+  };
+};
+
+/**
  * Context Preservation Store for Active Farm, Zone and Cycle
  * Tuân thủ Quy tắc 1 File 09: Khi đổi activeFarmId, tự động reset activeZoneId và activeCycleId!
  * Cơ chế cô lập đa trang trại & Bus đồng bộ tự động liên Workspace (ADR-Role-Hierarchy)
@@ -16,7 +46,11 @@ export const useActiveFarmStore = create((set, get) => ({
     farmName: 'Tất cả trang trại toàn chuỗi',
     code: 'ALL',
     isAllFarms: true,
+    farmType: 'MIXED',
   },
+  activeFarmType: 'MIXED',
+  supportsCrop: true,
+  supportsLivestock: true,
   activeZoneId: null,
   activeCycleId: null,
   farms: [],
@@ -135,38 +169,48 @@ export const useActiveFarmStore = create((set, get) => ({
           set({
             activeFarmId: appointedId,
             activeFarm: appointedFarm,
+            ...resolveFarmTypeMeta(appointedId, appointedFarm, farmList),
           });
         }
       } else {
         const { activeFarmId } = get();
         if (!activeFarmId || activeFarmId === 'ALL') {
           // Mặc định luôn là 'ALL' (Tất cả trang trại toàn chuỗi) khi load trang hoặc mới đăng nhập cho Owner
+          const allFarmObj = {
+            id: 'ALL',
+            farmId: 'ALL',
+            name: 'Tất cả trang trại toàn chuỗi',
+            farmName: 'Tất cả trang trại toàn chuỗi',
+            code: 'ALL',
+            isAllFarms: true,
+            farmType: 'MIXED',
+          };
           set({
             activeFarmId: 'ALL',
-            activeFarm: {
+            activeFarm: allFarmObj,
+            ...resolveFarmTypeMeta('ALL', allFarmObj, farmList),
+          });
+        } else if (farmList.length > 0) {
+          const found = farmList.find((f) => Number(f.id) === Number(activeFarmId));
+          if (found) {
+            set({
+              activeFarm: found,
+              ...resolveFarmTypeMeta(activeFarmId, found, farmList),
+            });
+          } else {
+            const allFarmObj = {
               id: 'ALL',
               farmId: 'ALL',
               name: 'Tất cả trang trại toàn chuỗi',
               farmName: 'Tất cả trang trại toàn chuỗi',
               code: 'ALL',
               isAllFarms: true,
-            },
-          });
-        } else if (farmList.length > 0) {
-          const found = farmList.find((f) => Number(f.id) === Number(activeFarmId));
-          if (found) {
-            set({ activeFarm: found });
-          } else {
+              farmType: 'MIXED',
+            };
             set({
               activeFarmId: 'ALL',
-              activeFarm: {
-                id: 'ALL',
-                farmId: 'ALL',
-                name: 'Tất cả trang trại toàn chuỗi',
-                farmName: 'Tất cả trang trại toàn chuỗi',
-                code: 'ALL',
-                isAllFarms: true,
-              },
+              activeFarm: allFarmObj,
+              ...resolveFarmTypeMeta('ALL', allFarmObj, farmList),
             });
           }
         }
@@ -206,6 +250,7 @@ export const useActiveFarmStore = create((set, get) => ({
         set({
           activeFarmId: appointedId,
           activeFarm: appointedFarm,
+          ...resolveFarmTypeMeta(appointedId, appointedFarm, farmPool),
           activeZoneId: null,
           activeCycleId: null,
         });
@@ -214,16 +259,19 @@ export const useActiveFarmStore = create((set, get) => ({
     }
 
     if (farmId === 'ALL') {
+      const allFarmObj = {
+        id: 'ALL',
+        farmId: 'ALL',
+        name: 'Tất cả trang trại toàn chuỗi',
+        farmName: 'Tất cả trang trại toàn chuỗi',
+        code: 'ALL',
+        isAllFarms: true,
+        farmType: 'MIXED',
+      };
       set({
         activeFarmId: 'ALL',
-        activeFarm: {
-          id: 'ALL',
-          farmId: 'ALL',
-          name: 'Tất cả trang trại toàn chuỗi',
-          farmName: 'Tất cả trang trại toàn chuỗi',
-          code: 'ALL',
-          isAllFarms: true,
-        },
+        activeFarm: allFarmObj,
+        ...resolveFarmTypeMeta('ALL', allFarmObj, get().farms),
         activeZoneId: null,
         activeCycleId: null,
       });
@@ -239,6 +287,7 @@ export const useActiveFarmStore = create((set, get) => ({
     set({
       activeFarmId: numericId,
       activeFarm: foundFarm,
+      ...resolveFarmTypeMeta(numericId, foundFarm, farmPool),
       activeZoneId: null,
       activeCycleId: null,
     });
@@ -256,6 +305,9 @@ export const useActiveFarmStore = create((set, get) => ({
       set({
         activeFarmId: null,
         activeFarm: null,
+        activeFarmType: 'MIXED',
+        supportsCrop: true,
+        supportsLivestock: true,
         activeZoneId: null,
         activeCycleId: null,
       });
@@ -269,6 +321,7 @@ export const useActiveFarmStore = create((set, get) => ({
     set({
       activeFarmId: farmId,
       activeFarm: farmObject,
+      ...resolveFarmTypeMeta(farmId, farmObject, get().farms),
       activeZoneId: null,
       activeCycleId: null,
     });
@@ -338,6 +391,7 @@ export const useActiveFarmStore = create((set, get) => ({
         set({
           activeFarmId: appointedId,
           activeFarm: appointedFarm,
+          ...resolveFarmTypeMeta(appointedId, appointedFarm, accessibleFarms),
           activeZoneId: null,
           activeCycleId: null,
         });
@@ -358,9 +412,11 @@ export const useActiveFarmStore = create((set, get) => ({
 
     if (!isCurrentValid) {
       const defaultFarm = accessibleFarms[0];
+      const defId = Number(defaultFarm.farmId || defaultFarm.id);
       set({
-        activeFarmId: Number(defaultFarm.farmId || defaultFarm.id),
+        activeFarmId: defId,
         activeFarm: defaultFarm,
+        ...resolveFarmTypeMeta(defId, defaultFarm, accessibleFarms),
         activeZoneId: null,
         activeCycleId: null,
       });
@@ -368,7 +424,11 @@ export const useActiveFarmStore = create((set, get) => ({
       const currentFarm = accessibleFarms.find(
         (f) => Number(f.farmId || f.id) === Number(activeFarmId)
       );
-      set({ activeFarm: currentFarm || accessibleFarms[0] });
+      const chosenFarm = currentFarm || accessibleFarms[0];
+      set({
+        activeFarm: chosenFarm,
+        ...resolveFarmTypeMeta(activeFarmId, chosenFarm, accessibleFarms),
+      });
     }
   },
 
@@ -376,6 +436,9 @@ export const useActiveFarmStore = create((set, get) => ({
     set({
       activeFarmId: null,
       activeFarm: null,
+      activeFarmType: 'MIXED',
+      supportsCrop: true,
+      supportsLivestock: true,
       activeZoneId: null,
       activeCycleId: null,
     });

@@ -48,7 +48,9 @@ export function InventoryHubWorkspace() {
 
   const { activeFarmId, syncTrigger } = useActiveFarmStore();
 
-  const isSpecificFarm = Boolean(activeFarmId && activeFarmId !== 'ALL');
+  const isSpecificFarm = Boolean(
+    activeFarmId && activeFarmId !== 'ALL' && activeFarmId !== 'null' && Number.isInteger(Number(activeFarmId))
+  );
   const queryFarmId = isSpecificFarm ? Number(activeFarmId) : undefined;
 
   // State bộ lọc kho bãi
@@ -699,21 +701,57 @@ export function InventoryHubWorkspace() {
           </div>
         </div>
 
-        {/* ẨN 100% CÁC NÚT THAO TÁC NGHIỆP VỤ ĐỐI VỚI FARM_MANAGER VÀ OWNER */}
-        {!isReadOnly && (
-          <div className="flex items-center gap-2">
-            <Can permission="PERM_INVENTORY_RECEIPT">
+        {/* NÚT TẠO PHIẾU DÀNH RIÊNG CHO MAKER (ROLE_WAREHOUSE_STAFF) */}
+        <div className="flex items-center gap-2">
+          {activeTab === 'RECEIPTS' && (
+            <Can permission="PERM_INVENTORY_RECEIPT" role="ROLE_WAREHOUSE_STAFF">
               <Button
                 variant="primary"
                 size="sm"
                 icon={<Plus className="h-4 w-4" />}
-                onClick={() => alert('Thủ kho lập phiếu')}
+                onClick={() => alert('Thủ kho tạo phiếu nhập mua mới (DRAFT)')}
               >
                 + Lập Phiếu Kho
               </Button>
             </Can>
-          </div>
-        )}
+          )}
+          {activeTab === 'ISSUES' && (
+            <Can permission="PERM_INVENTORY_ISSUE" role="ROLE_WAREHOUSE_STAFF">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => alert('Thủ kho tạo phiếu xuất kho mới (DRAFT)')}
+              >
+                + Lập Phiếu Xuất Kho
+              </Button>
+            </Can>
+          )}
+          {activeTab === 'TRANSFERS' && (
+            <Can permission="PERM_INVENTORY_TRANSFER" role="ROLE_WAREHOUSE_STAFF">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => alert('Thủ kho tạo lệnh điều chuyển mới (DRAFT)')}
+              >
+                + Lập Lệnh Điều Chuyển
+              </Button>
+            </Can>
+          )}
+          {activeTab === 'STOCKTAKES' && (
+            <Can permission="PERM_INVENTORY_STOCKTAKE" role="ROLE_WAREHOUSE_STAFF">
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => alert('Thủ kho mở đợt kiểm kê kho mới (DRAFT)')}
+              >
+                + Mở Đợt Kiểm Kê
+              </Button>
+            </Can>
+          )}
+        </div>
       </div>
 
       {/* ======================================================== */}
@@ -1082,6 +1120,8 @@ export function InventoryHubWorkspace() {
         isOpen={isReceiptDrawerOpen}
         onClose={() => setIsReceiptDrawerOpen(false)}
         receipt={selectedReceipt}
+        farmId={queryFarmId}
+        onSuccess={fetchInventoryHubData}
       />
 
       {/* Slide-over Drawer xem chi tiết phiếu xuất kho (#34) */}
@@ -1089,6 +1129,8 @@ export function InventoryHubWorkspace() {
         isOpen={isIssueDrawerOpen}
         onClose={() => setIsIssueDrawerOpen(false)}
         issue={selectedIssue}
+        farmId={queryFarmId}
+        onSuccess={fetchInventoryHubData}
       />
 
       {/* Slide-over Drawer xem chi tiết điều chuyển kho (#36) */}
@@ -1096,6 +1138,8 @@ export function InventoryHubWorkspace() {
         isOpen={isTransferDrawerOpen}
         onClose={() => setIsTransferDrawerOpen(false)}
         transfer={selectedTransfer}
+        farmId={queryFarmId}
+        onSuccess={fetchInventoryHubData}
       />
 
       {/* Slide-over Drawer xem chi tiết kiểm kê kho (#39) */}
@@ -1103,6 +1147,8 @@ export function InventoryHubWorkspace() {
         isOpen={isStocktakeDrawerOpen}
         onClose={() => setIsStocktakeDrawerOpen(false)}
         stocktake={selectedStocktake}
+        farmId={queryFarmId}
+        onSuccess={fetchInventoryHubData}
       />
     </div>
   );

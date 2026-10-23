@@ -23,7 +23,7 @@ public class PartnerController {
     private final PartnerService partnerService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT') or hasAuthority('PERM_FARM_VIEW')")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT') or hasAuthority('PERM_FARM_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<Page<PartnerResponse>> getPartners(
             @RequestParam(required = false) Long farmId,
             @RequestParam(required = false) String partnerType,
@@ -37,21 +37,21 @@ public class PartnerController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT') or hasAuthority('PERM_FARM_VIEW')")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT') or hasAuthority('PERM_FARM_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<PartnerResponse> getPartnerById(@PathVariable Long id) {
         PartnerResponse response = partnerService.getPartnerById(id);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT')")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasRole('ROLE_SUPER_ADMIN')")
     public ResponseEntity<PartnerResponse> createPartner(@Valid @RequestBody CreatePartnerRequest request) {
         PartnerResponse response = partnerService.createPartner(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT')")
+    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER')")
     public ResponseEntity<PartnerResponse> updatePartner(
             @PathVariable Long id,
             @Valid @RequestBody UpdatePartnerRequest request) {
@@ -60,11 +60,18 @@ public class PartnerController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT')")
+    @PreAuthorize("hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<PartnerResponse> updatePartnerStatus(
             @PathVariable Long id,
             @Valid @RequestBody UpdatePartnerStatusRequest request) {
         PartnerResponse response = partnerService.updatePartnerStatus(id, request);
         return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    public ResponseEntity<Void> deletePartner(@PathVariable Long id) {
+        partnerService.deletePartner(id);
+        return ResponseEntity.noContent().build();
     }
 }

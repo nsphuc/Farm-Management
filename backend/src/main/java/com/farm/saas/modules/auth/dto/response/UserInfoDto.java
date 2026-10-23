@@ -26,6 +26,8 @@ public class UserInfoDto {
     private List<AccessibleFarmDto> accessibleFarms;
     private List<FarmAssignmentDto> farmAssignments;
     private String operationalRole;
+    private Integer highestTier;
+    private String primaryScope;
     private Integer maxFarms;
     private String planType;
 
@@ -38,6 +40,7 @@ public class UserInfoDto {
         private String code;
         private String name;
         private String scopeLevel;
+        private Long assignedFarmId;
     }
 
     @Data

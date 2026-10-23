@@ -151,6 +151,53 @@ public class CycleSettlementServiceImpl implements CycleSettlementService {
         return res;
     }
 
+    @Override
+    @Transactional
+    public CycleSettlementSummaryResponse approveSettlement(Long farmId, Long cycleId, ConfirmSettlementRequest request) {
+        validateFarm(farmId);
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+
+        OperationalCycle cycle = operationalCycleRepository.findByFarmIdAndId(farmId, cycleId)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Operational cycle not found: " + cycleId));
+
+        Farm farm = farmRepository.findById(farmId)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Farm not found: " + farmId));
+
+        // Cập nhật trạng thái chu kỳ sang PENDING_SETTLEMENT (Sẵn sàng để Kế toán chuyển tiền về Owner)
+        cycle.setStatus("PENDING_SETTLEMENT");
+        cycle.setUpdatedAt(Instant.now());
+        cycle.setUpdatedBy(currentUserId);
+        cycle = operationalCycleRepository.save(cycle);
+
+        Enterprise enterprise = enterpriseRepository.findByTenantId(tenantId).orElse(null);
+
+        // Bắn thông báo cho Owner (nếu có tài khoản tạo doanh nghiệp)
+        if (enterprise != null && enterprise.getCreatedBy() != null) {
+            notificationService.sendNotification(
+                    tenantId,
+                    enterprise.getCreatedBy(),
+                    "Giám đốc trại đã ký duyệt kết toán chu kỳ",
+                    String.format("Giám đốc trang trại %s đã kiểm tra và ký duyệt bảng kết toán chu kỳ '%s'. Kế toán trại sẵn sàng chuyển lợi nhuận về tài khoản của bạn.",
+                            farm.getName(), cycle.getName()),
+                    "INFO",
+                    "CYCLE_SETTLEMENT",
+                    cycle.getId(),
+                    "/app/sales-cashflow"
+            );
+        }
+
+        CycleSettlementSummaryResponse res = buildSummaryResponse(cycle, farm, enterprise, true);
+        res.setSettledAt(Instant.now());
+        res.setSettledByUserId(currentUserId);
+        userRepository.findById(currentUserId).ifPresent(u -> res.setSettledByUserName(u.getFullName()));
+        if (request != null) {
+            res.setNotes(request.getNotes());
+        }
+
+        return res;
+    }
+
     private CycleSettlementSummaryResponse buildSummaryResponse(
             OperationalCycle cycle,
             Farm farm,

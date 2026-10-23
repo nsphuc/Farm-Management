@@ -113,6 +113,9 @@ public class QualityAndHrIntegrationTest {
     private CropSeason testSeason;
     private String tokenOwner;
     private String tokenTech;
+    private String tokenField;
+    private String tokenWarehouse;
+    private String tokenAdmin;
 
     @BeforeEach
     void setUp() {
@@ -186,6 +189,9 @@ public class QualityAndHrIntegrationTest {
         // 4. Generate Tokens
         this.tokenOwner = getAccessToken("owner");
         this.tokenTech = getAccessToken("tech");
+        this.tokenField = getAccessToken("staff");
+        this.tokenWarehouse = getAccessToken("warehouse");
+        this.tokenAdmin = getAccessToken("admin");
     }
 
     private String getAccessToken(String username) {
@@ -229,7 +235,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         mockMvc.perform(post("/api/v1/farms/{farmId}/harvest-records", farmId)
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenField)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(blockedReq)))
                 .andExpect(status().isBadRequest())
@@ -248,7 +254,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         mockMvc.perform(post("/api/v1/farms/{farmId}/harvest-records", farmId)
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenField)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validReq)))
                 .andExpect(status().isCreated())
@@ -292,7 +298,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         var batchRes = mockMvc.perform(post("/api/v1/farms/{farmId}/product-batches", farmId)
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenWarehouse)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createReq)))
                 .andExpect(status().isCreated())
@@ -362,7 +368,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         var batchRes2 = mockMvc.perform(post("/api/v1/farms/{farmId}/product-batches", farmId)
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenWarehouse)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(createReq2)))
                 .andExpect(status().isCreated())
@@ -389,14 +395,14 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         mockMvc.perform(post("/api/v1/farms/{farmId}/qc-inspections", farmId)
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenAdmin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(ownerQcReq)))
                 .andExpect(status().isCreated());
 
-        // Owner (có PERM_QC_APPROVE) cố tình duyệt lô do chính mình kiểm định -> Bị @farmSecurity.canApproveBatch chặn 403 Forbidden!
+        // Inspector (có PERM_QC_APPROVE) cố tình duyệt lô do chính mình kiểm định -> Bị @farmSecurity.canApproveBatch chặn 403 Forbidden!
         mockMvc.perform(post("/api/v1/farms/{farmId}/product-batches/{id}/approve", farmId, batchId2)
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenAdmin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isForbidden());
@@ -432,7 +438,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         var bRes = mockMvc.perform(post("/api/v1/farms/{farmId}/product-batches", farmId)
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenWarehouse)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(batchReq)))
                 .andExpect(status().isCreated())
@@ -617,7 +623,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         mockMvc.perform(post("/api/v1/hr/attendance/check-in")
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenField)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(outOfRangeReq)))
                 .andExpect(status().isBadRequest())
@@ -638,7 +644,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         mockMvc.perform(post("/api/v1/hr/attendance/check-in")
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenField)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validCheckInReq)))
                 .andExpect(status().isCreated())
@@ -661,7 +667,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         mockMvc.perform(post("/api/v1/hr/attendance/check-out")
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenField)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validCheckOutReq)))
                 .andExpect(status().isOk())
@@ -681,7 +687,7 @@ public class QualityAndHrIntegrationTest {
                 .build();
 
         var leaveRes = mockMvc.perform(post("/api/v1/hr/leaves")
-                        .header("Authorization", "Bearer " + tokenOwner)
+                        .header("Authorization", "Bearer " + tokenField)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(leaveReq)))
                 .andExpect(status().isCreated())

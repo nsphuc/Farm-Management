@@ -10,6 +10,7 @@ import { VietQRModal } from '@/components/common/VietQRModal';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { Can } from '@/components/common/Can';
 
 export function SalesOrderMonitorTab({ farmId }) {
   const { syncTrigger } = useActiveFarmStore();
@@ -19,6 +20,18 @@ export function SalesOrderMonitorTab({ farmId }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedOrderForQR, setSelectedOrderForQR] = useState(null);
   const [selectedOrderForDetail, setSelectedOrderForDetail] = useState(null);
+
+  const handleConfirmOrder = async (order) => {
+    if (!window.confirm(`Xác nhận phê duyệt đơn bán sỉ ${order.orderCode}? Hệ thống sẽ kiểm tra hạn mức tín dụng và khóa giữ chỗ lô hàng.`)) return;
+    try {
+      await financeService.confirmSalesOrder(order.farmId, order.id);
+      alert('Đã phê duyệt đơn bán sỉ và giữ chỗ lô hàng thành công!');
+      loadOrders();
+    } catch (err) {
+      console.error('Lỗi khi duyệt đơn bán sỉ:', err);
+      alert('Không thể duyệt đơn bán sỉ: ' + (err.response?.data?.message || err.message));
+    }
+  };
 
   const loadOrders = async () => {
     setIsLoading(true);
@@ -148,6 +161,22 @@ export function SalesOrderMonitorTab({ farmId }) {
           >
             Xem
           </Button>
+
+          {row.status === 'PENDING' && (
+            <Can permission="PERM_FINANCE_SALES_ORDER" role="ROLE_FARM_MANAGER">
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                onClick={() => handleConfirmOrder(row)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                title="Phê duyệt đơn bán sỉ & giữ chỗ lô"
+              >
+                Duyệt Đơn
+              </Button>
+            </Can>
+          )}
+
           {Number(row.debtAmount) > 0 && (
             <Button
               size="sm"

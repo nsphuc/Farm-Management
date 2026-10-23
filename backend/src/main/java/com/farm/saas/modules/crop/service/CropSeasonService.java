@@ -12,4 +12,5 @@ public interface CropSeasonService {
     CropSeasonDetailResponse createSeason(Long farmId, CreateCropSeasonRequest request);
     CropSeasonDetailResponse updateSeason(Long farmId, Long id, UpdateCropSeasonRequest request);
     CropSeasonDetailResponse closeSeason(Long farmId, Long id);
+    void deleteSeason(Long farmId, Long id);
 }

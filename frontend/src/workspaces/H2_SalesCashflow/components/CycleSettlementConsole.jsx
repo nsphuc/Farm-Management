@@ -9,10 +9,15 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { SettlementDetailDrawer } from './SettlementDetailDrawer';
 
 export function CycleSettlementConsole({ farmId }) {
   const { syncTrigger, notifyDataChanged } = useActiveFarmStore();
+  const { isOwner, isFarmManager } = useAuthStore();
+  const owner = isOwner();
+  const manager = isFarmManager();
+
   const [settlements, setSettlements] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
@@ -20,6 +25,7 @@ export function CycleSettlementConsole({ farmId }) {
   const [selectedSettlement, setSelectedSettlement] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
 
   const loadSettlements = async () => {
     setIsLoading(true);
@@ -76,6 +82,27 @@ export function CycleSettlementConsole({ farmId }) {
       alert('Có lỗi xảy ra khi xác nhận kết toán: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsConfirming(false);
+    }
+  };
+
+  const handleApproveSettlement = async (settlement, notes) => {
+    if (!settlement) return;
+    const confirmMsg = `Bạn có chắc chắn muốn KÝ DUYỆT bảng kết toán chu kỳ "${settlement.cycleName}" (Lợi nhuận ròng: ${formatCurrency(settlement.netProfit)}) để cấp phép cho Kế toán trại chuyển tiền về Chủ đầu tư?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsApproving(true);
+    try {
+      await financeService.approveSettlement(settlement.farmId, settlement.cycleId, { notes });
+      notifyDataChanged('finance');
+      setIsDrawerOpen(false);
+      setSelectedSettlement(null);
+      await loadSettlements();
+      alert('Đã ký duyệt bảng kết toán chu kỳ thành công! Kế toán trại đã sẵn sàng quét mã VietQR chuyển lợi nhuận về Owner.');
+    } catch (err) {
+      console.error('Failed to approve settlement:', err);
+      alert('Có lỗi xảy ra khi ký duyệt kết toán: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsApproving(false);
     }
   };
 
@@ -202,7 +229,7 @@ export function CycleSettlementConsole({ farmId }) {
     },
     {
       key: 'actions',
-      header: 'Thao tác Owner',
+      header: manager ? 'Thao Tác Giám Đốc Trại' : 'Thao Tác Owner',
       align: 'center',
       render: (row) => (
         <div className="flex items-center justify-center gap-1.5">
@@ -211,16 +238,29 @@ export function CycleSettlementConsole({ farmId }) {
             variant="outline"
             icon={<Eye className="h-3.5 w-3.5 text-slate-600" />}
             onClick={() => handleOpenDetail(row)}
-            title="Xem chi tiết bảng kê thu chi và ảnh Ủy nhiệm chi"
+            title="Xem chi tiết bảng kê thu chi và chứng từ kết toán"
           >
-            Chi Tiết & UNC
+            Chi Tiết
           </Button>
 
-          {row.status !== 'CLOSED' && (
+          {manager && row.status !== 'CLOSED' && (
             <Button
               size="sm"
               variant="primary"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs"
+              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+              onClick={() => handleOpenDetail(row)}
+              title="Ký duyệt bảng kết toán chu kỳ nội bộ trại"
+            >
+              Ký Duyệt
+            </Button>
+          )}
+
+          {owner && row.status !== 'CLOSED' && (
+            <Button
+              size="sm"
+              variant="primary"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
               icon={<CheckCircle2 className="h-3.5 w-3.5" />}
               onClick={() => handleConfirmSettlement(row, 'Chốt sổ trực tiếp từ danh sách')}
             >
@@ -338,10 +378,13 @@ export function CycleSettlementConsole({ farmId }) {
         }}
         settlement={selectedSettlement}
         onConfirmSettlement={handleConfirmSettlement}
+        onApproveSettlement={handleApproveSettlement}
         isConfirming={isConfirming}
+        isApproving={isApproving}
       />
     </div>
   );
 }
 
+export { CycleSettlementConsole as FarmManagerCycleSettlementTab };
 export default CycleSettlementConsole;

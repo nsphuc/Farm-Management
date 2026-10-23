@@ -12,4 +12,6 @@ public interface CycleSettlementService {
     CycleSettlementSummaryResponse getCycleSettlementSummary(Long farmId, Long cycleId);
 
     CycleSettlementSummaryResponse confirmSettlement(Long farmId, Long cycleId, ConfirmSettlementRequest request);
+
+    CycleSettlementSummaryResponse approveSettlement(Long farmId, Long cycleId, ConfirmSettlementRequest request);
 }

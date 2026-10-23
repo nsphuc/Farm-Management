@@ -29,7 +29,7 @@ public class DebtAndPaymentController {
     private final DebtAndPaymentService debtAndPaymentService;
 
     @GetMapping("/debts")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách công nợ", description = "Truy vấn sổ công nợ có lọc theo đối tác, loại nợ (RECEIVABLE/PAYABLE) và trạng thái")
     public ResponseEntity<Page<DebtRecordDetailResponse>> getDebts(
             @PathVariable(required = false) Long farmId,
@@ -43,7 +43,7 @@ public class DebtAndPaymentController {
     }
 
     @GetMapping("/debts/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết khoản nợ", description = "Xem chi tiết một khoản công nợ phải thu hoặc phải trả")
     public ResponseEntity<DebtRecordDetailResponse> getDebtById(
             @PathVariable(required = false) Long farmId,
@@ -59,6 +59,16 @@ public class DebtAndPaymentController {
             @PathVariable Long farmId,
             @Valid @RequestBody CreatePaymentTransactionRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(debtAndPaymentService.createPayment(farmId, request));
+    }
+
+    @PostMapping({"/payments/{id}/confirm", "/payments/{id}/approve"})
+    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and @farmSecurity.isFarmManager(#farmId)")
+    @Operation(summary = "Xác nhận duyệt giao dịch thanh toán",
+            description = "Giám đốc trang trại duyệt phiếu chi/thu tiền, cập nhật trạng thái COMPLETED và phân bổ trừ nợ")
+    public ResponseEntity<PaymentTransactionDetailResponse> confirmPayment(
+            @PathVariable Long farmId,
+            @PathVariable Long id) {
+        return ResponseEntity.ok(debtAndPaymentService.confirmPayment(farmId, id));
     }
 
     @PostMapping("/payments/{id}/allocate")

@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { Can } from '@/components/common/Can';
 
 export function DebtMonitorTab({ farmId }) {
   const { syncTrigger } = useActiveFarmStore();
@@ -170,6 +171,34 @@ export function DebtMonitorTab({ farmId }) {
       header: 'Trạng thái',
       align: 'center',
       render: (row) => <StatusBadge status={row.status} />,
+    },
+    {
+      key: 'actions',
+      header: 'Thao Tác',
+      align: 'center',
+      render: (row) => (
+        <div className="flex items-center justify-center gap-1.5">
+          <Can permission="PERM_PAYMENT_ALLOCATE" role="ROLE_ACCOUNTANT">
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => alert(`Kế toán phân bổ hoặc cấn trừ nợ cho ${row.partnerName}`)}
+            >
+              Phân Bổ Nợ
+            </Button>
+          </Can>
+          <Can permission="PERM_FINANCE_PAYMENT" role="ROLE_FARM_MANAGER">
+            <Button
+              size="xs"
+              variant="primary"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              onClick={() => alert(`Giám đốc trại đối soát và duyệt thanh toán nợ cho ${row.partnerName}`)}
+            >
+              Duyệt Nợ
+            </Button>
+          </Can>
+        </div>
+      ),
     },
   ];
 

@@ -6,6 +6,8 @@ import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls
 import { hrService } from '@/services/modules/hrService';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+
 const TASK_TYPES = [
   { value: 'FEEDING', label: 'Cho ăn / Chăm sóc đàn (FEEDING)' },
   { value: 'PLANTING', label: 'Tưới nước & Chăm sóc cây (PLANTING)' },
@@ -31,11 +33,26 @@ export function RoutineTaskModal({
   employees = [],
   initialData = null,
 }) {
+  const { activeFarmType, farms } = useActiveFarmStore();
+  const currentFarmType = (farmId ? farms.find((f) => Number(f.id || f.farmId) === Number(farmId))?.farmType : null) || activeFarmType || 'MIXED';
+
+  const availableTaskTypes = React.useMemo(() => {
+    if (currentFarmType === 'CROP') {
+      return TASK_TYPES.filter((t) => t.value !== 'FEEDING');
+    }
+    if (currentFarmType === 'LIVESTOCK') {
+      return TASK_TYPES.filter((t) => t.value !== 'PLANTING' && t.value !== 'FERTILIZING');
+    }
+    return TASK_TYPES;
+  }, [currentFarmType]);
+
+  const defaultTaskType = currentFarmType === 'CROP' ? 'PLANTING' : 'FEEDING';
+
   const activeEmployees = employees.filter((e) => e.status === 'ACTIVE');
 
   const [formData, setFormData] = useState({
     titleText: '',
-    taskType: 'FEEDING',
+    taskType: defaultTaskType,
     priority: 'MEDIUM',
     zoneId: '',
     completionNotes: '',
@@ -58,7 +75,7 @@ export function RoutineTaskModal({
 
         setFormData({
           titleText: cleanTitle,
-          taskType: initialData.taskType || 'FEEDING',
+          taskType: initialData.taskType || defaultTaskType,
           priority: initialData.priority || 'MEDIUM',
           zoneId: initialData.zoneId ? String(initialData.zoneId) : (zones[0]?.id ? String(zones[0].id) : ''),
           completionNotes: initialData.completionNotes || '',
@@ -69,7 +86,7 @@ export function RoutineTaskModal({
         // Mode: Thêm mới hoàn toàn
         setFormData({
           titleText: '',
-          taskType: 'FEEDING',
+          taskType: defaultTaskType,
           priority: 'MEDIUM',
           zoneId: zones[0]?.id ? String(zones[0].id) : '',
           completionNotes: '',
@@ -80,7 +97,7 @@ export function RoutineTaskModal({
       setErrors({});
       setGeneralError(null);
     }
-  }, [isOpen, initialData, zones, employees]);
+  }, [isOpen, initialData, zones, employees, defaultTaskType]);
 
   const handleToggleEmployee = (empId) => {
     setFormData((prev) => {
@@ -210,7 +227,7 @@ export function RoutineTaskModal({
             <Select
               value={formData.taskType}
               onChange={(e) => setFormData({ ...formData, taskType: e.target.value })}
-              options={TASK_TYPES}
+              options={availableTaskTypes}
             />
           </FormField>
 

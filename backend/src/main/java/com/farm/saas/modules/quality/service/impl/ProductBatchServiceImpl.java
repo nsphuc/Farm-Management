@@ -294,7 +294,7 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         QcInspection inspection = qcInspectionRepository.findTopByProductBatchIdOrderByCreatedAtDesc(batch.getId())
                 .orElseThrow(() -> new BusinessException("QC_INSPECTION_REQUIRED", "Lô thành phẩm chưa có biên bản kiểm định KCS"));
 
-        if (!"PASSED".equals(inspection.getOverallResult())) {
+        if (!"PASSED".equals(inspection.getOverallResult()) && !"CONDITIONAL".equals(inspection.getOverallResult())) {
             throw new BusinessException("QC_INSPECTION_NOT_PASSED", "Biên bản kiểm định KCS mới nhất chưa đạt (Kết quả: " + inspection.getOverallResult() + ")");
         }
 
@@ -574,11 +574,13 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         Long inspectorId = null;
         String inspectorName = null;
         String inspectionCode = null;
+        String qcOverallResult = null;
         Optional<QcInspection> qcOpt = qcInspectionRepository.findTopByProductBatchIdOrderByCreatedAtDesc(batch.getId());
         if (qcOpt.isPresent()) {
             QcInspection qc = qcOpt.get();
             inspectorId = qc.getInspectorUserId();
             inspectionCode = qc.getInspectionCode();
+            qcOverallResult = qc.getOverallResult();
             if (inspectorId != null) {
                 inspectorName = userRepository.findById(inspectorId)
                         .map(u -> u.getFullName() != null ? u.getFullName() : u.getUsername()).orElse(null);
@@ -603,6 +605,31 @@ public class ProductBatchServiceImpl implements ProductBatchService {
             timelineJson = snap.getFarmingTimelineJson();
             harvestJson = snap.getHarvestInfoJson();
             qcJson = snap.getQcInspectionJson();
+        }
+
+        if (qcJson == null && qcOpt.isPresent()) {
+            try {
+                QcInspection qc = qcOpt.get();
+                Map<String, Object> qcMap = new LinkedHashMap<>();
+                qcMap.put("inspectionCode", qc.getInspectionCode());
+                qcMap.put("inspectionDate", qc.getInspectionDate() != null ? qc.getInspectionDate().toString() : null);
+                qcMap.put("overallVerdict", qc.getOverallResult());
+                qcMap.put("inspectorTitle", "Kỹ thuật viên KCS");
+                List<QcInspectionItem> items = qcInspectionItemRepository.findByInspectionId(qc.getId());
+                List<Map<String, Object>> metricsList = new ArrayList<>();
+                for (QcInspectionItem it : items) {
+                    Map<String, Object> metric = new LinkedHashMap<>();
+                    metric.put("metricName", it.getParameterName());
+                    metric.put("standardLimit", it.getStandardThreshold());
+                    metric.put("testResult", it.getMeasuredValue());
+                    metric.put("isPassed", it.getIsPassed());
+                    metricsList.add(metric);
+                }
+                qcMap.put("testMetrics", metricsList);
+                qcJson = objectMapper.writeValueAsString(qcMap);
+            } catch (Exception ex) {
+                log.warn("Failed to serialize QC inspection for batch id={}: {}", batch.getId(), ex.getMessage());
+            }
         }
 
         // Calculate sold quantity
@@ -671,6 +698,7 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 .inspectorUserId(inspectorId)
                 .inspectorFullName(inspectorName)
                 .qcInspectionCode(inspectionCode)
+                .qcOverallResult(qcOverallResult)
                 .approvedByUserId(batch.getApprovedByUserId())
                 .approverFullName(approverName)
                 .approvedAt(batch.getApprovedAt())

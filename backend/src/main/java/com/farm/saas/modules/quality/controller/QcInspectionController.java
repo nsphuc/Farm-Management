@@ -30,7 +30,7 @@ public class QcInspectionController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_QC_INSPECT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Page<QcInspectionDetailResponse>> getInspections(
             @PathVariable Long farmId,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -38,7 +38,7 @@ public class QcInspectionController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_QC_INSPECT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<QcInspectionDetailResponse> getInspectionById(
             @PathVariable Long farmId,
             @PathVariable Long id) {

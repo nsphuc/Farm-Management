@@ -2,6 +2,8 @@ package com.farm.saas.modules.hr.service.impl;
 
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
+import com.farm.saas.common.security.CustomUserDetails;
+import org.springframework.security.access.AccessDeniedException;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
@@ -158,12 +160,28 @@ public class FarmTaskServiceImpl implements FarmTaskService {
     public FarmTaskDetailResponse updateTaskStatus(Long id, UpdateTaskStatusRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
 
         FarmTask task = farmTaskRepository.findById(id)
                 .filter(t -> tenantId == null || t.getTenantId().equals(tenantId))
                 .orElseThrow(() -> new ResourceNotFoundException("FarmTask", "id", id));
 
-        task.setStatus(request.getStatus());
+        String targetStatus = request.getStatus() != null ? request.getStatus().trim().toUpperCase() : "";
+
+        // Kiểm tra Maker-Checker: Chuyển sang DONE hoặc CANCELLED bắt buộc có PERM_TASK_ASSIGN hoặc cấp quản lý
+        if ("DONE".equals(targetStatus) || "CANCELLED".equals(targetStatus)) {
+            boolean canApprove = currentUser != null && (
+                    currentUser.isSuperAdmin()
+                    || currentUser.hasPermission("PERM_TASK_ASSIGN")
+                    || currentUser.hasRole("ROLE_FARM_MANAGER")
+                    || currentUser.hasRole("ROLE_TECHNICAL_STAFF")
+            );
+            if (!canApprove) {
+                throw new AccessDeniedException("Chỉ Quản lý trang trại hoặc Kỹ thuật viên (PERM_TASK_ASSIGN) mới có quyền nghiệm thu hoàn thành (DONE) hoặc hủy (CANCELLED) nhiệm vụ");
+            }
+        }
+
+        task.setStatus(targetStatus);
         if (request.getCompletionNotes() != null) {
             task.setCompletionNotes(request.getCompletionNotes());
         }

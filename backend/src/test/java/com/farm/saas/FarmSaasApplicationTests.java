@@ -27,6 +27,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.util.Set;
 
+import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 @SpringBootTest
@@ -102,10 +103,10 @@ class FarmSaasApplicationTests {
     }
 
     @Test
-    @DisplayName("4. Xac thuc 6 Roles va 30 Permissions chuan trong Seed Data")
+    @DisplayName("4. Xac thuc 7 Roles va 30 Permissions chuan trong Seed Data theo V1_4")
     void verifyRbacSeedData() {
         long roleCount = roleRepository.count();
-        assertEquals(6, roleCount, "Phai co dung 6 roles chuan");
+        assertEquals(7, roleCount, "Phai co dung 7 roles chuan theo V1_4");
 
         long permissionCount = permissionRepository.count();
         assertEquals(30, permissionCount, "Phai co dung 30 permissions chuan");
@@ -120,7 +121,7 @@ class FarmSaasApplicationTests {
         );
         assertEquals(1, superAdminPermCount);
 
-        // Farm Owner: dung 29 quyen
+        // Farm Owner: dung 12 quyen theo V1_4
         Integer ownerPermCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM role_permissions rp " +
                         "JOIN roles r ON rp.role_id = r.id " +
@@ -128,9 +129,28 @@ class FarmSaasApplicationTests {
                         "WHERE r.code = 'ROLE_FARM_OWNER'",
                 Integer.class
         );
-        assertEquals(29, ownerPermCount);
+        assertEquals(12, ownerPermCount, "ROLE_FARM_OWNER phai co dung 12 quyen");
 
-        // Technical Staff: dung 8 quyen (khong co PERM_QC_APPROVE va PERM_QC_RECALL)
+        // Farm Manager: dung 25 quyen theo V1_4
+        Integer managerPermCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM role_permissions rp " +
+                        "JOIN roles r ON rp.role_id = r.id " +
+                        "JOIN permissions p ON rp.permission_id = p.id " +
+                        "WHERE r.code = 'ROLE_FARM_MANAGER'",
+                Integer.class
+        );
+        assertEquals(25, managerPermCount, "ROLE_FARM_MANAGER phai co dung 25 quyen");
+
+        // Technical Staff: dung 11 quyen (khong co PERM_QC_APPROVE va PERM_QC_RECALL)
+        Integer techPermCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM role_permissions rp " +
+                        "JOIN roles r ON rp.role_id = r.id " +
+                        "JOIN permissions p ON rp.permission_id = p.id " +
+                        "WHERE r.code = 'ROLE_TECHNICAL_STAFF'",
+                Integer.class
+        );
+        assertEquals(11, techPermCount, "ROLE_TECHNICAL_STAFF phai co dung 11 quyen");
+
         Integer techQcApproveCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM role_permissions rp " +
                         "JOIN roles r ON rp.role_id = r.id " +

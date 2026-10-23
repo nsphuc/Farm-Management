@@ -304,9 +304,18 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
             throw new BusinessException("DUPLICATE_RESOURCE", "Expense code already exists: " + expenseCode);
         }
 
-        String status = request.getStatus() != null ? request.getStatus() : "DRAFT";
         String expenseSource = request.getExpenseSource() != null ? request.getExpenseSource() : "MANUAL";
         String paymentMethod = request.getPaymentMethod() != null ? request.getPaymentMethod() : "CASH";
+
+        boolean isChecker = SecurityUtils.getCurrentUser() != null &&
+                SecurityUtils.getCurrentUser().hasAnyRole("ROLE_FARM_MANAGER", "ROLE_FARM_OWNER", "ROLE_SUPER_ADMIN");
+        boolean isAutoBackflush = "INVENTORY_BACKFLUSH".equalsIgnoreCase(expenseSource)
+                || "PAYROLL_ALLOCATION".equalsIgnoreCase(expenseSource);
+
+        String status = "DRAFT";
+        if (isAutoBackflush || (isChecker && "CONFIRMED".equalsIgnoreCase(request.getStatus()))) {
+            status = "CONFIRMED";
+        }
 
         FarmExpense expense = FarmExpense.builder()
                 .tenantId(tenantId)
@@ -339,6 +348,39 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         }
 
         return toDetailResponse(expense);
+    }
+
+    @Override
+    @Transactional
+    public FarmExpenseDetailResponse confirmExpense(Long farmId, Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        validateFarm(farmId);
+
+        FarmExpense expense = farmExpenseRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Expense not found: " + id));
+
+        if (!expense.getFarmId().equals(farmId)) {
+            throw new BusinessException("BAD_REQUEST", "Expense does not belong to specified farm");
+        }
+
+        if ("CONFIRMED".equals(expense.getStatus())) {
+            return toDetailResponse(expense);
+        }
+
+        Long costCategoryId = expense.getCostCategoryId();
+        CostCategory costCategory = costCategoryRepository.findByTenantIdAndId(tenantId, costCategoryId)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Cost category not found: " + costCategoryId));
+
+        expense.setStatus("CONFIRMED");
+        expense.setUpdatedAt(Instant.now());
+        expense.setUpdatedBy(currentUserId);
+        FarmExpense savedExpense = farmExpenseRepository.save(expense);
+
+        // Budget consumption on CONFIRMED
+        consumeBudget(farmId, tenantId, currentUserId, savedExpense, costCategory);
+
+        return toDetailResponse(savedExpense);
     }
 
     private void consumeBudget(Long farmId, Long tenantId, Long currentUserId, FarmExpense expense, CostCategory costCategory) {

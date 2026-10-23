@@ -79,15 +79,33 @@ const SETTINGS_TABS = [
   },
 ];
 
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { activeFarmType, supportsCrop, supportsLivestock } = useActiveFarmStore();
   const activeTab = searchParams.get('tab') || 'enterprise';
+
+  const visibleTabs = React.useMemo(() => {
+    return SETTINGS_TABS.filter((tab) => {
+      if (tab.id === 'livestock-breeds' && !supportsLivestock) return false;
+      if (tab.id === 'crop-types' && !supportsCrop) return false;
+      return true;
+    });
+  }, [supportsCrop, supportsLivestock]);
+
+  React.useEffect(() => {
+    const isCurrentVisible = visibleTabs.some((t) => t.id === activeTab);
+    if (!isCurrentVisible && visibleTabs.length > 0) {
+      setSearchParams({ tab: visibleTabs[0].id }, { replace: true });
+    }
+  }, [activeTab, visibleTabs, setSearchParams]);
 
   const handleTabChange = (tabId) => {
     setSearchParams({ tab: tabId });
   };
 
-  const currentTabObj = SETTINGS_TABS.find((t) => t.id === activeTab) || SETTINGS_TABS[0];
+  const currentTabObj = visibleTabs.find((t) => t.id === activeTab) || visibleTabs[0] || SETTINGS_TABS[0];
 
   return (
     <div className="space-y-6">
@@ -98,9 +116,20 @@ export function SettingsPage() {
             <Settings className="h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Trung Tâm Cài Đặt Danh Mục Tĩnh
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-black text-slate-900 tracking-tight">
+                Trung Tâm Cài Đặt Danh Mục Tĩnh
+              </h1>
+              {activeFarmType && (
+                <span className="rounded-full bg-slate-100 text-slate-700 px-2.5 py-0.5 text-[10px] font-bold border border-slate-200">
+                  {activeFarmType === 'CROP'
+                    ? '🌾 Trại Trồng Trọt'
+                    : activeFarmType === 'LIVESTOCK'
+                    ? '🐄 Trại Chăn Nuôi'
+                    : '🌐 Hỗn Hợp / Đa Trại'}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-500 mt-0.5">
               Cấu hình chuẩn hóa cấp Tenant và Trang trại tác nghiệp theo quy tắc Module Master Data Agri-ERP
             </p>
@@ -114,7 +143,7 @@ export function SettingsPage() {
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 py-1.5">
             Phân khu Danh Mục Chuẩn
           </div>
-          {SETTINGS_TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const isCurrent = activeTab === tab.id;
             return (
               <button

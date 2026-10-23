@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import axios from 'axios';
 
 /**
  * Auth Store - IN-MEMORY ONLY for Access Token (ADR-02)
@@ -7,28 +8,61 @@ import { create } from 'zustand';
 export const useAuthStore = create((set, get) => ({
   accessToken: null,
   userInfo: null,
+  user: null,
   isAuthenticated: false,
   isInitialized: false,
+  isLoggingOut: false,
+  hasLoggedOut: false,
 
   setAuth: (accessToken, userInfo) => {
     set({
       accessToken,
       userInfo,
+      user: userInfo,
       isAuthenticated: Boolean(accessToken && userInfo),
       isInitialized: true,
+      isLoggingOut: false,
+      hasLoggedOut: false,
     });
+  },
+
+  login: (accessToken, userInfo) => {
+    set({
+      accessToken,
+      userInfo,
+      user: userInfo,
+      isAuthenticated: Boolean(accessToken && userInfo),
+      isInitialized: true,
+      isLoggingOut: false,
+      hasLoggedOut: false,
+    });
+  },
+
+  refreshToken: (accessToken, userInfo = null) => {
+    set((state) => ({
+      accessToken,
+      userInfo: userInfo || state.userInfo,
+      user: userInfo || state.userInfo,
+      isAuthenticated: Boolean(accessToken && (userInfo || state.userInfo)),
+      isInitialized: true,
+      isLoggingOut: false,
+      hasLoggedOut: false,
+    }));
   },
 
   setAccessToken: (accessToken) => {
     set({
       accessToken,
       isAuthenticated: Boolean(accessToken && get().userInfo),
+      isLoggingOut: false,
+      hasLoggedOut: false,
     });
   },
 
   setUserInfo: (userInfo) => {
     set({
       userInfo,
+      user: userInfo,
       isAuthenticated: Boolean(get().accessToken && userInfo),
     });
   },
@@ -36,11 +70,13 @@ export const useAuthStore = create((set, get) => ({
   setMustChangePassword: (mustChange) => {
     const current = get().userInfo;
     if (current) {
+      const updated = {
+        ...current,
+        mustChangePassword: Boolean(mustChange),
+      };
       set({
-        userInfo: {
-          ...current,
-          mustChangePassword: Boolean(mustChange),
-        },
+        userInfo: updated,
+        user: updated,
       });
     }
   },
@@ -53,9 +89,31 @@ export const useAuthStore = create((set, get) => ({
     set({
       accessToken: null,
       userInfo: null,
+      user: null,
+      isAuthenticated: false,
+      isInitialized: true,
+      hasLoggedOut: true,
+      isLoggingOut: false,
+    });
+  },
+
+  logout: async () => {
+    set({
+      isLoggingOut: true,
+      hasLoggedOut: true,
+      accessToken: null,
+      userInfo: null,
+      user: null,
       isAuthenticated: false,
       isInitialized: true,
     });
+    try {
+      await axios.post('/api/v1/auth/logout', {}, { withCredentials: true });
+    } catch {
+      // Bỏ qua lỗi nếu có
+    } finally {
+      set({ isLoggingOut: false });
+    }
   },
 
   setAccessibleFarms: (farms) => {
@@ -135,12 +193,52 @@ export const useAuthStore = create((set, get) => ({
   },
 
   /**
+   * Helper: Kiểm tra có ít nhất 1 vai trò trong danh sách không
+   */
+  hasAnyRole: (roleCodes) => {
+    if (!Array.isArray(roleCodes) || roleCodes.length === 0) return false;
+    return roleCodes.some((role) => get().hasRole(role));
+  },
+
+  /**
    * Helper: Kiểm tra có phải Super Admin không
    */
   isSuperAdmin: () => {
     const { userInfo } = get();
     if (!userInfo) return false;
     return Boolean(userInfo.isSuperAdmin || get().hasRole('ROLE_SUPER_ADMIN'));
+  },
+
+  /**
+   * Helper: Kiểm tra Cấp 2: Chủ trang trại / Chủ chuỗi (ROLE_FARM_OWNER)
+   */
+  isFarmOwner: () => get().isOwner(),
+
+  /**
+   * Helper: Kiểm tra Cấp 4: Nhân sự chuyên môn cấp trại (Kỹ thuật, Kho, Kế toán trại, Hiện trường)
+   */
+  isTier4Staff: () => {
+    const { isSuperAdmin, isFarmOwner, isFarmManager } = get();
+    return !isSuperAdmin() && !isFarmOwner() && !isFarmManager();
+  },
+
+  /**
+   * Helper: Kiểm tra chức danh hiện trường trong farm_assignments
+   */
+  hasFarmAssignmentRole: (roleInFarm, farmId = null) => {
+    const { userInfo } = get();
+    if (!userInfo) return false;
+    const assignments = userInfo.farmAssignments || [];
+    const rolesToCheck = Array.isArray(roleInFarm) ? roleInFarm : [roleInFarm];
+    return assignments.some((a) => {
+      if (a.isActive === false) return false;
+      const roleMatch = rolesToCheck.includes(a.roleInFarm || a.role_in_farm);
+      if (!roleMatch) return false;
+      if (farmId != null) {
+        return Number(a.farmId) === Number(farmId);
+      }
+      return true;
+    });
   },
 
   /**

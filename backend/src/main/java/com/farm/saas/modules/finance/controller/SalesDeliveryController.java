@@ -26,7 +26,7 @@ public class SalesDeliveryController {
     private final SalesDeliveryService salesDeliveryService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_DELIVERY_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Danh sách đợt giao hàng", description = "Lấy danh sách các đợt giao hàng có phân trang")
     public ResponseEntity<Page<SalesDeliveryDetailResponse>> getDeliveries(
             @PathVariable Long farmId,
@@ -35,7 +35,7 @@ public class SalesDeliveryController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_DELIVERY_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Chi tiết đợt giao hàng", description = "Xem chi tiết một đợt xuất giao và mặt hàng đính kèm")
     public ResponseEntity<SalesDeliveryDetailResponse> getDeliveryById(
             @PathVariable Long farmId,

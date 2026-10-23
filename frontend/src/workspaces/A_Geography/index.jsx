@@ -69,12 +69,18 @@ export function GeographyWorkspace() {
 
   const [zoneModalOpen, setZoneModalOpen] = useState(false);
   const [editingZone, setEditingZone] = useState(null);
+  const [targetFarmForZone, setTargetFarmForZone] = useState(null);
 
   const [locationModalOpen, setLocationModalOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
+  const [targetFarmForLocation, setTargetFarmForLocation] = useState(null);
+  const [targetZoneForLocation, setTargetZoneForLocation] = useState(null);
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
+
+  // Auto-expand tree nodes
+  const [expandedNodeKeys, setExpandedNodeKeys] = useState({});
 
   const handleOpenAssignModal = (assignment = null) => {
     setEditingAssignment(assignment);
@@ -127,8 +133,10 @@ export function GeographyWorkspace() {
           setSelectedNode({ type: 'FARM', item: currentFarm });
         }
       }
+      return fullFarms;
     } catch (err) {
       console.error('Failed to load geographic hierarchy', err);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -226,6 +234,98 @@ export function GeographyWorkspace() {
     setFarmModalOpen(true);
   };
 
+  // Mở modal thêm phân khu mới
+  const handleOpenCreateZone = () => {
+    if (!farms || farms.length === 0) {
+      toast.warning('Chưa có trang trại nào trong hệ thống! Vui lòng khởi tạo Trang trại trước khi tạo phân khu.');
+      return;
+    }
+    setEditingZone(null);
+    setTargetFarmForZone(selectedFarm?.id || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null) || null);
+    setZoneModalOpen(true);
+  };
+
+  // Mở modal thêm vị trí / luống / ô chuồng
+  const handleOpenCreateLocation = () => {
+    if (!farms || farms.length === 0) {
+      toast.warning('Chưa có trang trại nào trong hệ thống! Vui lòng khởi tạo Trang trại trước.');
+      return;
+    }
+    setEditingLocation(null);
+    setTargetFarmForLocation(selectedFarm?.id || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null) || null);
+    setTargetZoneForLocation(selectedZone?.id || null);
+    setLocationModalOpen(true);
+  };
+
+  // Nhãn nút Thêm vị trí thích ứng thông minh theo loại phân khu đang chọn
+  const locationButtonLabel = React.useMemo(() => {
+    if (!selectedZone) return '+ Thêm Vị Trí / Ô / Chuồng';
+    const zType = (selectedZone.zoneType || '').toUpperCase();
+    if (zType === 'BARN') return '+ Thêm Ô / Dãy Chuồng';
+    if (zType === 'GREENHOUSE' || zType === 'OPEN_FIELD') return '+ Thêm Luống / Ô Đất';
+    if (zType === 'STORAGE') return '+ Thêm Kệ / Vị Trí Kho';
+    if (zType === 'ISOLATION') return '+ Thêm Ô Cách Ly';
+    return '+ Thêm Vị Trí / Ô / Chuồng';
+  }, [selectedZone]);
+
+  // Callback sau khi lưu Phân khu thành công
+  const handleZoneSaved = async (savedZone, farmId) => {
+    notifyDataChanged?.('zones');
+    const freshFarms = await fetchHierarchy();
+    const targetFarmId = farmId || savedZone?.farmId;
+
+    if (targetFarmId) {
+      setExpandedNodeKeys((prev) => ({ ...prev, [`farm-${targetFarmId}`]: true }));
+      const parentFarm = freshFarms?.find((f) => Number(f.id) === Number(targetFarmId));
+      if (parentFarm) {
+        setSelectedFarm(parentFarm);
+        const freshZone = (parentFarm.zones || []).find(
+          (z) => Number(z.id) === Number(savedZone?.id) || z.code === savedZone?.code
+        );
+        if (freshZone) {
+          setSelectedZone(freshZone);
+          setSelectedNode({ type: 'ZONE', item: freshZone, farm: parentFarm });
+          fetchLocations(targetFarmId, freshZone.id);
+        } else {
+          setSelectedNode({ type: 'FARM', item: parentFarm });
+        }
+      }
+    }
+  };
+
+  // Callback sau khi lưu Vị trí / Luống / Chuồng thành công
+  const handleLocationSaved = async (savedLoc, farmId, zoneId) => {
+    notifyDataChanged?.('zones');
+    const freshFarms = await fetchHierarchy();
+    const targetFarmId = farmId || savedLoc?.farmId;
+    const targetZoneId = zoneId || savedLoc?.zoneId;
+
+    if (targetFarmId && targetZoneId) {
+      setExpandedNodeKeys((prev) => ({
+        ...prev,
+        [`farm-${targetFarmId}`]: true,
+        [`zone-${targetZoneId}`]: true,
+      }));
+      await fetchLocations(targetFarmId, targetZoneId);
+      const parentFarm = freshFarms?.find((f) => Number(f.id) === Number(targetFarmId));
+      if (parentFarm) {
+        setSelectedFarm(parentFarm);
+        const parentZone = (parentFarm.zones || []).find((z) => Number(z.id) === Number(targetZoneId));
+        if (parentZone) {
+          setSelectedZone(parentZone);
+          const freshLoc = (parentZone.locations || []).find(
+            (l) => Number(l.id) === Number(savedLoc?.id) || l.code === savedLoc?.code
+          );
+          if (freshLoc) {
+            setSelectedNode({ type: 'LOCATION', item: freshLoc, farm: parentFarm, zone: parentZone });
+          } else {
+            setSelectedNode({ type: 'ZONE', item: parentZone, farm: parentFarm });
+          }
+        }
+      }
+    }
+  };
+
   // Tạm ngưng hoặc kích hoạt trang trại (thay cho xóa cứng)
   const handleToggleFarmStatus = async (farm, newStatus) => {
     const isActivating = newStatus === 'ACTIVE';
@@ -234,18 +334,7 @@ export function GeographyWorkspace() {
       return;
     }
     try {
-      await geographyService.updateFarm(farm.id, {
-        code: farm.code,
-        name: farm.name,
-        farmType: farm.farmType,
-        totalAreaM2: farm.totalAreaM2,
-        latitude: farm.latitude,
-        longitude: farm.longitude,
-        geofenceRadiusM: farm.geofenceRadiusM,
-        address: farm.address,
-        managerUserId: farm.managerUserId,
-        status: newStatus,
-      });
+      await geographyService.updateFarmStatus(farm.id, newStatus);
       toast.success(`Đã ${actionLabel.toLowerCase()} trang trại "${farm.name}" thành công!`);
       notifyDataChanged?.('farms');
       await fetchHierarchy();
@@ -391,23 +480,46 @@ export function GeographyWorkspace() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" icon={<RefreshCw className="h-4 w-4" />} onClick={fetchHierarchy}>
             Làm mới
           </Button>
 
+          {/* Cụm nút hành động 3 tầng theo phân cấp & phân quyền */}
           {owner && (
-            <Can permission="PERM_FARM_CREATE">
+            <Can permission="PERM_FARM_CREATE" role="ROLE_FARM_OWNER">
               <Button
                 variant="primary"
                 size="sm"
                 icon={<Plus className="h-4 w-4" />}
                 onClick={handleOpenCreateFarm}
               >
-                + Thêm Trang Trại Mới
+                + Thêm Trang Trại
               </Button>
             </Can>
           )}
+
+          <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<Layers className="h-4 w-4 text-emerald-600" />}
+              onClick={handleOpenCreateZone}
+              className="font-bold border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+            >
+              + Thêm Phân Khu Mới
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<MapPin className="h-4 w-4 text-purple-600" />}
+              onClick={handleOpenCreateLocation}
+              className="font-bold border-purple-300 text-purple-800 hover:bg-purple-50"
+            >
+              {locationButtonLabel}
+            </Button>
+          </Can>
         </div>
       </div>
 
@@ -419,6 +531,36 @@ export function GeographyWorkspace() {
             farms={farms}
             selectedNode={selectedNode}
             onSelectNode={handleSelectNode}
+            onAddZone={(farm) => {
+              setEditingZone(null);
+              setTargetFarmForZone(farm.id);
+              setZoneModalOpen(true);
+            }}
+            onEditFarm={(farm) => {
+              setEditingFarm(farm);
+              setFarmModalOpen(true);
+            }}
+            onAddLocation={(farm, zone) => {
+              setEditingLocation(null);
+              setTargetFarmForLocation(farm.id);
+              setTargetZoneForLocation(zone.id);
+              setLocationModalOpen(true);
+            }}
+            onEditZone={(farm, zone) => {
+              setSelectedFarm(farm);
+              setEditingZone(zone);
+              setTargetFarmForZone(farm.id);
+              setZoneModalOpen(true);
+            }}
+            onEditLocation={(farm, zone, loc) => {
+              setSelectedFarm(farm);
+              setSelectedZone(zone);
+              setEditingLocation(loc);
+              setTargetFarmForLocation(farm.id);
+              setTargetZoneForLocation(zone.id);
+              setLocationModalOpen(true);
+            }}
+            expandedNodeKeys={expandedNodeKeys}
           />
         </div>
 
@@ -444,13 +586,14 @@ export function GeographyWorkspace() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Can permission="PERM_ZONE_MANAGE">
+                    <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
                         onClick={() => {
                           setEditingZone(null);
+                          setTargetFarmForZone(selectedFarm.id);
                           setZoneModalOpen(true);
                         }}
                         icon={<Plus className="h-4 w-4" />}
@@ -461,20 +604,22 @@ export function GeographyWorkspace() {
                       </Button>
                     </Can>
 
-                    <Can permission="PERM_FARM_UPDATE">
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="sm"
-                        onClick={() => {
-                          setEditingFarm(selectedFarm);
-                          setFarmModalOpen(true);
-                        }}
-                        icon={<Edit2 className="h-4 w-4" />}
-                      >
-                        [✏️ Cập Nhật Thông Số Trại]
-                      </Button>
-                    </Can>
+                    {owner && (
+                      <Can permission="PERM_FARM_UPDATE">
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={() => {
+                            setEditingFarm(selectedFarm);
+                            setFarmModalOpen(true);
+                          }}
+                          icon={<Edit2 className="h-4 w-4" />}
+                        >
+                          [✏️ Cập Nhật Thông Số Trại]
+                        </Button>
+                      </Can>
+                    )}
 
                     {owner && (
                       <Can permission="PERM_FARM_UPDATE">
@@ -482,7 +627,7 @@ export function GeographyWorkspace() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => handleToggleFarmStatus(selectedFarm, selectedFarm.status === 'ACTIVE' ? 'MAINTENANCE' : 'ACTIVE')}
+                          onClick={() => handleToggleFarmStatus(selectedFarm, selectedFarm.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE')}
                           className={selectedFarm.status === 'ACTIVE' ? 'text-amber-700 border-amber-300 hover:bg-amber-50 font-bold' : 'text-emerald-700 border-emerald-300 hover:bg-emerald-50 font-bold'}
                           icon={selectedFarm.status === 'ACTIVE' ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                         >
@@ -686,13 +831,14 @@ export function GeographyWorkspace() {
                       Danh Sách Phân Khu Trực Thuộc ({selectedFarm.zones?.length || 0})
                     </h3>
                   </div>
-                  <Can permission="PERM_ZONE_MANAGE">
+                  <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => {
                         setEditingZone(null);
+                        setTargetFarmForZone(selectedFarm.id);
                         setZoneModalOpen(true);
                       }}
                       icon={<Plus className="h-3.5 w-3.5" />}
@@ -703,9 +849,16 @@ export function GeographyWorkspace() {
                 </div>
 
                 {(!selectedFarm.zones || selectedFarm.zones.length === 0) ? (
-                  <div className="text-center py-8 text-xs text-slate-400">
-                    Trang trại này chưa có phân khu canh tác nào. Nhấn "{farmManager && !owner ? '+ Đề Xuất Thêm Phân Khu' : '+ Thêm Phân Khu'}" để khởi tạo.
-                  </div>
+                  <SmartEmptyState
+                    title="Trang Trại Chưa Có Phân Khu Canh Tác"
+                    description="Hãy khởi tạo phân khu đầu tiên (nhà màng, ô chuồng, đồng ruộng...) để bắt đầu phân bổ mặt bằng sản xuất cho trang trại này."
+                    actionLabel={farmManager && !owner ? '+ Đề Xuất Phân Khu Đầu Tiên' : '+ Khởi Tạo Phân Khu Đầu Tiên'}
+                    onAction={() => {
+                      setEditingZone(null);
+                      setTargetFarmForZone(selectedFarm.id);
+                      setZoneModalOpen(true);
+                    }}
+                  />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {selectedFarm.zones.map((zone) => (
@@ -940,11 +1093,15 @@ export function GeographyWorkspace() {
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-purple-700" />
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                      Vị Trí / Luống / Chuồng Trong Phân Khu ({zoneLocations.length})
+                      {selectedZone.zoneType === 'BARN'
+                        ? `Danh Sách Ô Chuồng Chăn Nuôi (${zoneLocations.length})`
+                        : selectedZone.zoneType === 'STORAGE'
+                        ? `Danh Sách Kệ / Vị Trí Kho (${zoneLocations.length})`
+                        : `Vị Trí / Luống Canh Tác Trong Phân Khu (${zoneLocations.length})`}
                     </h3>
                   </div>
 
-                  <Can permission="PERM_ZONE_MANAGE">
+                  <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
                     {selectedZone.status === 'ACTIVE' ? (
                       <Button
                         type="button"
@@ -952,11 +1109,19 @@ export function GeographyWorkspace() {
                         size="sm"
                         onClick={() => {
                           setEditingLocation(null);
+                          setTargetFarmForLocation(selectedFarm.id);
+                          setTargetZoneForLocation(selectedZone.id);
                           setLocationModalOpen(true);
                         }}
                         icon={<Plus className="h-3.5 w-3.5" />}
                       >
-                        [+ Thêm Vị Trí / Ô Chuồng]
+                        {selectedZone.zoneType === 'BARN'
+                          ? '[+ Thêm Ô / Dãy Chuồng Mới]'
+                          : (selectedZone.zoneType === 'GREENHOUSE' || selectedZone.zoneType === 'OPEN_FIELD')
+                          ? '[+ Thêm Luống / Ô Đất Mới]'
+                          : selectedZone.zoneType === 'STORAGE'
+                          ? '[+ Thêm Kệ / Vị Trí Kho Mới]'
+                          : '[+ Thêm Vị Trí Mới]'}
                       </Button>
                     ) : (
                       <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 font-semibold">
@@ -967,11 +1132,35 @@ export function GeographyWorkspace() {
                 </div>
 
                 {zoneLocations.length === 0 ? (
-                  <div className="text-center py-8 text-xs text-slate-400">
-                    {selectedZone.status === 'ACTIVE'
-                      ? 'Chưa có vị trí ô luống nào. Nhấn "[+ Thêm Vị Trí / Ô Chuồng]" để chia nhỏ phân khu theo luống hoặc chuồng nuôi.'
-                      : 'Phân khu đang ở trạng thái ⏳ Chờ Owner phê duyệt. Sau khi được duyệt sang ACTIVE, phân khu mới bắt đầu được mở vị trí / ô chuồng canh tác.'}
-                  </div>
+                  selectedZone.status === 'ACTIVE' ? (
+                    <SmartEmptyState
+                      title={
+                        selectedZone.zoneType === 'BARN'
+                          ? 'Chưa Có Ô Chuồng Chăn Nuôi Nào'
+                          : selectedZone.zoneType === 'STORAGE'
+                          ? 'Chưa Có Kệ Lưu Trữ Nào'
+                          : 'Chưa Có Luống / Lô Đất Canh Tác Nào'
+                      }
+                      description="Chia nhỏ phân khu thành các ô chuồng, luống đất hoặc vị trí lưu trữ để định danh và phân công hiện trường chi tiết."
+                      actionLabel={
+                        selectedZone.zoneType === 'BARN'
+                          ? '+ Khởi Tạo Ô Chuồng Đầu Tiên'
+                          : selectedZone.zoneType === 'STORAGE'
+                          ? '+ Khởi Tạo Kệ Lưu Trữ Đầu Tiên'
+                          : '+ Khởi Tạo Luống Canh Tác Đầu Tiên'
+                      }
+                      onAction={() => {
+                        setEditingLocation(null);
+                        setTargetFarmForLocation(selectedFarm.id);
+                        setTargetZoneForLocation(selectedZone.id);
+                        setLocationModalOpen(true);
+                      }}
+                    />
+                  ) : (
+                    <div className="text-center py-8 text-xs text-slate-400">
+                      Phân khu đang ở trạng thái ⏳ Chờ Owner phê duyệt. Sau khi được duyệt sang ACTIVE, phân khu mới bắt đầu được mở vị trí / ô chuồng canh tác.
+                    </div>
+                  )
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {zoneLocations.map((loc) => (
@@ -988,11 +1177,13 @@ export function GeographyWorkspace() {
                           <div className="text-[11px] text-slate-500 truncate">{loc.description}</div>
                         )}
                         <div className="flex justify-end gap-1 pt-1 border-t border-slate-100">
-                          <Can permission="PERM_ZONE_MANAGE">
+                          <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
                             <button
                               type="button"
                               onClick={() => {
                                 setEditingLocation(loc);
+                                setTargetFarmForLocation(selectedFarm.id);
+                                setTargetZoneForLocation(selectedZone.id);
                                 setLocationModalOpen(true);
                               }}
                               className="p-1 text-slate-400 hover:text-slate-800 rounded"
@@ -1064,36 +1255,31 @@ export function GeographyWorkspace() {
       />
 
       {/* Modal Zone */}
-      {selectedFarm && (
-        <ZoneFormModal
-          isOpen={zoneModalOpen}
-          onClose={() => setZoneModalOpen(false)}
-          farmId={selectedFarm.id}
-          farmTotalAreaM2={selectedFarm.totalAreaM2}
-          farmCenter={selectedFarm}
-          editingItem={editingZone}
-          existingZones={selectedFarm.zones || []}
-          onSuccess={() => {
-            fetchHierarchy();
-            notifyDataChanged?.('zones');
-          }}
-        />
-      )}
+      <ZoneFormModal
+        isOpen={zoneModalOpen}
+        onClose={() => setZoneModalOpen(false)}
+        farms={farms}
+        initialFarmId={targetFarmForZone || selectedFarm?.id}
+        editingItem={editingZone}
+        onSuccess={handleZoneSaved}
+      />
 
       {/* Modal Location */}
-      {selectedFarm && selectedZone && (
-        <LocationFormModal
-          isOpen={locationModalOpen}
-          onClose={() => setLocationModalOpen(false)}
-          farmId={selectedFarm.id}
-          zoneId={selectedZone.id}
-          editingItem={editingLocation}
-          onSuccess={() => {
-            fetchLocations(selectedFarm.id, selectedZone.id);
-            notifyDataChanged?.('zones');
-          }}
-        />
-      )}
+      <LocationFormModal
+        isOpen={locationModalOpen}
+        onClose={() => setLocationModalOpen(false)}
+        farms={farms}
+        initialFarmId={targetFarmForLocation || selectedFarm?.id}
+        initialZoneId={targetZoneForLocation || selectedZone?.id}
+        editingItem={editingLocation}
+        onOpenZoneModal={(farmId) => {
+          setLocationModalOpen(false);
+          setEditingZone(null);
+          setTargetFarmForZone(farmId);
+          setZoneModalOpen(true);
+        }}
+        onSuccess={handleLocationSaved}
+      />
 
       {/* Modal Assignment */}
       {selectedFarm && (

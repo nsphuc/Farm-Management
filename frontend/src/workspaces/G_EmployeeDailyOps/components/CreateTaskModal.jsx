@@ -3,8 +3,11 @@ import { Plus, Save, AlertCircle, CheckSquare, Users, ShieldAlert } from 'lucide
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
+import { Can } from '@/components/common/Can';
 import { hrService } from '@/services/modules/hrService';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
+
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 const TASK_TYPES = [
   { value: 'PLANTING', label: 'Gieo trồng / Cấy giống (PLANTING)' },
@@ -31,12 +34,27 @@ export function CreateTaskModal({
   employees = [],
   initialData = null,
 }) {
+  const { activeFarmType, farms } = useActiveFarmStore();
+  const currentFarmType = (farmId ? farms.find((f) => Number(f.id || f.farmId) === Number(farmId))?.farmType : null) || activeFarmType || 'MIXED';
+
+  const availableTaskTypes = React.useMemo(() => {
+    if (currentFarmType === 'CROP') {
+      return TASK_TYPES.filter((t) => t.value !== 'FEEDING');
+    }
+    if (currentFarmType === 'LIVESTOCK') {
+      return TASK_TYPES.filter((t) => t.value !== 'PLANTING' && t.value !== 'FERTILIZING');
+    }
+    return TASK_TYPES;
+  }, [currentFarmType]);
+
+  const defaultTaskType = currentFarmType === 'LIVESTOCK' ? 'FEEDING' : 'FERTILIZING';
+
   const activeEmployees = employees.filter((e) => e.status === 'ACTIVE');
 
   const [formData, setFormData] = useState({
     zoneId: '',
     taskTitle: '',
-    taskType: 'FERTILIZING',
+    taskType: defaultTaskType,
     priority: 'MEDIUM',
     deadline: '',
     completionNotes: '',
@@ -54,7 +72,7 @@ export function CreateTaskModal({
         setFormData({
           zoneId: initialData.zoneId ? String(initialData.zoneId) : (zones[0]?.id ? String(zones[0].id) : ''),
           taskTitle: initialData.taskTitle || '',
-          taskType: initialData.taskType || 'FERTILIZING',
+          taskType: initialData.taskType || defaultTaskType,
           priority: initialData.priority || 'MEDIUM',
           deadline: initialData.deadline || new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16),
           completionNotes: initialData.completionNotes || '',
@@ -65,7 +83,7 @@ export function CreateTaskModal({
         setFormData({
           zoneId: zones[0]?.id ? String(zones[0].id) : '',
           taskTitle: '',
-          taskType: 'FERTILIZING',
+          taskType: defaultTaskType,
           priority: 'MEDIUM',
           deadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
           completionNotes: '',
@@ -76,7 +94,7 @@ export function CreateTaskModal({
       setErrors({});
       setGeneralError(null);
     }
-  }, [isOpen, initialData, zones, employees]);
+  }, [isOpen, initialData, zones, employees, defaultTaskType]);
 
   const handleToggleEmployee = (empId) => {
     setFormData((prev) => {
@@ -122,8 +140,8 @@ export function CreateTaskModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
-    if (!farmId) {
-      setGeneralError('Vui lòng chọn trang trại');
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) {
+      setGeneralError('Vui lòng chọn trang trại cụ thể để tạo công việc');
       return;
     }
 
@@ -187,7 +205,7 @@ export function CreateTaskModal({
             <Select
               value={formData.taskType}
               onChange={(e) => setFormData({ ...formData, taskType: e.target.value })}
-              options={TASK_TYPES}
+              options={availableTaskTypes}
             />
           </FormField>
 
@@ -289,16 +307,18 @@ export function CreateTaskModal({
           <Button variant="outline" size="md" onClick={onClose} disabled={isSubmitting}>
             Hủy Bỏ
           </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            size="md"
-            icon={<Save className="h-4 w-4" />}
-            isLoading={isSubmitting}
-            loadingText="Đang giao việc..."
-          >
-            Xác Nhận Giao Nhiệm Vụ
-          </Button>
+          <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              icon={<Save className="h-4 w-4" />}
+              isLoading={isSubmitting}
+              loadingText="Đang giao việc..."
+            >
+              Xác Nhận Giao Nhiệm Vụ
+            </Button>
+          </Can>
         </div>
       </form>
     </Modal>

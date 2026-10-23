@@ -18,6 +18,7 @@ import { WorkerDailyTasksView } from './components/WorkerDailyTasksView';
 import { PersonalShiftScheduleCard } from './components/PersonalShiftScheduleCard';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { Can } from '@/components/common/Can';
 import { hrService } from '@/services/modules/hrService';
 import { geographyService } from '@/services/modules/geographyService';
 
@@ -223,14 +224,16 @@ export function EmployeeDailyOpsWorkspace() {
         </Button>
       </div>
 
-      {/* KHỐI 1: Thẻ Định Danh Cá Nhân & Chấm Công Thông Minh 2 Đầu GPS + Selfie (Role 2, 3, 4, 5, 6A) */}
-      <OneTapTimekeepingCard
-        activeFarm={activeFarm}
-        todayShift={todayShift}
-        attendanceRecord={todayAttendance}
-        annualLeaveQuota={employee?.annualLeaveQuota || 12.0}
-        onAttendanceSuccess={handleRefreshAll}
-      />
+      {/* KHỐI 1: Thẻ Định Danh Cá Nhân & Chấm Công Thông Minh 2 Đầu GPS + Selfie (Dành cho Cấp 3 & Cấp 4, chặn Owner) */}
+      <Can notRole="ROLE_FARM_OWNER">
+        <OneTapTimekeepingCard
+          activeFarm={activeFarm}
+          todayShift={todayShift}
+          attendanceRecord={todayAttendance}
+          annualLeaveQuota={employee?.annualLeaveQuota || 12.0}
+          onAttendanceSuccess={handleRefreshAll}
+        />
+      </Can>
 
       {/* KHỐI 2 (DÀNH CHO FARM MANAGER): Bảng Tổng Quan Quân Số Đi Làm Hôm Nay & Các Việc Chờ Giám Đốc Trại Duyệt */}
       {farmManager && (
@@ -246,8 +249,8 @@ export function EmployeeDailyOpsWorkspace() {
         />
       )}
 
-      {/* KHỐI 3: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động Không Có Tài Khoản (Chỉ Role 2, Role 3, Role 4) */}
-      {canRollCallTeam && (
+      {/* KHỐI 3: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động (ROLE_FARM_MANAGER, ROLE_TECHNICAL_STAFF, hoặc FARM_MANAGER / ZONE_MANAGER / TECHNICAL_LEAD) */}
+      <Can permission="PERM_HR_ATTENDANCE" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD']}>
         <TeamRollCallPanel
           activeFarm={activeFarm}
           shifts={shifts}
@@ -255,7 +258,7 @@ export function EmployeeDailyOpsWorkspace() {
           todayAttendances={todayAttendances}
           onRefresh={handleRefreshAll}
         />
-      )}
+      </Can>
 
       {/* KHỐI 3: QUẢN LÝ CÔNG VIỆC HIỆN TRƯỜNG */}
       {fieldWorker ? (

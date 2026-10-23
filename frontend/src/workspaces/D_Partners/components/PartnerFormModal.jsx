@@ -30,9 +30,11 @@ export function PartnerFormModal({
   editingItem = null,
   onSuccess,
 }) {
-  const { isOwner } = useAuthStore();
+  const { isOwner, isFarmManager } = useAuthStore();
   const { activeFarmId, activeFarm, farms, notifyDataChanged } = useActiveFarmStore();
   const owner = isOwner();
+  const farmManager = isFarmManager();
+  const canEditCredit = Boolean(owner || farmManager);
 
   const [formData, setFormData] = useState({
     farmId: '',
@@ -447,23 +449,23 @@ export function PartnerFormModal({
                     name="creditLimit"
                     value={formData.creditLimit}
                     onChange={handleChange}
-                    disabled={!owner}
-                    className={!owner ? 'bg-slate-100 text-slate-500 cursor-not-allowed font-mono pr-8' : 'font-mono'}
+                    disabled={!canEditCredit}
+                    className={!canEditCredit ? 'bg-slate-100 text-slate-500 cursor-not-allowed font-mono pr-8' : 'font-mono'}
                   />
-                  {!owner && <Lock className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />}
+                  {!canEditCredit && <Lock className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />}
                 </div>
 
-                {/* Chú thích màu hổ phách dành riêng cho FARM_MANAGER */}
-                {!owner && (
+                {/* Chú thích dành riêng cho Kế toán (Maker) */}
+                {!canEditCredit && (
                   <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-[11px] text-amber-800 flex items-start gap-1.5">
                     <Shield className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
                     <span>
-                      Hạn mức mua chịu mặc định là 0 VNĐ. Sau khi tạo, Chủ đầu tư (Owner) sẽ phê duyệt hạn mức tín dụng nếu khách mua nợ.
+                      Hạn mức tín dụng ban đầu là 0 VNĐ. Giám đốc trang trại hoặc Chủ đầu tư sẽ thẩm định và phê duyệt hạn mức nợ cho đối tác.
                     </span>
                   </div>
                 )}
 
-                {owner && (
+                {canEditCredit && (
                   <div className="flex flex-wrap items-center gap-1 text-[11px] text-slate-600">
                     <span className="font-semibold text-slate-500 text-[10px]">Duyệt nhanh:</span>
                     {[0, 20000000, 50000000, 100000000, 500000000].map((val) => (

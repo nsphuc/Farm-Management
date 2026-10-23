@@ -12,4 +12,10 @@ public interface StocktakeRepository extends JpaRepository<Stocktake, Long>, Jpa
 
     org.springframework.data.domain.Page<Stocktake> findByTenantIdAndFarmIdOrderByCreatedAtDesc(
             Long tenantId, Long farmId, org.springframework.data.domain.Pageable pageable);
+
+    org.springframework.data.domain.Page<Stocktake> findByTenantIdOrderByCreatedAtDesc(
+            Long tenantId, org.springframework.data.domain.Pageable pageable);
+
+    org.springframework.data.domain.Page<Stocktake> findByTenantIdAndFarmIdInOrderByCreatedAtDesc(
+            Long tenantId, java.util.Collection<Long> farmIds, org.springframework.data.domain.Pageable pageable);
 }

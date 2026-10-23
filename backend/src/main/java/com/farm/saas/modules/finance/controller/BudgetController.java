@@ -25,7 +25,7 @@ public class BudgetController {
     private final BudgetService budgetService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách kế hoạch ngân sách", description = "Truy vấn danh sách ngân sách có phân trang")
     public ResponseEntity<Page<BudgetDetailResponse>> getBudgets(
             @PathVariable(required = false) Long farmId,
@@ -38,7 +38,7 @@ public class BudgetController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết kế hoạch ngân sách", description = "Xem chi tiết dự toán và tình hình giải ngân theo từng khoản mục chi phí")
     public ResponseEntity<BudgetDetailResponse> getBudgetById(
             @PathVariable(required = false) Long farmId,
@@ -47,7 +47,7 @@ public class BudgetController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_REPORT', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Tạo mới hoặc phê duyệt ngân sách", description = "Thiết lập dự toán ngân sách cho năm tài chính kèm các dòng định mức chi phí")
     public ResponseEntity<BudgetDetailResponse> createBudget(
             @PathVariable(required = false) Long farmId,
@@ -56,8 +56,17 @@ public class BudgetController {
         return ResponseEntity.status(HttpStatus.CREATED).body(budgetService.createBudget(targetFarmId, request));
     }
 
+    @PostMapping({"/{id}/approve", "/{id}/confirm"})
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_REPORT', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.isFarmManagerOrOwner(#farmId))")
+    @Operation(summary = "Phê duyệt kế hoạch ngân sách", description = "Giám đốc trang trại hoặc Chủ đầu tư phê duyệt ngân sách chuyển sang ACTIVE")
+    public ResponseEntity<BudgetDetailResponse> approveBudget(
+            @PathVariable(required = false) Long farmId,
+            @PathVariable Long id) {
+        return ResponseEntity.ok(budgetService.updateBudgetStatus(farmId, id, "ACTIVE"));
+    }
+
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_REPORT', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.isFarmManagerOrOwner(#farmId))")
     @Operation(summary = "Phê duyệt hoặc thay đổi trạng thái ngân sách", description = "Phê duyệt ngân sách (status = ACTIVE)")
     public ResponseEntity<BudgetDetailResponse> updateBudgetStatus(
             @PathVariable(required = false) Long farmId,

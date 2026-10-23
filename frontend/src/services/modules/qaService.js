@@ -64,6 +64,22 @@ export const qaService = {
     const response = await apiClient.post(`/farms/${farmId}/product-batches/${id}/print-label`, data);
     return response.data?.data || response.data;
   },
+
+  /**
+   * Tạo lô thành phẩm mới (ROLE_WAREHOUSE_STAFF / ROLE_FARM_MANAGER)
+   */
+  createProductBatch: async (farmId, data) => {
+    const response = await apiClient.post(`/farms/${farmId}/product-batches`, data);
+    return response.data?.data || response.data;
+  },
+
+  /**
+   * Lập biên bản kiểm định KCS (ROLE_TECHNICAL_STAFF)
+   */
+  createQcInspection: async (farmId, data) => {
+    const response = await apiClient.post(`/farms/${farmId}/qc-inspections`, data);
+    return response.data?.data || response.data;
+  },
 };
 
 export default qaService;

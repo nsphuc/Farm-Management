@@ -23,5 +23,7 @@ public interface FarmExpenseService {
 
     FarmExpenseDetailResponse allocateCost(Long farmId, Long expenseId, AllocateCostRequest request);
 
+    FarmExpenseDetailResponse confirmExpense(Long farmId, Long id);
+
     UnitCostReportResponse calculateUnitCost(Long farmId, String targetType, Long targetId);
 }

@@ -24,7 +24,12 @@ const UNIT_OF_MEASURE_OPTIONS = [
   { value: 'PER_DAY', label: 'PER_DAY - Cho 1 Ngày canh tác' },
 ];
 
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+
 export function ConsumptionQuotasTab({ onNavigateTab }) {
+  const { supportsCrop, supportsLivestock } = useActiveFarmStore();
+  const defaultTargetType = supportsLivestock && !supportsCrop ? 'LIVESTOCK' : 'CROP';
+
   const [quotas, setQuotas] = useState([]);
   const [cropTypes, setCropTypes] = useState([]);
   const [livestockBreeds, setLivestockBreeds] = useState([]);
@@ -38,14 +43,14 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [targetType, setTargetType] = useState('CROP'); // 'CROP' or 'LIVESTOCK' (XOR)
+  const [targetType, setTargetType] = useState(defaultTargetType); // 'CROP' or 'LIVESTOCK' (XOR)
   const [formData, setFormData] = useState({
     cropTypeId: '',
     livestockBreedId: '',
     materialId: '',
     standardQuantity: 1,
-    unitOfMeasure: 'PER_HECTARE',
-    stage: 'Bón lót',
+    unitOfMeasure: defaultTargetType === 'LIVESTOCK' ? 'PER_HEAD' : 'PER_HECTARE',
+    stage: defaultTargetType === 'LIVESTOCK' ? 'Nuôi vỗ béo' : 'Bón lót',
     notes: '',
   });
   const [fieldErrors, setFieldErrors] = useState({});
@@ -113,16 +118,29 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
         notes: item.notes || '',
       });
     } else {
-      setTargetType('CROP');
-      setFormData({
-        cropTypeId: cropTypes[0]?.id ? String(cropTypes[0]?.id) : '',
-        livestockBreedId: '',
-        materialId: materials[0]?.id ? String(materials[0]?.id) : '',
-        standardQuantity: 10,
-        unitOfMeasure: 'PER_HECTARE',
-        stage: 'Bón lót',
-        notes: '',
-      });
+      const initialTarget = defaultTargetType;
+      setTargetType(initialTarget);
+      if (initialTarget === 'LIVESTOCK') {
+        setFormData({
+          cropTypeId: '',
+          livestockBreedId: livestockBreeds[0]?.id ? String(livestockBreeds[0]?.id) : '',
+          materialId: materials[0]?.id ? String(materials[0]?.id) : '',
+          standardQuantity: 10,
+          unitOfMeasure: 'PER_HEAD',
+          stage: 'Nuôi vỗ béo',
+          notes: '',
+        });
+      } else {
+        setFormData({
+          cropTypeId: cropTypes[0]?.id ? String(cropTypes[0]?.id) : '',
+          livestockBreedId: '',
+          materialId: materials[0]?.id ? String(materials[0]?.id) : '',
+          standardQuantity: 10,
+          unitOfMeasure: 'PER_HECTARE',
+          stage: 'Bón lót',
+          notes: '',
+        });
+      }
     }
     setModalOpen(true);
   };
@@ -395,45 +413,55 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
           {/* Radio XOR Cây Trồng vs Vật Nuôi */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2">
             <label className="text-xs font-bold text-slate-700 block">
-              1. Chọn Loại Đối Tượng Canh Tác (XOR)
+              1. Đối Tượng Áp Dụng Định Mức (BOM)
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label
-                className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
-                  targetType === 'CROP'
-                    ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-600'
-                    : 'border-slate-200 bg-white text-slate-600'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="targetType"
-                  value="CROP"
-                  checked={targetType === 'CROP'}
-                  onChange={() => handleTargetTypeChange('CROP')}
-                  className="text-emerald-600 focus:ring-emerald-500"
-                />
-                <span>Cây Trồng (Crop Type)</span>
-              </label>
+            {supportsCrop && supportsLivestock ? (
+              <div className="grid grid-cols-2 gap-3">
+                <label
+                  className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
+                    targetType === 'CROP'
+                      ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-600'
+                      : 'border-slate-200 bg-white text-slate-600'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="targetType"
+                    value="CROP"
+                    checked={targetType === 'CROP'}
+                    onChange={() => handleTargetTypeChange('CROP')}
+                    className="text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span>Cây Trồng (Crop Type)</span>
+                </label>
 
-              <label
-                className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
-                  targetType === 'LIVESTOCK'
-                    ? 'border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-600'
-                    : 'border-slate-200 bg-white text-slate-600'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="targetType"
-                  value="LIVESTOCK"
-                  checked={targetType === 'LIVESTOCK'}
-                  onChange={() => handleTargetTypeChange('LIVESTOCK')}
-                  className="text-amber-600 focus:ring-amber-500"
-                />
-                <span>Vật Nuôi (Livestock Breed)</span>
-              </label>
-            </div>
+                <label
+                  className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
+                    targetType === 'LIVESTOCK'
+                      ? 'border-amber-600 bg-amber-50 text-amber-900 ring-1 ring-amber-600'
+                      : 'border-slate-200 bg-white text-slate-600'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="targetType"
+                    value="LIVESTOCK"
+                    checked={targetType === 'LIVESTOCK'}
+                    onChange={() => handleTargetTypeChange('LIVESTOCK')}
+                    className="text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>Vật Nuôi (Livestock Breed)</span>
+                </label>
+              </div>
+            ) : supportsCrop ? (
+              <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-2.5 text-xs font-bold text-emerald-800">
+                🌾 Cây Trồng (Crop Type) - Thích ứng theo loại hình trang trại Trồng Trọt
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs font-bold text-amber-800">
+                🐄 Vật Nuôi (Livestock Breed) - Thích ứng theo loại hình trang trại Chăn Nuôi
+              </div>
+            )}
           </div>
 
           {/* Dropdown Giống Cây Trồng or Vật Nuôi */}

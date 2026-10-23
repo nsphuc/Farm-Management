@@ -23,14 +23,14 @@ public class EmployeeController {
     private final EmployeeService employeeService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<EmployeeDetailResponse> createEmployee(@Valid @RequestBody CreateEmployeeRequest request) {
         EmployeeDetailResponse response = employeeService.createEmployee(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<EmployeeDetailResponse> updateEmployee(
             @PathVariable Long id,
             @Valid @RequestBody UpdateEmployeeRequest request) {
@@ -38,7 +38,7 @@ public class EmployeeController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<Page<EmployeeDetailResponse>> getEmployees(
             @RequestParam(required = false) Long farmId,
             @RequestParam(required = false) String department,
@@ -49,13 +49,13 @@ public class EmployeeController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<EmployeeDetailResponse> getEmployeeById(@PathVariable Long id) {
         return ResponseEntity.ok(employeeService.getEmployeeById(id));
     }
 
     @PostMapping("/{id}/provision-account")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<EmployeeDetailResponse> provisionAccount(
             @PathVariable Long id,
             @Valid @RequestBody ProvisionAccountRequest request) {

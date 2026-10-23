@@ -30,7 +30,7 @@ public class ProductBatchController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_QC_VIEW', 'PERM_QC_APPROVE', 'PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Page<ProductBatchDetailResponse>> getProductBatches(
             @PathVariable Long farmId,
             @RequestParam(required = false) String status,
@@ -40,7 +40,7 @@ public class ProductBatchController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_QC_VIEW', 'PERM_QC_APPROVE', 'PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<ProductBatchDetailResponse> getProductBatchById(
             @PathVariable Long farmId,
             @PathVariable Long id) {
@@ -60,7 +60,7 @@ public class ProductBatchController {
     }
 
     @PostMapping("/{id}/reject")
-    @PreAuthorize("hasAuthority('PERM_QC_APPROVE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_QC_APPROVE') and @farmSecurity.canApproveBatch(#farmId, #id)")
     public ResponseEntity<ProductBatchDetailResponse> rejectBatch(
             @PathVariable Long farmId,
             @PathVariable Long id,
@@ -69,7 +69,7 @@ public class ProductBatchController {
     }
 
     @PostMapping("/{id}/recall")
-    @PreAuthorize("hasAuthority('PERM_QC_RECALL') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_QC_RECALL') and @farmSecurity.isFarmManagerOrOwner(#farmId)")
     public ResponseEntity<ProductBatchDetailResponse> recallBatch(
             @PathVariable Long farmId,
             @PathVariable Long id,

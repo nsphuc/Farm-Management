@@ -13,17 +13,19 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/farms/{farmId}/inventory/stocktakes")
+@RequestMapping({"/api/v1/farms/{farmId}/inventory/stocktakes", "/api/v1/inventory/stocktakes"})
 public class StocktakeController {
 
     private final InventoryService inventoryService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<org.springframework.data.domain.Page<StocktakeDetailResponse>> getStocktakes(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
+            @RequestParam(name = "farmId", required = false) Long paramFarmId,
             @org.springframework.data.web.PageableDefault(size = 50) org.springframework.data.domain.Pageable pageable) {
-        return ResponseEntity.ok(inventoryService.getStocktakes(farmId, pageable));
+        Long targetFarmId = (farmId != null && farmId > 0) ? farmId : paramFarmId;
+        return ResponseEntity.ok(inventoryService.getStocktakes(targetFarmId, pageable));
     }
 
     @PostMapping
@@ -35,9 +37,9 @@ public class StocktakeController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<StocktakeDetailResponse> getStocktakeById(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
         return ResponseEntity.ok(inventoryService.getStocktakeById(farmId, id));
     }
@@ -51,8 +53,8 @@ public class StocktakeController {
         return ResponseEntity.ok(inventoryService.recordStocktakeCount(farmId, id, request));
     }
 
-    @PostMapping("/{id}/adjust")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_STOCKTAKE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PostMapping({"/{id}/adjust", "/{id}/approve"})
+    @PreAuthorize("hasAuthority('PERM_INVENTORY_STOCKTAKE') and @farmSecurity.isFarmManager(#farmId)")
     public ResponseEntity<StocktakeDetailResponse> adjustStocktake(
             @PathVariable Long farmId,
             @PathVariable Long id) {

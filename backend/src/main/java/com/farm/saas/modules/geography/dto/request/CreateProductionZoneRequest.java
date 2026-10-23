@@ -23,6 +23,10 @@ public class CreateProductionZoneRequest {
     private String name;
 
     @NotBlank(message = "Loại phân khu không được để trống")
+    @jakarta.validation.constraints.Pattern(
+            regexp = "^(?i)(GREENHOUSE|OPEN_FIELD|BARN|STORAGE|ISOLATION)$",
+            message = "Loại phân khu phải là GREENHOUSE, OPEN_FIELD, BARN, STORAGE hoặc ISOLATION"
+    )
     private String zoneType;
 
     @NotNull(message = "Diện tích không được để trống")

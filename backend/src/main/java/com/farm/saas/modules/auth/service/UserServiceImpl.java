@@ -62,6 +62,7 @@ public class UserServiceImpl implements UserService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.farm.saas.common.security.FarmSecurityEvaluator farmSecurity;
 
     @Override
     @Transactional(readOnly = true)
@@ -143,11 +144,18 @@ public class UserServiceImpl implements UserService {
             throw new ApiException(HttpStatus.CONFLICT, "PHONE_ALREADY_EXISTS", "Số điện thoại đã tồn tại trên hệ thống.");
         }
 
-        // Chặn leo thang đặc quyền: User thuộc Tenant không bao giờ được gán ROLE_SUPER_ADMIN
+        // Chặn leo thang đặc quyền & kiểm tra phân cấp ủy quyền (Maker - Checker & 4-Tier)
         List<Role> selectedRoles = roleRepository.findAllById(request.getRoleIds());
         for (Role role : selectedRoles) {
             if ("ROLE_SUPER_ADMIN".equalsIgnoreCase(role.getCode())) {
                 throw new ApiException(HttpStatus.FORBIDDEN, "PRIVILEGE_ESCALATION_DENIED", "Không thể gán quyền Super Admin cho tài khoản thuộc khách thuê.");
+            }
+            if (request.getAssignedFarmIds() != null && !request.getAssignedFarmIds().isEmpty()) {
+                for (Long farmId : request.getAssignedFarmIds()) {
+                    farmSecurity.canAssignRole(role.getCode(), farmId);
+                }
+            } else {
+                farmSecurity.canAssignRole(role.getCode(), null);
             }
         }
 
@@ -199,6 +207,13 @@ public class UserServiceImpl implements UserService {
         for (Role role : selectedRoles) {
             if ("ROLE_SUPER_ADMIN".equalsIgnoreCase(role.getCode()) && !Boolean.TRUE.equals(user.getIsSuperAdmin())) {
                 throw new ApiException(HttpStatus.FORBIDDEN, "PRIVILEGE_ESCALATION_DENIED", "Không thể gán quyền Super Admin.");
+            }
+            if (request.getAssignedFarmIds() != null && !request.getAssignedFarmIds().isEmpty()) {
+                for (Long farmId : request.getAssignedFarmIds()) {
+                    farmSecurity.canAssignRole(role.getCode(), farmId);
+                }
+            } else {
+                farmSecurity.canAssignRole(role.getCode(), null);
             }
         }
 
@@ -331,6 +346,59 @@ public class UserServiceImpl implements UserService {
                             .build();
                     userFarmAccessRepository.save(access);
                 }
+
+                for (Role role : roles) {
+                    if ("ROLE_FARM_MANAGER".equalsIgnoreCase(role.getCode())) {
+                        farmRepository.findById(farmId).ifPresent(f -> {
+                            f.setManagerUserId(user.getId());
+                            f.setUpdatedAt(Instant.now());
+                            f.setUpdatedBy(currentUserId);
+                            farmRepository.save(f);
+                        });
+                        boolean hasAssignment = farmAssignmentRepository.findByUserIdAndIsActiveTrue(user.getId())
+                                .stream().anyMatch(a -> a.getFarmId().equals(farmId) && "FARM_MANAGER".equalsIgnoreCase(a.getRoleInFarm()));
+                        if (!hasAssignment) {
+                            farmAssignmentRepository.save(FarmAssignment.builder()
+                                    .tenantId(user.getTenantId())
+                                    .farmId(farmId)
+                                    .userId(user.getId())
+                                    .roleInFarm("FARM_MANAGER")
+                                    .assignedFrom(java.time.LocalDate.now())
+                                    .isActive(true)
+                                    .createdAt(Instant.now())
+                                    .createdBy(currentUserId)
+                                    .build());
+                        }
+                    } else if ("ROLE_TECHNICAL_STAFF".equalsIgnoreCase(role.getCode())
+                            || "ROLE_WAREHOUSE_STAFF".equalsIgnoreCase(role.getCode())
+                            || "ROLE_ACCOUNTANT".equalsIgnoreCase(role.getCode())
+                            || "ROLE_FIELD_STAFF".equalsIgnoreCase(role.getCode())) {
+                        String mappedRoleInFarm;
+                        if ("ROLE_TECHNICAL_STAFF".equalsIgnoreCase(role.getCode())) {
+                            mappedRoleInFarm = "TECHNICAL_LEAD";
+                        } else if ("ROLE_WAREHOUSE_STAFF".equalsIgnoreCase(role.getCode())) {
+                            mappedRoleInFarm = "WAREHOUSE_KEEPER";
+                        } else if ("ROLE_ACCOUNTANT".equalsIgnoreCase(role.getCode())) {
+                            mappedRoleInFarm = "ACCOUNTANT";
+                        } else {
+                            mappedRoleInFarm = "FIELD_WORKER";
+                        }
+                        boolean hasAssignment = farmAssignmentRepository.findByUserIdAndIsActiveTrue(user.getId())
+                                .stream().anyMatch(a -> a.getFarmId().equals(farmId) && mappedRoleInFarm.equalsIgnoreCase(a.getRoleInFarm()));
+                        if (!hasAssignment) {
+                            farmAssignmentRepository.save(FarmAssignment.builder()
+                                    .tenantId(user.getTenantId())
+                                    .farmId(farmId)
+                                    .userId(user.getId())
+                                    .roleInFarm(mappedRoleInFarm)
+                                    .assignedFrom(java.time.LocalDate.now())
+                                    .isActive(true)
+                                    .createdAt(Instant.now())
+                                    .createdBy(currentUserId)
+                                    .build());
+                        }
+                    }
+                }
             }
         }
     }
@@ -353,13 +421,19 @@ public class UserServiceImpl implements UserService {
         Set<Long> roleIds = userRoles.stream().map(UserRole::getRoleId).collect(Collectors.toSet());
         List<Role> roles = roleRepository.findAllById(roleIds);
 
-        List<UserInfoDto.RoleDto> roleDtos = roles.stream()
-                .map(r -> UserInfoDto.RoleDto.builder()
-                        .id(r.getId())
-                        .code(r.getCode())
-                        .name(r.getName())
-                        .scopeLevel(r.getScopeLevel())
-                        .build())
+        Map<Long, Role> roleMap = roles.stream().collect(Collectors.toMap(Role::getId, r -> r));
+        List<UserInfoDto.RoleDto> roleDtos = userRoles.stream()
+                .filter(ur -> roleMap.containsKey(ur.getRoleId()))
+                .map(ur -> {
+                    Role r = roleMap.get(ur.getRoleId());
+                    return UserInfoDto.RoleDto.builder()
+                            .id(r.getId())
+                            .code(r.getCode())
+                            .name(r.getName())
+                            .scopeLevel(r.getScopeLevel())
+                            .assignedFarmId(ur.getFarmId())
+                            .build();
+                })
                 .toList();
 
         boolean isSuperAdmin = Boolean.TRUE.equals(user.getIsSuperAdmin()) || roles.stream().anyMatch(r -> "ROLE_SUPER_ADMIN".equals(r.getCode()));

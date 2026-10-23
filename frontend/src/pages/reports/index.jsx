@@ -1,42 +1,61 @@
 import React from 'react';
-import { BarChart3, TrendingUp, Warehouse, Calculator, BadgeDollarSign } from 'lucide-react';
+import { BarChart3, TrendingUp, Warehouse, Calculator, BadgeDollarSign, PawPrint, Sprout } from 'lucide-react';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 /**
  * Reports Page - Trung Tâm Báo Cáo Điều Hành & Phân Tích Thông Minh (Mục 3.2 File 08)
  */
 export function ReportsPage() {
-  const reports = [
+  const { activeFarmType } = useActiveFarmStore();
+
+  const allReports = [
     {
+      id: 'dashboard',
       title: 'Báo Cáo Điều Hành Toàn Diện (Executive Dashboard)',
-      desc: 'Tổng hợp doanh thu, chi phí, biên lợi nhuận và hiệu suất canh tác trên từng ha đất.',
+      desc: 'Tổng hợp doanh thu, chi phí, biên lợi nhuận và hiệu suất vận hành toàn diện.',
       icon: TrendingUp,
       color: 'bg-emerald-50 text-emerald-600',
+      sector: 'ALL',
     },
     {
-      title: 'Báo Cáo Sản Xuất & Tỷ Lệ Thu Hồi Nông Sản',
-      desc: 'Sản lượng thực thu so với dự kiến, tỷ lệ phân loại Grade A/B và thời gian sinh trưởng.',
+      id: 'crop_pnl',
+      title: 'Giá Thành & Lợi Nhuận Vụ Mùa (Crop P&L)',
+      desc: 'Sản lượng thực thu, tỷ lệ phân loại Grade A/B, chi phí hạt giống - phân bón và biên lợi nhuận theo từng mùa vụ canh tác.',
       icon: BarChart3,
       color: 'bg-blue-50 text-blue-600',
+      sector: 'CROP',
     },
     {
+      id: 'livestock_fcr',
+      title: 'Tiêu Tốn Thức Ăn FCR & Tăng Trọng Chăn Nuôi',
+      desc: 'Hệ số chuyển đổi thức ăn (FCR), tốc độ tăng trọng bình quân ngày (ADG) và tỷ lệ hao hụt theo từng đàn/ô chuồng.',
+      icon: Calculator,
+      color: 'bg-purple-50 text-purple-600',
+      sector: 'LIVESTOCK',
+    },
+    {
+      id: 'inventory',
       title: 'Báo Cáo Biến Động Tồn Kho & Xuất Tiêu Hao FEFO',
       desc: 'Sổ cái kho thời gian thực, cảnh báo hạn dùng và vật tư vượt định mức BOM.',
       icon: Warehouse,
       color: 'bg-amber-50 text-amber-600',
+      sector: 'ALL',
     },
     {
-      title: 'Báo Cáo Phân Tích Cấu Thành Giá Thành (Unit Cost)',
-      desc: 'Biểu đồ tròn % chi phí vật tư, % nhân công trực tiếp, % khấu hao trên mỗi kg thành phẩm.',
-      icon: Calculator,
-      color: 'bg-purple-50 text-purple-600',
-    },
-    {
+      id: 'finance',
       title: 'Báo Cáo Tuổi Nợ & Dòng Tiền Thu Chi VietQR',
       desc: 'Phân loại tuổi nợ đối tác: trong hạn, quá hạn 1-30 ngày, 31-60 ngày và cấn trừ hai chiều.',
       icon: BadgeDollarSign,
       color: 'bg-rose-50 text-rose-600',
+      sector: 'ALL',
     },
   ];
+
+  const filteredReports = allReports.filter((rep) => {
+    if (activeFarmType === 'CROP' && rep.sector === 'LIVESTOCK') return false;
+    if (activeFarmType === 'LIVESTOCK' && rep.sector === 'CROP') return false;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -46,18 +65,29 @@ export function ReportsPage() {
             <BarChart3 className="h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">
-              Trung Tâm Báo Cáo Điều Hành & Phân Tích
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-black text-slate-900 tracking-tight">
+                Trung Tâm Báo Cáo Điều Hành & Phân Tích
+              </h1>
+              {activeFarmType && (
+                <span className="rounded-full bg-slate-100 text-slate-700 px-2.5 py-0.5 text-[10px] font-bold border border-slate-200">
+                  {activeFarmType === 'CROP'
+                    ? '🌾 Báo cáo Trồng Trọt'
+                    : activeFarmType === 'LIVESTOCK'
+                    ? '🐄 Báo cáo Chăn Nuôi'
+                    : '🌐 Báo cáo Toàn Diện'}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              5 Báo cáo quản trị số liệu chuyên sâu phục vụ Hội đồng quản trị và Ban giám đốc HTX
+              {filteredReports.length} Báo cáo quản trị số liệu chuyên sâu phục vụ Hội đồng quản trị và Ban giám đốc HTX
             </p>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {reports.map((rep, idx) => (
+        {filteredReports.map((rep, idx) => (
           <div
             key={idx}
             className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-xs hover:border-emerald-500 hover:shadow-md transition-all cursor-pointer group"

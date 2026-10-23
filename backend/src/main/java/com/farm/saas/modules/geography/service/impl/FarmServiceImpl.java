@@ -48,6 +48,9 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
     private final UserRepository userRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.farm.saas.common.codegenerator.CodeGenerator codeGenerator;
+
+    private static final Set<String> VALID_FARM_TYPES = Set.of("CROP", "LIVESTOCK", "MIXED");
 
     @Override
     @Transactional(readOnly = true)
@@ -125,8 +128,17 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
             }
         }
 
-        if (farmRepository.existsByTenantIdAndCode(tenantId, request.getCode())) {
-            throw new ApiException(HttpStatus.CONFLICT, "FARM_CODE_ALREADY_EXISTS", "Mã trang trại đã tồn tại trong hệ thống.");
+        String farmCode;
+        if (request.getCode() != null && !request.getCode().isBlank()) {
+            farmCode = request.getCode().trim().toUpperCase();
+            if (farmRepository.existsByTenantIdAndCode(tenantId, farmCode)) {
+                throw new ApiException(HttpStatus.CONFLICT, "FARM_CODE_ALREADY_EXISTS", "Mã trang trại đã tồn tại trong hệ thống.");
+            }
+        } else {
+            farmCode = codeGenerator.generateFarmCode();
+            while (farmRepository.existsByTenantIdAndCode(tenantId, farmCode)) {
+                farmCode = codeGenerator.generateFarmCode();
+            }
         }
 
         if (request.getGeofenceRadiusM() == null || request.getGeofenceRadiusM() <= 0) {
@@ -137,11 +149,16 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AREA_SIZE", "Tổng diện tích trang trại không hợp lệ.");
         }
 
+        String targetFarmType = request.getFarmType() != null ? request.getFarmType().trim().toUpperCase() : "";
+        if (!VALID_FARM_TYPES.contains(targetFarmType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FARM_TYPE", "Loại hình trang trại phải là CROP, LIVESTOCK hoặc MIXED.");
+        }
+
         Farm newFarm = Farm.builder()
                 .tenantId(tenantId)
-                .code(request.getCode().trim().toUpperCase())
+                .code(farmCode)
                 .name(request.getName().trim())
-                .farmType(request.getFarmType().toUpperCase())
+                .farmType(targetFarmType)
                 .totalAreaM2(request.getTotalAreaM2())
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
@@ -206,7 +223,18 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
         }
 
         farm.setName(request.getName().trim());
-        if (request.getFarmType() != null) farm.setFarmType(request.getFarmType().toUpperCase());
+        if (request.getFarmType() != null) {
+            String updatedFarmType = request.getFarmType().trim().toUpperCase();
+            if ("AQUACULTURE".equals(updatedFarmType)) {
+                updatedFarmType = "MIXED";
+            }
+            if (!VALID_FARM_TYPES.contains(updatedFarmType)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FARM_TYPE", "Loại hình trang trại phải là CROP, LIVESTOCK hoặc MIXED.");
+            }
+            farm.setFarmType(updatedFarmType);
+        } else if ("AQUACULTURE".equalsIgnoreCase(farm.getFarmType())) {
+            farm.setFarmType("MIXED");
+        }
         farm.setTotalAreaM2(request.getTotalAreaM2());
         farm.setLatitude(request.getLatitude());
         farm.setLongitude(request.getLongitude());
@@ -227,6 +255,44 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
                 .endpoint("/api/v1/farms/" + id)
                 .method("PUT")
                 .newValue("Updated farm: " + updatedFarm.getCode())
+                .build());
+
+        return enrichFarmDetail(updatedFarm);
+    }
+
+    @Override
+    @Transactional
+    public FarmDetailResponse updateFarmStatus(Long id, String status) {
+        Farm farm = findFarmAndCheckTenant(id);
+
+        if (status == null || status.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS", "Trạng thái trang trại không được để trống.");
+        }
+
+        String normalizedStatus = status.trim().toUpperCase();
+        if (!java.util.Set.of("ACTIVE", "INACTIVE", "MAINTENANCE").contains(normalizedStatus)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS", "Trạng thái trang trại phải là ACTIVE, INACTIVE hoặc MAINTENANCE.");
+        }
+
+        farm.setStatus(normalizedStatus);
+
+        if ("AQUACULTURE".equalsIgnoreCase(farm.getFarmType())) {
+            farm.setFarmType("MIXED");
+        }
+
+        farm.setUpdatedAt(Instant.now());
+        farm.setUpdatedBy(SecurityUtils.getCurrentUserId());
+
+        Farm updatedFarm = farmRepository.save(farm);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(farm.getTenantId())
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("UPDATE_FARM_STATUS")
+                .module("GEOGRAPHY")
+                .endpoint("/api/v1/farms/" + id + "/status")
+                .method("PATCH")
+                .newValue("Updated farm status to: " + normalizedStatus + " for farm: " + updatedFarm.getCode())
                 .build());
 
         return enrichFarmDetail(updatedFarm);

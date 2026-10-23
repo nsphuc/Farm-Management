@@ -63,4 +63,7 @@ public class UpdatePartnerRequest {
 
     @Size(max = 500, message = "Ghi chú tối đa 500 ký tự")
     private String notes;
+
+    @Pattern(regexp = "^(ACTIVE|INACTIVE|BLACKLISTED)$", message = "Trạng thái phải là ACTIVE, INACTIVE hoặc BLACKLISTED")
+    private String status;
 }

@@ -24,7 +24,7 @@ public class MaterialController {
     private final MaterialService materialService;
 
     @GetMapping("/api/v1/materials")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<Page<MaterialDetailResponse>> getMaterials(
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword,
@@ -33,19 +33,19 @@ public class MaterialController {
     }
 
     @GetMapping("/api/v1/materials/{id}")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<MaterialDetailResponse> getMaterialById(@PathVariable Long id) {
         return ResponseEntity.ok(materialService.getMaterialById(id));
     }
 
     @PostMapping("/api/v1/materials")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<MaterialDetailResponse> createMaterial(@Valid @RequestBody CreateMaterialRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(materialService.createMaterial(request));
     }
 
     @PutMapping("/api/v1/materials/{id}")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<MaterialDetailResponse> updateMaterial(
             @PathVariable Long id,
             @Valid @RequestBody UpdateMaterialRequest request) {
@@ -53,7 +53,7 @@ public class MaterialController {
     }
 
     @PostMapping("/api/v1/materials/{id}/conversions")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<MaterialDetailResponse> addConversion(
             @PathVariable Long id,
             @Valid @RequestBody CreateUnitConversionRequest request) {
@@ -62,7 +62,7 @@ public class MaterialController {
 
     // Unified Barcode Scanner
     @GetMapping("/api/v1/farms/{farmId}/materials/lookup-barcode")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<BarcodeLookupResponse> lookupBarcode(
             @PathVariable Long farmId,
             @RequestParam String code) {

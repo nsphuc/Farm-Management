@@ -98,6 +98,9 @@ public class LivestockAdgAndVetBackflushingIntegrationTest {
     @Autowired
     private WarehouseInventoryRepository inventoryRepository;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     private Long farmId;
     private Long warehouseId;
     private LivestockGroup testGroup;
@@ -121,7 +124,10 @@ public class LivestockAdgAndVetBackflushingIntegrationTest {
                         .status("ACTIVE")
                         .createdAt(Instant.now())
                         .build()));
+        farm.setManagerUserId(8L);
+        farmRepository.save(farm);
         this.farmId = farm.getId();
+        jdbcTemplate.update("INSERT IGNORE INTO user_farm_access (user_id, farm_id, tenant_id) VALUES (5, ?, 1), (8, ?, 1)", farmId, farmId);
 
         ProductionZone zone = zoneRepository.findByFarmIdAndCode(farmId, "BARN_PIG_01")
                 .orElseGet(() -> zoneRepository.save(ProductionZone.builder()
@@ -233,7 +239,7 @@ public class LivestockAdgAndVetBackflushingIntegrationTest {
                                 .build())
                 );
 
-        CustomUserDetails user = (CustomUserDetails) userDetailsService.loadUserByUsername("owner");
+        CustomUserDetails user = (CustomUserDetails) userDetailsService.loadUserByUsername("tech");
         this.token = jwtTokenProvider.generateAccessToken(user);
     }
 

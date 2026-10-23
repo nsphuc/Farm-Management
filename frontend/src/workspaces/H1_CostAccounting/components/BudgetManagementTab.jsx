@@ -20,10 +20,15 @@ import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import { Can } from '@/components/common/Can';
 import { BudgetApprovalModal } from './BudgetApprovalModal';
 
 export function BudgetManagementTab() {
   const { activeFarmId, activeFarm, farms, syncTrigger, notifyDataChanged } = useActiveFarmStore();
+  const { isOwner, isFarmManager } = useAuthStore();
+  const owner = isOwner();
+  const manager = isFarmManager();
 
   const isAllFarms = !activeFarmId || activeFarmId === 'ALL';
   const queryFarmId = isAllFarms ? undefined : Number(activeFarmId);
@@ -224,14 +229,17 @@ export function BudgetManagementTab() {
           </Button>
 
           {row.status !== 'ACTIVE' && (
-            <Button
-              size="xs"
-              variant="primary"
-              icon={<CheckCircle2 className="h-3 w-3" />}
-              onClick={() => handleApproveBudget(row)}
-            >
-              Phê Duyệt
-            </Button>
+            <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
+              <Button
+                size="xs"
+                variant="primary"
+                icon={<CheckCircle2 className="h-3 w-3" />}
+                onClick={() => handleApproveBudget(row)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              >
+                Phê Duyệt
+              </Button>
+            </Can>
           )}
         </div>
       ),
@@ -246,18 +254,31 @@ export function BudgetManagementTab() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-            <span>Quản Trị & Phê Duyệt Hạn Mức Ngân Sách Đầu Kỳ Cho Trang Trại</span>
-            <span className="rounded-full bg-blue-100 text-blue-900 px-2.5 py-0.5 text-[10px] font-bold border border-blue-200">
-              Đặc Quyền Owner
+            <span>
+              {manager
+                ? 'Theo Dõi Hạn Mức Ngân Sách Cấp Vốn Cho Trang Trại (#69)'
+                : 'Quản Trị & Phê Duyệt Hạn Mức Ngân Sách Đầu Kỳ Cho Trang Trại'}
             </span>
-            {!isAllFarms && (
+            {owner && (
+              <span className="rounded-full bg-blue-100 text-blue-900 px-2.5 py-0.5 text-[10px] font-bold border border-blue-200">
+                Đặc Quyền Owner
+              </span>
+            )}
+            {manager && (
               <span className="rounded-full bg-emerald-100 text-emerald-900 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-300">
+                Giám Đốc Trại
+              </span>
+            )}
+            {!isAllFarms && (
+              <span className="rounded-full bg-slate-100 text-slate-800 px-2.5 py-0.5 text-[10px] font-bold border border-slate-200">
                 {currentFarmName}
               </span>
             )}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Phê duyệt trần chi tiêu cho 5 nhóm chi phí. Kế toán trại không được phép chi tiêu vượt hạn mức này.
+            {manager
+              ? 'Theo dõi số vốn Owner đã cấp cho trại, tỷ lệ giải ngân thực tế và nhận cảnh báo sớm khi chạm ngưỡng 85%.'
+              : 'Phê duyệt trần chi tiêu cho 5 nhóm chi phí. Kế toán trại không được phép chi tiêu vượt hạn mức này.'}
           </p>
         </div>
 
@@ -272,15 +293,29 @@ export function BudgetManagementTab() {
             Làm Mới
           </Button>
 
-          {/* NÚT CẤP / DUYỆT NGÂN SÁCH CHU KỲ CHO TRANG TRẠI */}
-          <Button
-            variant="primary"
-            size="sm"
-            icon={<Plus className="h-4 w-4" />}
-            onClick={() => setIsApprovalModalOpen(true)}
-          >
-            + Cấp / Duyệt Ngân Sách Chu Kỳ
-          </Button>
+          {/* NÚT LẬP DỰ TOÁN NGÂN SÁCH DÀNH CHO KẾ TOÁN (MAKER) */}
+          <Can permission="PERM_FINANCE_EXPENSE" role="ROLE_ACCOUNTANT">
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => setIsApprovalModalOpen(true)}
+            >
+              + Lập Dự Toán Ngân Sách
+            </Button>
+          </Can>
+
+          {/* NÚT CẤP / DUYỆT NGÂN SÁCH DÀNH CHO CHECKER (FARM MANAGER & OWNER) */}
+          <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={() => setIsApprovalModalOpen(true)}
+            >
+              + Cấp / Duyệt Ngân Sách
+            </Button>
+          </Can>
         </div>
       </div>
 

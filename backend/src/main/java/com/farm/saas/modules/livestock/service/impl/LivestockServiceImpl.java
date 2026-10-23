@@ -164,6 +164,24 @@ public class LivestockServiceImpl implements LivestockService {
         return mapToGroupDetailResponse(group);
     }
 
+    @Override
+    @Transactional
+    public LivestockGroupDetailResponse closeGroup(Long farmId, Long id) {
+        LivestockGroup group = findGroupOrThrow(farmId, id);
+        if ("SOLD".equalsIgnoreCase(group.getStatus()) || "CULLED".equalsIgnoreCase(group.getStatus())) {
+            throw new BusinessException("GROUP_ALREADY_CLOSED", "Đàn nuôi đã ở trạng thái kết thúc: " + group.getStatus());
+        }
+        group.setStatus("SOLD");
+        group.setCurrentQuantity(0);
+        group.setUpdatedAt(Instant.now());
+        group.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        group = livestockGroupRepository.save(group);
+
+        farmTaskService.cancelPendingRoutineTasksForZone(farmId, group.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+        log.info("Closed / sold livestock group id={} on farmId={}", group.getId(), farmId);
+        return mapToGroupDetailResponse(group);
+    }
+
     // ==========================================
     // 2. LIVESTOCK INDIVIDUALS
     // ==========================================
@@ -362,6 +380,30 @@ public class LivestockServiceImpl implements LivestockService {
                 .notes(logEntry.getNotes())
                 .createdAt(logEntry.getCreatedAt())
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WeightLogDetailResponse> getGroupWeightLogs(Long farmId, Long groupId) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        List<LivestockWeightLog> logs = livestockWeightLogRepository.findByGroupIdOrderByRecordDateDescCreatedAtDesc(groupId);
+        String groupCode = livestockGroupRepository.findById(groupId).map(LivestockGroup::getGroupCode).orElse(null);
+
+        return logs.stream()
+                .filter(l -> tenantId == null || tenantId.equals(l.getTenantId()))
+                .map(l -> WeightLogDetailResponse.builder()
+                        .id(l.getId())
+                        .farmId(l.getFarmId())
+                        .targetType(l.getTargetType())
+                        .groupId(l.getGroupId())
+                        .groupCode(groupCode)
+                        .recordDate(l.getRecordDate())
+                        .weightKg(l.getWeightKg())
+                        .notes(l.getNotes())
+                        .recordedByUserId(l.getRecordedByUserId())
+                        .createdAt(l.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     // ==========================================
@@ -810,5 +852,35 @@ public class LivestockServiceImpl implements LivestockService {
                 .supplies(supplies)
                 .createdAt(event.getCreatedAt())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void deleteGroup(Long farmId, Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        LivestockGroup group = livestockGroupRepository.findById(id)
+                .filter(g -> Objects.equals(g.getFarmId(), farmId))
+                .filter(g -> tenantId == null || Objects.equals(g.getTenantId(), tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("LivestockGroup", id));
+
+        group.setStatus("SOLD");
+        group.setUpdatedAt(Instant.now());
+        group.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        livestockGroupRepository.save(group);
+    }
+
+    @Override
+    @Transactional
+    public void deleteIndividual(Long farmId, Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        LivestockIndividual ind = livestockIndividualRepository.findById(id)
+                .filter(i -> Objects.equals(i.getFarmId(), farmId))
+                .filter(i -> tenantId == null || Objects.equals(i.getTenantId(), tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("LivestockIndividual", id));
+
+        ind.setHealthStatus("CULLED");
+        ind.setUpdatedAt(Instant.now());
+        ind.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        livestockIndividualRepository.save(ind);
     }
 }

@@ -4,6 +4,7 @@ import com.farm.saas.common.audit.AuditTrailEvent;
 import com.farm.saas.common.exception.ApiException;
 import com.farm.saas.common.exception.InsufficientStockException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
+import com.farm.saas.common.security.CustomUserDetails;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.finance.entity.DebtRecord;
 import com.farm.saas.modules.finance.repository.DebtRecordRepository;
@@ -59,6 +60,24 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     private final DebtRecordRepository debtRecordRepository;
     private final ApplicationEventPublisher eventPublisher;
 
+    private void applyFarmAccessPredicate(Long farmId, jakarta.persistence.criteria.Root<?> root,
+                                          jakarta.persistence.criteria.CriteriaBuilder cb,
+                                          List<Predicate> predicates) {
+        if (farmId != null && farmId > 0) {
+            predicates.add(cb.equal(root.get("farmId"), farmId));
+        } else {
+            CustomUserDetails user = SecurityUtils.getCurrentUser();
+            if (user != null && !user.hasRole("ROLE_FARM_OWNER") && !user.isSuperAdmin()) {
+                Set<Long> accessible = SecurityUtils.getCurrentAccessibleFarmIds();
+                if (accessible == null || accessible.isEmpty()) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(root.get("farmId").in(accessible));
+                }
+            }
+        }
+    }
+
     // =========================================================================
     // 1. QUERY INVENTORY & LEDGER
     // =========================================================================
@@ -73,9 +92,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         Specification<WarehouseInventory> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            if (farmId != null) {
-                predicates.add(cb.equal(root.get("farmId"), farmId));
-            }
+            applyFarmAccessPredicate(farmId, root, cb, predicates);
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
@@ -112,9 +129,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         // 1. Tồn kho
         Specification<WarehouseInventory> invSpec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            if (farmId != null) {
-                predicates.add(cb.equal(root.get("farmId"), farmId));
-            }
+            applyFarmAccessPredicate(farmId, root, cb, predicates);
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
@@ -147,9 +162,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         // 2. Tổng giá trị nhập mua (trừ phiếu CANCELLED)
         Specification<WarehouseReceipt> receiptSpec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            if (farmId != null) {
-                predicates.add(cb.equal(root.get("farmId"), farmId));
-            }
+            applyFarmAccessPredicate(farmId, root, cb, predicates);
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
@@ -183,9 +196,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         Specification<WarehouseInventoryTransaction> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            if (farmId != null) {
-                predicates.add(cb.equal(root.get("farmId"), farmId));
-            }
+            applyFarmAccessPredicate(farmId, root, cb, predicates);
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
@@ -334,9 +345,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         Specification<WarehouseReceipt> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            if (farmId != null) {
-                predicates.add(cb.equal(root.get("farmId"), farmId));
-            }
+            applyFarmAccessPredicate(farmId, root, cb, predicates);
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
@@ -643,9 +652,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         Specification<WarehouseIssue> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            if (farmId != null) {
-                predicates.add(cb.equal(root.get("farmId"), farmId));
-            }
+            applyFarmAccessPredicate(farmId, root, cb, predicates);
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
@@ -875,7 +882,20 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Transactional(readOnly = true)
     public Page<WarehouseTransferDetailResponse> getTransfers(Long farmId, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
-        return transferRepository.findByFarmId(tenantId, farmId, pageable)
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        if (farmId != null && farmId > 0) {
+            return transferRepository.findByFarmId(tenantId, farmId, pageable)
+                    .map(this::enrichTransferDetail);
+        }
+        if (user != null && (user.hasRole("ROLE_FARM_OWNER") || user.isSuperAdmin())) {
+            return transferRepository.findByTenantIdOrderByCreatedAtDesc(tenantId, pageable)
+                    .map(this::enrichTransferDetail);
+        }
+        Set<Long> accessible = SecurityUtils.getCurrentAccessibleFarmIds();
+        if (accessible == null || accessible.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return transferRepository.findByFarmIds(tenantId, accessible, pageable)
                 .map(this::enrichTransferDetail);
     }
 
@@ -1115,15 +1135,33 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Transactional(readOnly = true)
     public Page<StocktakeDetailResponse> getStocktakes(Long farmId, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
-        return stocktakeRepository.findByTenantIdAndFarmIdOrderByCreatedAtDesc(tenantId, farmId, pageable)
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        if (farmId != null && farmId > 0) {
+            return stocktakeRepository.findByTenantIdAndFarmIdOrderByCreatedAtDesc(tenantId, farmId, pageable)
+                    .map(this::enrichStocktakeDetail);
+        }
+        if (user != null && (user.hasRole("ROLE_FARM_OWNER") || user.isSuperAdmin())) {
+            return stocktakeRepository.findByTenantIdOrderByCreatedAtDesc(tenantId, pageable)
+                    .map(this::enrichStocktakeDetail);
+        }
+        Set<Long> accessible = SecurityUtils.getCurrentAccessibleFarmIds();
+        if (accessible == null || accessible.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return stocktakeRepository.findByTenantIdAndFarmIdInOrderByCreatedAtDesc(tenantId, accessible, pageable)
                 .map(this::enrichStocktakeDetail);
     }
 
     @Override
     @Transactional(readOnly = true)
     public StocktakeDetailResponse getStocktakeById(Long farmId, Long id) {
-        Stocktake stocktake = stocktakeRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Đợt kiểm kê", id));
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Stocktake stocktake = (farmId != null && farmId > 0)
+                ? stocktakeRepository.findByFarmIdAndId(farmId, id)
+                        .orElseThrow(() -> new ResourceNotFoundException("Đợt kiểm kê", id))
+                : stocktakeRepository.findById(id)
+                        .filter(s -> s.getTenantId().equals(tenantId))
+                        .orElseThrow(() -> new ResourceNotFoundException("Đợt kiểm kê", id));
         return enrichStocktakeDetail(stocktake);
     }
 

@@ -24,7 +24,9 @@ public class CodeGenerator {
     }
 
     public String generateFarmCode() {
-        return generateCode("FRM-");
+        int part1 = (int) (Math.random() * 9000) + 1000;
+        int part2 = (int) (Math.random() * 9000) + 1000;
+        return String.format("FRM-%04d-%04d", part1, part2);
     }
 
     public String generateZoneCode() {

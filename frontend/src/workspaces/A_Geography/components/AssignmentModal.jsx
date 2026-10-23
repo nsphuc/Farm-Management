@@ -125,6 +125,11 @@ export function AssignmentModal({
       errors.selectedZoneId = 'Vai trò Trưởng Phân Khu bắt buộc phải chọn phân khu phụ trách';
     }
 
+    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) {
+      setGeneralError('Vui lòng chọn trang trại cụ thể để thực hiện phân công');
+      return;
+    }
+
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return;

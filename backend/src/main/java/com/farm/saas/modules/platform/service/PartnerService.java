@@ -22,4 +22,6 @@ public interface PartnerService {
     PartnerResponse updatePartner(Long id, UpdatePartnerRequest request);
 
     PartnerResponse updatePartnerStatus(Long id, UpdatePartnerStatusRequest request);
+
+    void deletePartner(Long id);
 }

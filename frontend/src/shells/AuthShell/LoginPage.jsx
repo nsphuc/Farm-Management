@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { FormField, Input } from '@/components/ui/FormControls';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { toast } from '@/store/useToastStore';
 
 /**
  * LoginPage Component (Mục 1.1.1 File 08 & Nhiệm vụ 3)
@@ -79,6 +80,7 @@ export function LoginPage() {
         err.response?.data?.message ||
         'Tên đăng nhập hoặc mật khẩu không chính xác. Vui lòng thử lại!';
       setServerError(errorMsg);
+      toast.error(errorMsg);
     }
   };
 
