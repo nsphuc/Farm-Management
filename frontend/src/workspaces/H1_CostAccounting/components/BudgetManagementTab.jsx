@@ -12,6 +12,7 @@ import {
   Eye,
   FileCheck,
   TrendingUp,
+  XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
@@ -22,6 +23,7 @@ import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Can } from '@/components/common/Can';
+import { toast } from '@/store/useToastStore';
 import { BudgetApprovalModal } from './BudgetApprovalModal';
 
 export function BudgetManagementTab() {
@@ -64,18 +66,43 @@ export function BudgetManagementTab() {
 
   useEffect(() => {
     fetchBudgets();
-  }, [activeFarmId, syncTrigger?.finance]);
+  }, [
+    activeFarmId,
+    syncTrigger?.expenses,
+    syncTrigger?.finance,
+    syncTrigger?.inventory,
+    syncTrigger?.farming,
+    syncTrigger?.all,
+  ]);
 
   // Phê duyệt nhanh ngân sách (chuyển sang ACTIVE)
   const handleApproveBudget = async (budget) => {
     try {
       setIsLoading(true);
       await financeService.updateBudgetStatus(budget.id, 'ACTIVE', budget.farmId);
+      toast.success('Đã phê duyệt kế hoạch ngân sách thành công! Trạng thái chuyển sang ACTIVE.');
       await fetchBudgets();
       notifyDataChanged?.('finance');
     } catch (err) {
       console.error('Failed to approve budget:', err);
-      alert('Không thể phê duyệt ngân sách: ' + (err?.response?.data?.message || err.message));
+      toast.error('Không thể phê duyệt ngân sách: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Từ chối / Yêu cầu chỉnh sửa ngân sách (chuyển sang REVISED)
+  const handleRejectBudget = async (budget) => {
+    if (!window.confirm(`Xác nhận từ chối / yêu cầu lập lại kế hoạch ngân sách ${budget.name}? Trạng thái sẽ chuyển sang REVISED.`)) return;
+    try {
+      setIsLoading(true);
+      await financeService.rejectBudget(budget.farmId, budget.id, 'REVISED');
+      toast.success('Đã từ chối kế hoạch ngân sách! Yêu cầu chỉnh sửa (REVISED) đã được ghi nhận.');
+      await fetchBudgets();
+      notifyDataChanged?.('finance');
+    } catch (err) {
+      console.error('Failed to reject budget:', err);
+      toast.error('Không thể từ chối ngân sách: ' + (err?.response?.data?.message || err.message));
     } finally {
       setIsLoading(false);
     }
@@ -194,11 +221,19 @@ export function BudgetManagementTab() {
             </span>
           );
         }
-        if (row.status === 'PENDING') {
+        if (row.status === 'PENDING' || row.status === 'DRAFT') {
           return (
             <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2.5 py-0.5 text-[11px] font-bold border border-amber-300">
               <AlertTriangle className="h-3 w-3 text-amber-600" />
-              <span>Chờ Phê Duyệt</span>
+              <span>⏳ Chờ Phê Duyệt</span>
+            </span>
+          );
+        }
+        if (row.status === 'REVISED') {
+          return (
+            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 px-2.5 py-0.5 text-[11px] font-bold border border-rose-300">
+              <XCircle className="h-3 w-3 text-rose-600" />
+              <span>Yêu Cầu Lập Lại (REVISED)</span>
             </span>
           );
         }
@@ -213,7 +248,7 @@ export function BudgetManagementTab() {
       key: 'actions',
       header: 'Thao Tác',
       align: 'center',
-      width: '180px',
+      width: '210px',
       render: (row) => (
         <div className="flex items-center justify-center gap-1.5">
           <Button
@@ -230,15 +265,28 @@ export function BudgetManagementTab() {
 
           {row.status !== 'ACTIVE' && (
             <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
-              <Button
-                size="xs"
-                variant="primary"
-                icon={<CheckCircle2 className="h-3 w-3" />}
-                onClick={() => handleApproveBudget(row)}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-              >
-                Phê Duyệt
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="xs"
+                  variant="primary"
+                  icon={<CheckCircle2 className="h-3 w-3" />}
+                  onClick={() => handleApproveBudget(row)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  title="Phê duyệt ngân sách (ACTIVE)"
+                >
+                  ✔️ Phê Duyệt
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  icon={<XCircle className="h-3 w-3" />}
+                  onClick={() => handleRejectBudget(row)}
+                  className="text-rose-600 hover:bg-rose-50 border-rose-200 font-semibold"
+                  title="Từ chối / Yêu cầu chỉnh sửa (REVISED)"
+                >
+                  🚫 Từ Chối
+                </Button>
+              </div>
             </Can>
           )}
         </div>
@@ -293,8 +341,8 @@ export function BudgetManagementTab() {
             Làm Mới
           </Button>
 
-          {/* NÚT LẬP DỰ TOÁN NGÂN SÁCH DÀNH CHO KẾ TOÁN (MAKER) */}
-          <Can permission="PERM_FINANCE_EXPENSE" role="ROLE_ACCOUNTANT">
+          {/* NÚT LẬP DỰ TOÁN NGÂN SÁCH DÀNH CHO KẾ TOÁN VÀ GIÁM ĐỐC TRẠI (MAKER) */}
+          <Can permission="PERM_FINANCE_EXPENSE" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
             <Button
               variant="outline"
               size="sm"

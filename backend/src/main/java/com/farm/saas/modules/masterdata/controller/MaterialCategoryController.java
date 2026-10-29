@@ -21,7 +21,7 @@ public class MaterialCategoryController {
     private final MaterialService materialService;
 
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')")
     public ResponseEntity<List<MaterialCategoryResponse>> getCategories() {
         return ResponseEntity.ok(materialService.getCategories());
     }
@@ -33,10 +33,17 @@ public class MaterialCategoryController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<MaterialCategoryResponse> updateCategory(
             @PathVariable Long id,
             @Valid @RequestBody UpdateMaterialCategoryRequest request) {
         return ResponseEntity.ok(materialService.updateCategory(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_INVENTORY_RECEIPT', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    public ResponseEntity<Void> deleteCategory(@PathVariable Long id) {
+        materialService.deleteCategory(id);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -21,4 +21,6 @@ public interface CropSeasonRepository extends JpaRepository<CropSeason, Long>, J
     boolean existsByTenantIdAndFarmIdAndSeasonCode(Long tenantId, Long farmId, String seasonCode);
     java.util.List<CropSeason> findByFarmId(Long farmId);
     java.util.List<CropSeason> findByTenantId(Long tenantId);
+    boolean existsByCropTypeId(Long cropTypeId);
+    boolean existsByOperationalCycleId(Long operationalCycleId);
 }

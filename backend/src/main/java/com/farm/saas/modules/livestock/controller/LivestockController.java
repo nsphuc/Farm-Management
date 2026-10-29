@@ -29,7 +29,7 @@ public class LivestockController {
     // ==========================================
 
     @GetMapping("/livestock-groups")
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_LIVESTOCK_VIEW', 'PERM_INVENTORY_ISSUE', 'PERM_INVENTORY_VIEW', 'PERM_HARVEST_MANAGE', 'PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Danh sách đàn nuôi", description = "Lấy danh sách các đàn nuôi có phân trang và lọc theo trạng thái")
     public ResponseEntity<Page<LivestockGroupDetailResponse>> getGroups(
             @PathVariable Long farmId,
@@ -39,7 +39,7 @@ public class LivestockController {
     }
 
     @GetMapping("/livestock-groups/{id}")
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_LIVESTOCK_VIEW', 'PERM_INVENTORY_ISSUE', 'PERM_INVENTORY_VIEW', 'PERM_HARVEST_MANAGE', 'PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Chi tiết đàn nuôi", description = "Lấy thông tin chi tiết đàn nuôi, hạn cách ly thuốc và chi phí tích lũy")
     public ResponseEntity<LivestockGroupDetailResponse> getGroupById(
             @PathVariable Long farmId,
@@ -90,7 +90,7 @@ public class LivestockController {
     // ==========================================
 
     @GetMapping("/livestock-individuals")
-    @PreAuthorize("(hasAuthority('PERM_LIVESTOCK_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_LIVESTOCK_VIEW', 'PERM_LIVESTOCK_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Danh sách cá thể RFID", description = "Lấy danh sách cá thể gắn thẻ RFID, lọc theo đàn hoặc sức khỏe")
     public ResponseEntity<Page<LivestockIndividualDetailResponse>> getIndividuals(
             @PathVariable Long farmId,
@@ -119,7 +119,7 @@ public class LivestockController {
     }
 
     @PutMapping("/livestock-individuals/{id}")
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Cập nhật cá thể RFID", description = "Cập nhật cân nặng, tình trạng sức khỏe hoặc chuồng nuôi")
     public ResponseEntity<LivestockIndividualDetailResponse> updateIndividual(
             @PathVariable Long farmId,

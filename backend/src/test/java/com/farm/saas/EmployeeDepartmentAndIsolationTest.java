@@ -61,6 +61,10 @@ public class EmployeeDepartmentAndIsolationTest {
         var employeeRepository = org.mockito.Mockito.mock(com.farm.saas.modules.hr.repository.EmployeeRepository.class);
         var eventPublisher = org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class);
 
+        var cropSeasonRepository = org.mockito.Mockito.mock(com.farm.saas.modules.crop.repository.CropSeasonRepository.class);
+        var livestockGroupRepository = org.mockito.Mockito.mock(com.farm.saas.modules.livestock.repository.LivestockGroupRepository.class);
+        var budgetRepository = org.mockito.Mockito.mock(com.farm.saas.modules.finance.repository.BudgetRepository.class);
+
         var farmOpsService = new com.farm.saas.modules.geography.service.impl.FarmOperationsServiceImpl(
                 farmRepository,
                 productionZoneRepository,
@@ -70,6 +74,9 @@ public class EmployeeDepartmentAndIsolationTest {
                 userFarmAccessRepository,
                 userRepository,
                 employeeRepository,
+                cropSeasonRepository,
+                livestockGroupRepository,
+                budgetRepository,
                 eventPublisher
         );
 
@@ -249,6 +256,112 @@ public class EmployeeDepartmentAndIsolationTest {
             // Xác minh user_farm_access được cấp
             org.mockito.Mockito.verify(userFarmAccessRepo, org.mockito.Mockito.times(1))
                     .save(org.mockito.Mockito.argThat(ufa -> Long.valueOf(5L).equals(ufa.getUserId()) && Long.valueOf(10L).equals(ufa.getFarmId())));
+
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
+    @DisplayName("Kiểm thử WS-B thôi việc (RESIGNED/TERMINATED): Vô hiệu hóa toàn bộ phân công WS-A và gỡ bỏ Quản lý trang trại")
+    void testEmployeeResignationClearsAssignmentsAndManagerRole() {
+        var empRepo = org.mockito.Mockito.mock(com.farm.saas.modules.hr.repository.EmployeeRepository.class);
+        var farmRepo = org.mockito.Mockito.mock(com.farm.saas.modules.geography.repository.FarmRepository.class);
+        var productionZoneRepo = org.mockito.Mockito.mock(com.farm.saas.modules.geography.repository.ProductionZoneRepository.class);
+        var userRepo = org.mockito.Mockito.mock(com.farm.saas.modules.auth.repository.UserRepository.class);
+        var roleRepo = org.mockito.Mockito.mock(com.farm.saas.modules.auth.repository.RoleRepository.class);
+        var userRoleRepo = org.mockito.Mockito.mock(com.farm.saas.modules.auth.repository.UserRoleRepository.class);
+        var userFarmAccessRepo = org.mockito.Mockito.mock(com.farm.saas.modules.geography.repository.UserFarmAccessRepository.class);
+        var farmAssignmentRepo = org.mockito.Mockito.mock(com.farm.saas.modules.geography.repository.FarmAssignmentRepository.class);
+        var subRepo = org.mockito.Mockito.mock(com.farm.saas.modules.platform.repository.TenantSubscriptionRepository.class);
+        var passwordEncoder = org.mockito.Mockito.mock(org.springframework.security.crypto.password.PasswordEncoder.class);
+
+        var service = new com.farm.saas.modules.hr.service.impl.EmployeeServiceImpl(
+                empRepo, farmRepo, productionZoneRepo, userRepo, roleRepo, userRoleRepo, userFarmAccessRepo, farmAssignmentRepo, subRepo, passwordEncoder
+        );
+
+        var auth = org.mockito.Mockito.mock(org.springframework.security.core.Authentication.class);
+        var userDetails = org.mockito.Mockito.mock(com.farm.saas.common.security.CustomUserDetails.class);
+        org.mockito.Mockito.when(userDetails.getTenantId()).thenReturn(1L);
+        org.mockito.Mockito.when(userDetails.getId()).thenReturn(2L);
+        org.mockito.Mockito.when(userDetails.isSuperAdmin()).thenReturn(false);
+        org.mockito.Mockito.when(userDetails.hasAnyRole("ROLE_SUPER_ADMIN", "ROLE_FARM_OWNER", "ROLE_ACCOUNTANT")).thenReturn(true);
+        org.mockito.Mockito.when(auth.getPrincipal()).thenReturn(userDetails);
+        org.mockito.Mockito.when(auth.isAuthenticated()).thenReturn(true);
+
+        var secContext = org.mockito.Mockito.mock(org.springframework.security.core.context.SecurityContext.class);
+        org.mockito.Mockito.when(secContext.getAuthentication()).thenReturn(auth);
+        org.springframework.security.core.context.SecurityContextHolder.setContext(secContext);
+
+        try {
+            // Nhân viên ID 50, User ID 70 đang làm Giám đốc tại Farm 10
+            com.farm.saas.modules.hr.entity.Employee emp = com.farm.saas.modules.hr.entity.Employee.builder()
+                    .id(50L)
+                    .tenantId(1L)
+                    .farmId(10L)
+                    .userId(70L)
+                    .employeeCode("EMP-RESIGN-01")
+                    .fullName("Nguyễn Thôi Việc")
+                    .position("FARM_MANAGER")
+                    .department("Ban Quản Lý Trang Trại")
+                    .status("ACTIVE")
+                    .joinedDate(java.time.LocalDate.now().minusYears(1))
+                    .dateOfBirth(java.time.LocalDate.of(1990, 1, 1))
+                    .contractType("FULL_TIME")
+                    .baseSalary(new java.math.BigDecimal("15000000"))
+                    .hourlyRate(new java.math.BigDecimal("75000"))
+                    .annualLeaveQuota(new java.math.BigDecimal("12"))
+                    .build();
+            org.mockito.Mockito.when(empRepo.findById(50L)).thenReturn(java.util.Optional.of(emp));
+            org.mockito.Mockito.when(empRepo.save(org.mockito.Mockito.any(com.farm.saas.modules.hr.entity.Employee.class)))
+                    .thenAnswer(inv -> inv.getArgument(0));
+
+            // Farm 10 có manager_user_id = 70
+            com.farm.saas.modules.geography.entity.Farm farm10 = com.farm.saas.modules.geography.entity.Farm.builder()
+                    .id(10L)
+                    .tenantId(1L)
+                    .name("Trang Trại Thử Nghiệm")
+                    .managerUserId(70L)
+                    .status("ACTIVE")
+                    .build();
+            org.mockito.Mockito.when(farmRepo.findById(10L)).thenReturn(java.util.Optional.of(farm10));
+            org.mockito.Mockito.when(farmRepo.findAll()).thenReturn(java.util.List.of(farm10));
+
+            // Phân công đang hoạt động trong WS-A
+            com.farm.saas.modules.geography.entity.FarmAssignment fa = com.farm.saas.modules.geography.entity.FarmAssignment.builder()
+                    .id(101L)
+                    .tenantId(1L)
+                    .farmId(10L)
+                    .userId(70L)
+                    .roleInFarm("FARM_MANAGER")
+                    .assignedFrom(java.time.LocalDate.now().minusMonths(6))
+                    .isActive(true)
+                    .build();
+            org.mockito.Mockito.when(farmAssignmentRepo.findByUserIdAndIsActiveTrue(70L)).thenReturn(java.util.List.of(fa));
+            org.mockito.Mockito.when(farmAssignmentRepo.findByUserIdAndIsActiveTrue(50L)).thenReturn(java.util.Collections.emptyList());
+
+            // Yêu cầu thôi việc (RESIGNED)
+            com.farm.saas.modules.hr.dto.request.UpdateEmployeeRequest req = com.farm.saas.modules.hr.dto.request.UpdateEmployeeRequest.builder()
+                    .fullName("Nguyễn Thôi Việc")
+                    .position("FARM_MANAGER")
+                    .status("RESIGNED")
+                    .contractType("FULL_TIME")
+                    .build();
+
+            service.updateEmployee(50L, req);
+
+            // 1. Trạng thái nhân viên chuyển thành RESIGNED
+            assertEquals("RESIGNED", emp.getStatus());
+
+            // 2. ManagerUserId tại Farm 10 được giải phóng về null
+            assertEquals(null, farm10.getManagerUserId());
+            org.mockito.Mockito.verify(farmRepo, org.mockito.Mockito.atLeastOnce())
+                    .save(org.mockito.Mockito.argThat(f -> f.getManagerUserId() == null));
+
+            // 3. Phân công trong WS-A (farm_assignments) bị vô hiệu hóa isActive = false
+            assertEquals(false, fa.getIsActive());
+            org.mockito.Mockito.verify(farmAssignmentRepo, org.mockito.Mockito.atLeastOnce())
+                    .save(org.mockito.Mockito.argThat(a -> Boolean.FALSE.equals(a.getIsActive())));
 
         } finally {
             org.springframework.security.core.context.SecurityContextHolder.clearContext();

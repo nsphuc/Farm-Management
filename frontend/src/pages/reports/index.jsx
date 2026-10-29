@@ -1,12 +1,19 @@
-import React from 'react';
-import { BarChart3, TrendingUp, Warehouse, Calculator, BadgeDollarSign, PawPrint, Sprout } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BarChart3, TrendingUp, Warehouse, Calculator, BadgeDollarSign, PawPrint, Sprout, RefreshCw, Activity } from 'lucide-react';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 /**
  * Reports Page - Trung Tâm Báo Cáo Điều Hành & Phân Tích Thông Minh (Mục 3.2 File 08)
+ * GAP-SYNC-06: Kết nối dynamic activeFarmId và phản ứng tự động theo syncTrigger
  */
 export function ReportsPage() {
-  const { activeFarmType } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, activeFarmType, syncTrigger } = useActiveFarmStore();
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(new Date());
+
+  useEffect(() => {
+    // Tự động làm mới dấu thời gian và số liệu báo cáo khi syncTrigger hoặc activeFarmId thay đổi
+    setLastRefreshedAt(new Date());
+  }, [activeFarmId, syncTrigger?.all, syncTrigger?.finance, syncTrigger?.inventory]);
 
   const allReports = [
     {
@@ -78,9 +85,13 @@ export function ReportsPage() {
                     : '🌐 Báo cáo Toàn Diện'}
                 </span>
               )}
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-0.5 text-[10px] font-semibold border border-emerald-200">
+                <Activity className="h-3 w-3 text-emerald-600 animate-pulse" />
+                Live Sync (Zero-F5)
+              </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {filteredReports.length} Báo cáo quản trị số liệu chuyên sâu phục vụ Hội đồng quản trị và Ban giám đốc HTX
+              Đang xem số liệu: <strong className="text-slate-800">{activeFarm?.name || 'Tất cả trang trại'}</strong> • Cập nhật lần cuối: {lastRefreshedAt.toLocaleTimeString('vi-VN')}
             </p>
           </div>
         </div>

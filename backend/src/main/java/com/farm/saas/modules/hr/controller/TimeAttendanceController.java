@@ -55,7 +55,7 @@ public class TimeAttendanceController {
     }
 
     @GetMapping
-    @PreAuthorize("(hasAuthority('PERM_HR_ATTENDANCE') or hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_HR_ATTENDANCE') or hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAuthority('PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<List<TimeAttendanceDetailResponse>> getAttendances(
             @RequestParam Long farmId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate workDate) {
@@ -63,7 +63,7 @@ public class TimeAttendanceController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_HR_ATTENDANCE', 'PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
+    @PreAuthorize("hasAnyAuthority('PERM_HR_ATTENDANCE', 'PERM_HR_EMPLOYEE_MANAGE', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<TimeAttendanceDetailResponse> getAttendanceById(@PathVariable Long id) {
         return ResponseEntity.ok(timeAttendanceService.getAttendanceById(id));
     }

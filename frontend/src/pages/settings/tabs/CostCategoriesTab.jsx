@@ -17,6 +17,7 @@ import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 const COST_TYPES = [
   { value: 'MATERIALS', label: 'MATERIALS - Chi phí Vật tư trực tiếp (621)' },
@@ -116,6 +117,8 @@ export function CostCategoriesTab() {
 
       setModalOpen(false);
       fetchData();
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
+      useActiveFarmStore.getState().notifyDataChanged?.('finance');
     } catch (err) {
       const errMsg = applyServerFieldErrors(err, setFieldErrors);
       setGeneralError(errMsg);
@@ -129,6 +132,8 @@ export function CostCategoriesTab() {
     try {
       await masterDataService.deleteCostCategory(id);
       fetchData();
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
+      useActiveFarmStore.getState().notifyDataChanged?.('finance');
     } catch (err) {
       const errInfo = extractApiErrors(err);
       alert(errInfo.message || 'Không thể xóa nhóm chi phí đã có phát sinh chi phí thực tế!');
@@ -175,7 +180,7 @@ export function CostCategoriesTab() {
       className: 'text-right',
       render: (item) => (
         <div className="flex items-center justify-end gap-1">
-          <Can permission="PERM_FARM_UPDATE">
+          <Can anyPermissions={['PERM_FINANCE_EXPENSE', 'PERM_FARM_UPDATE']}>
             <button
               type="button"
               onClick={() => handleOpenModal(item)}
@@ -220,7 +225,7 @@ export function CostCategoriesTab() {
           </div>
         </div>
 
-        <Can permission="PERM_FARM_UPDATE">
+        <Can anyPermissions={['PERM_FINANCE_EXPENSE', 'PERM_FARM_UPDATE']}>
           <Button
             type="button"
             variant="primary"

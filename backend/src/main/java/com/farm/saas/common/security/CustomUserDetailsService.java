@@ -57,6 +57,18 @@ public class CustomUserDetailsService implements UserDetailsService {
         }
         Set<String> permissions = new HashSet<>(permissionCodes);
 
+        // Dynamic Field Leadership Promotion: If user holds active ZONE_MANAGER assignment, grant PERM_TASK_ASSIGN
+        try {
+            Integer zoneManagerCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM farm_assignments WHERE user_id = ? AND role_in_farm = 'ZONE_MANAGER' AND is_active = TRUE",
+                    Integer.class, user.getId());
+            if (zoneManagerCount != null && zoneManagerCount > 0) {
+                permissions.add("PERM_TASK_ASSIGN");
+            }
+        } catch (Exception ex) {
+            log.warn("Error checking ZONE_MANAGER promotion for user {}: {}", user.getId(), ex.getMessage());
+        }
+
         // 3. Determine tier level
         int tierLevel;
         if (Boolean.TRUE.equals(user.getIsSuperAdmin()) || roles.contains("ROLE_SUPER_ADMIN")) {

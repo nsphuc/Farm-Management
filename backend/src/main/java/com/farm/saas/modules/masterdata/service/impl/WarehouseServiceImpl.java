@@ -2,12 +2,16 @@ package com.farm.saas.modules.masterdata.service.impl;
 
 import com.farm.saas.common.audit.AuditTrailEvent;
 import com.farm.saas.common.exception.ApiException;
+import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseInventoryRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseIssueRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseReceiptRepository;
 import com.farm.saas.modules.masterdata.dto.request.CreateWarehouseRequest;
 import com.farm.saas.modules.masterdata.dto.request.UpdateWarehouseRequest;
 import com.farm.saas.modules.masterdata.dto.response.WarehouseResponse;
@@ -37,6 +41,9 @@ public class WarehouseServiceImpl implements WarehouseService {
     private final WarehouseRepository warehouseRepository;
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
+    private final WarehouseInventoryRepository warehouseInventoryRepository;
+    private final WarehouseReceiptRepository warehouseReceiptRepository;
+    private final WarehouseIssueRepository warehouseIssueRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -172,6 +179,53 @@ public class WarehouseServiceImpl implements WarehouseService {
                 .build());
 
         return toResponse(updated, farm.getName());
+    }
+
+    @Override
+    @Transactional
+    public void deleteWarehouse(Long farmId, Long warehouseId) {
+        Farm farm = getFarmOrThrow(farmId);
+        Warehouse warehouse = warehouseRepository.findByFarmIdAndId(farmId, warehouseId)
+                .orElseThrow(() -> new ResourceNotFoundException("Kho bãi", warehouseId));
+
+        BigDecimal totalStock = warehouseInventoryRepository.sumQuantityOnHandByWarehouseId(warehouseId);
+        if (totalStock != null && totalStock.compareTo(BigDecimal.ZERO) > 0) {
+            throw new BusinessException("Kho đang còn hàng tồn, không thể xóa hoặc đóng kho!");
+        }
+
+        boolean hasReceipts = warehouseReceiptRepository.existsByWarehouseId(warehouseId);
+        boolean hasIssues = warehouseIssueRepository.existsByWarehouseId(warehouseId);
+        boolean hasInventory = warehouseInventoryRepository.existsByWarehouseId(warehouseId);
+
+        if (hasReceipts || hasIssues || hasInventory) {
+            // Soft delete / Vô hiệu hóa
+            warehouse.setStatus("INACTIVE");
+            warehouse.setUpdatedAt(Instant.now());
+            warehouse.setUpdatedBy(SecurityUtils.getCurrentUserId());
+            warehouseRepository.save(warehouse);
+
+            eventPublisher.publishEvent(AuditTrailEvent.builder()
+                    .tenantId(farm.getTenantId())
+                    .userId(SecurityUtils.getCurrentUserId())
+                    .action("SOFT_DELETE_WAREHOUSE")
+                    .module("MASTERDATA")
+                    .endpoint("/api/v1/farms/" + farmId + "/warehouses/" + warehouseId)
+                    .method("DELETE")
+                    .newValue("Warehouse deactivated: " + warehouse.getCode())
+                    .build());
+        } else {
+            warehouseRepository.delete(warehouse);
+
+            eventPublisher.publishEvent(AuditTrailEvent.builder()
+                    .tenantId(farm.getTenantId())
+                    .userId(SecurityUtils.getCurrentUserId())
+                    .action("DELETE_WAREHOUSE")
+                    .module("MASTERDATA")
+                    .endpoint("/api/v1/farms/" + farmId + "/warehouses/" + warehouseId)
+                    .method("DELETE")
+                    .newValue("Physically deleted warehouse: " + warehouse.getCode())
+                    .build());
+        }
     }
 
     private Farm getFarmOrThrow(Long farmId) {

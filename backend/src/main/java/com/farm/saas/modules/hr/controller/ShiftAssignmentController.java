@@ -29,7 +29,7 @@ public class ShiftAssignmentController {
     }
 
     @GetMapping("/assignments")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
+    @PreAuthorize("hasAnyAuthority('PERM_HR_EMPLOYEE_MANAGE', 'PERM_HR_ATTENDANCE', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT') or isAuthenticated()")
     public ResponseEntity<List<ShiftAssignmentResponse>> getAssignments(
             @RequestParam(required = false) Long farmId,
             @RequestParam(required = false) Long employeeId,
@@ -38,6 +38,14 @@ public class ShiftAssignmentController {
             return ResponseEntity.ok(shiftAssignmentService.getAssignmentsByEmployeeAndDate(employeeId, workDate));
         }
         return ResponseEntity.ok(shiftAssignmentService.getAssignmentsByFarmAndDate(farmId, workDate));
+    }
+
+    @PutMapping("/assignments/{id}")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    public ResponseEntity<ShiftAssignmentResponse> updateAssignment(
+            @PathVariable Long id,
+            @Valid @RequestBody com.farm.saas.modules.hr.dto.request.UpdateShiftAssignmentRequest request) {
+        return ResponseEntity.ok(shiftAssignmentService.updateAssignment(id, request));
     }
 
     @PutMapping("/assignments/{id}/cancel")

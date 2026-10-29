@@ -57,7 +57,10 @@ export const inventoryService = {
     return res.data;
   },
   cancelReceipt: async (farmId, id, data = {}) => {
-    const res = await apiClient.post(`/farms/${farmId}/inventory/receipts/${id}/cancel`, data);
+    const payload = typeof data === 'string'
+      ? { cancellationReason: data }
+      : (data?.cancellationReason ? data : { cancellationReason: data?.cancellationReason || '' });
+    const res = await apiClient.post(`/farms/${farmId}/inventory/receipts/${id}/cancel`, payload);
     return res.data;
   },
 
@@ -84,7 +87,10 @@ export const inventoryService = {
     return res.data;
   },
   cancelIssue: async (farmId, id, data = {}) => {
-    const res = await apiClient.post(`/farms/${farmId}/inventory/issues/${id}/cancel`, data);
+    const payload = typeof data === 'string'
+      ? { cancellationReason: data }
+      : (data?.cancellationReason ? data : { cancellationReason: data?.cancellationReason || '' });
+    const res = await apiClient.post(`/farms/${farmId}/inventory/issues/${id}/cancel`, payload);
     return res.data;
   },
 

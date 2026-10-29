@@ -11,8 +11,11 @@ import com.farm.saas.modules.crop.repository.CropSeasonRepository;
 import com.farm.saas.modules.crop.repository.FarmingLogRepository;
 import com.farm.saas.modules.crop.service.CropSeasonService;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
+import com.farm.saas.modules.geography.entity.ProductionZone;
 import com.farm.saas.modules.geography.repository.OperationalCycleRepository;
 import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
+import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
+import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +42,8 @@ public class CropSeasonServiceImpl implements CropSeasonService {
     private final FarmExpenseRepository farmExpenseRepository;
     private final ProductionZoneRepository productionZoneRepository;
     private final OperationalCycleRepository operationalCycleRepository;
+    private final ZoneLocationRepository zoneLocationRepository;
+    private final LivestockGroupRepository livestockGroupRepository;
     private final CropTypeRepository cropTypeRepository;
     private final com.farm.saas.modules.hr.service.FarmTaskService farmTaskService;
 
@@ -74,7 +79,11 @@ public class CropSeasonServiceImpl implements CropSeasonService {
     @Override
     @Transactional
     public CropSeasonDetailResponse createSeason(Long farmId, CreateCropSeasonRequest request) {
-        Long tenantId = SecurityUtils.getCurrentTenantId();
+        final Long tenantId = (SecurityUtils.getCurrentTenantId() != null)
+                ? SecurityUtils.getCurrentTenantId()
+                : productionZoneRepository.findById(request.getZoneId())
+                        .map(ProductionZone::getTenantId)
+                        .orElse(1L);
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
         String seasonCode = request.getSeasonCode();
@@ -104,6 +113,26 @@ public class CropSeasonServiceImpl implements CropSeasonService {
                 .build();
 
         season = cropSeasonRepository.save(season);
+
+        // Đồng bộ zone_locations sang OCCUPIED
+        if (request.getLocationId() != null) {
+            zoneLocationRepository.findById(request.getLocationId()).ifPresent(loc -> {
+                if (Objects.equals(loc.getZoneId(), request.getZoneId()) && (tenantId == null || tenantId.equals(loc.getTenantId()))) {
+                    loc.setStatus("OCCUPIED");
+                    loc.setUpdatedAt(Instant.now());
+                    zoneLocationRepository.save(loc);
+                }
+            });
+        } else if (request.getZoneId() != null) {
+            var locs = zoneLocationRepository.findByZoneId(request.getZoneId());
+            if (locs.size() == 1 && "EMPTY".equalsIgnoreCase(locs.get(0).getStatus())) {
+                var singleLoc = locs.get(0);
+                singleLoc.setStatus("OCCUPIED");
+                singleLoc.setUpdatedAt(Instant.now());
+                zoneLocationRepository.save(singleLoc);
+            }
+        }
+
         log.info("Created crop season id={}, code={} on farmId={}", season.getId(), season.getSeasonCode(), farmId);
         return mapToDetailResponse(season);
     }
@@ -111,12 +140,23 @@ public class CropSeasonServiceImpl implements CropSeasonService {
     @Override
     @Transactional
     public CropSeasonDetailResponse updateSeason(Long farmId, Long id, UpdateCropSeasonRequest request) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         CropSeason season = findSeasonOrThrow(farmId, id);
 
         if ("CLOSED".equals(season.getStatus()) || "CANCELLED".equals(season.getStatus())) {
             throw new BusinessException("SEASON_ALREADY_CLOSED", "Không thể chỉnh sửa vụ mùa đã đóng hoặc đã hủy");
         }
 
+        final Long targetZoneId = season.getZoneId();
+        if (request.getLocationId() != null) {
+            zoneLocationRepository.findById(request.getLocationId()).ifPresent(loc -> {
+                if (Objects.equals(loc.getZoneId(), targetZoneId) && (tenantId == null || tenantId.equals(loc.getTenantId()))) {
+                    loc.setStatus("OCCUPIED");
+                    loc.setUpdatedAt(Instant.now());
+                    zoneLocationRepository.save(loc);
+                }
+            });
+        }
         if (request.getExpectedHarvestDate() != null) {
             season.setExpectedHarvestDate(request.getExpectedHarvestDate());
         }
@@ -126,7 +166,7 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         if (request.getActualYieldKg() != null) {
             season.setActualYieldKg(request.getActualYieldKg());
         }
-        boolean wasClosed = "CLOSED".equalsIgnoreCase(season.getStatus());
+        boolean wasClosed = "CLOSED".equalsIgnoreCase(season.getStatus()) || "CANCELLED".equalsIgnoreCase(season.getStatus());
         if (StringUtils.hasText(request.getStatus())) {
             season.setStatus(request.getStatus());
         }
@@ -135,8 +175,9 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         season.setUpdatedBy(SecurityUtils.getCurrentUserId());
         season = cropSeasonRepository.save(season);
 
-        if (!wasClosed && "CLOSED".equalsIgnoreCase(season.getStatus())) {
+        if (!wasClosed && ("CLOSED".equalsIgnoreCase(season.getStatus()) || "CANCELLED".equalsIgnoreCase(season.getStatus()))) {
             farmTaskService.cancelPendingRoutineTasksForZone(farmId, season.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+            releaseZoneLocationsIfEmpty(tenantId, farmId, season.getZoneId());
         }
 
         return mapToDetailResponse(season);
@@ -145,6 +186,7 @@ public class CropSeasonServiceImpl implements CropSeasonService {
     @Override
     @Transactional
     public CropSeasonDetailResponse closeSeason(Long farmId, Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         CropSeason season = findSeasonOrThrow(farmId, id);
 
         if ("CLOSED".equals(season.getStatus()) || "CANCELLED".equals(season.getStatus())) {
@@ -160,6 +202,7 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         season = cropSeasonRepository.save(season);
 
         farmTaskService.cancelPendingRoutineTasksForZone(farmId, season.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+        releaseZoneLocationsIfEmpty(tenantId, farmId, season.getZoneId());
 
         log.info("Closed crop season id={} on farmId={}", season.getId(), farmId);
         return mapToDetailResponse(season);
@@ -240,5 +283,35 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         season.setUpdatedAt(Instant.now());
         season.setUpdatedBy(SecurityUtils.getCurrentUserId());
         cropSeasonRepository.save(season);
+
+        farmTaskService.cancelPendingRoutineTasksForZone(farmId, season.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+        releaseZoneLocationsIfEmpty(tenantId, farmId, season.getZoneId());
+    }
+
+    private void releaseZoneLocationsIfEmpty(Long tenantId, Long farmId, Long zoneId) {
+        if (zoneId == null) return;
+        boolean hasActiveSeasons = cropSeasonRepository.findAll((root, query, cb) -> cb.and(
+                cb.equal(root.get("farmId"), farmId),
+                cb.equal(root.get("zoneId"), zoneId),
+                cb.not(root.get("status").in("CLOSED", "CANCELLED"))
+        )).stream().findAny().isPresent();
+
+        boolean hasActiveGroups = livestockGroupRepository.findAll((root, query, cb) -> cb.and(
+                cb.equal(root.get("farmId"), farmId),
+                cb.equal(root.get("zoneId"), zoneId),
+                cb.not(root.get("status").in("SOLD", "CLOSED", "CULLED"))
+        )).stream().findAny().isPresent();
+
+        if (!hasActiveSeasons && !hasActiveGroups) {
+            var locs = zoneLocationRepository.findByZoneId(zoneId);
+            for (var loc : locs) {
+                if ("OCCUPIED".equalsIgnoreCase(loc.getStatus())) {
+                    loc.setStatus("EMPTY");
+                    loc.setUpdatedAt(Instant.now());
+                    zoneLocationRepository.save(loc);
+                }
+            }
+            log.info("Released zone locations for zoneId={} back to EMPTY", zoneId);
+        }
     }
 }

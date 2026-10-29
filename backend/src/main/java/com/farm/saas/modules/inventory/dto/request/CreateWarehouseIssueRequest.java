@@ -1,5 +1,6 @@
 package com.farm.saas.modules.inventory.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
@@ -31,7 +32,11 @@ public class CreateWarehouseIssueRequest {
     @Size(max = 150, message = "Tên người nhận tối đa 150 ký tự")
     private String receiverName;
 
+    @JsonAlias({"cropSeasonId", "seasonId"})
     private Long seasonId;
+
+    @JsonAlias({"groupId", "livestockGroupId"})
+    private Long livestockGroupId;
 
     @NotNull(message = "Ngày xuất kho không được để trống")
     private LocalDate issueDate;

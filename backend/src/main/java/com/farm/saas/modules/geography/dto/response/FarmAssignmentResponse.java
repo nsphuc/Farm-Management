@@ -21,8 +21,12 @@ public class FarmAssignmentResponse {
     private Long zoneId;
     private String zoneName;
     private Long userId;
+    private Long employeeId;
     private String username;
     private String userFullName;
+    private String department;
+    private String position;
+    private String employeeCode;
     private String roleInFarm;
     private LocalDate assignedFrom;
     private LocalDate assignedTo;

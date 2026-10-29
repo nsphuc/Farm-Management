@@ -21,4 +21,6 @@ public interface LivestockGroupRepository extends JpaRepository<LivestockGroup, 
     boolean existsByTenantIdAndFarmIdAndGroupCode(Long tenantId, Long farmId, String groupCode);
     java.util.List<LivestockGroup> findByFarmId(Long farmId);
     java.util.List<LivestockGroup> findByTenantId(Long tenantId);
+    boolean existsByBreedId(Long breedId);
+    boolean existsByOperationalCycleId(Long operationalCycleId);
 }

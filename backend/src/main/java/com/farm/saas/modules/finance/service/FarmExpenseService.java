@@ -25,5 +25,7 @@ public interface FarmExpenseService {
 
     FarmExpenseDetailResponse confirmExpense(Long farmId, Long id);
 
+    FarmExpenseDetailResponse cancelExpense(Long farmId, Long id, String reason);
+
     UnitCostReportResponse calculateUnitCost(Long farmId, String targetType, Long targetId);
 }

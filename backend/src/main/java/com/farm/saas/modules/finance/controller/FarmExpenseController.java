@@ -90,4 +90,15 @@ public class FarmExpenseController {
             @PathVariable Long id) {
         return ResponseEntity.ok(farmExpenseService.confirmExpense(farmId, id));
     }
+
+    @PostMapping({"/{id}/cancel", "/{id}/reject"})
+    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and @farmSecurity.isFarmManager(#farmId)")
+    @Operation(summary = "Hủy hoặc từ chối chi phí vận hành", description = "Giám đốc trang trại từ chối hoặc hủy chi phí DRAFT")
+    public ResponseEntity<FarmExpenseDetailResponse> cancelExpense(
+            @PathVariable Long farmId,
+            @PathVariable Long id,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(farmExpenseService.cancelExpense(farmId, id, reason));
+    }
 }

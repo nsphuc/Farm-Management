@@ -27,16 +27,23 @@ public class CostCategoryController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
+    @PreAuthorize("hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FARM_UPDATE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<CostCategoryResponse> createCostCategory(@Valid @RequestBody CreateCostCategoryRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(masterCatalogService.createCostCategory(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
+    @PreAuthorize("hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FARM_UPDATE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<CostCategoryResponse> updateCostCategory(
             @PathVariable Long id,
             @Valid @RequestBody UpdateCostCategoryRequest request) {
         return ResponseEntity.ok(masterCatalogService.updateCostCategory(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_FINANCE_EXPENSE', 'PERM_FARM_UPDATE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
+    public ResponseEntity<Void> deleteCostCategory(@PathVariable Long id) {
+        masterCatalogService.deleteCostCategory(id);
+        return ResponseEntity.noContent().build();
     }
 }

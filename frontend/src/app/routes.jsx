@@ -43,8 +43,11 @@ import { useAuthStore } from '@/store/useAuthStore';
  * Điều hướng trang đích ban đầu dựa theo 6 Vai trò Vận hành thực tế
  */
 function TenantIndexRedirect() {
-  const { isOwner, isFarmManager, isFieldWorker, isWarehouseKeeper, isFarmAccountant, isTechnicalLead } = useAuthStore();
+  const { isOwner, isFarmManager, isZoneManager, isFieldWorker, isWarehouseKeeper, isFarmAccountant, isTechnicalLead } = useAuthStore();
   if (isFarmManager()) {
+    return <Navigate to="/app/my-dashboard" replace />;
+  }
+  if (isZoneManager && isZoneManager()) {
     return <Navigate to="/app/my-dashboard" replace />;
   }
   if (isOwner()) {
@@ -110,6 +113,7 @@ export function AppRoutes() {
         <Route index element={<PlatformDashboardPage />} />
         <Route path="tenants" element={<PlatformDashboardPage />} />
         <Route path="subscriptions" element={<PlatformDashboardPage />} />
+        <Route path="users" element={<PlatformDashboardPage />} />
         <Route path="audit-logs" element={<PlatformDashboardPage />} />
         <Route path="health" element={<PlatformDashboardPage />} />
       </Route>
@@ -133,7 +137,7 @@ export function AppRoutes() {
         <Route
           path="geography"
           element={
-            <PermissionGuard permission="PERM_FARM_VIEW">
+            <PermissionGuard anyPermissions={['PERM_FARM_UPDATE', 'PERM_ZONE_MANAGE', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_TASK_ASSIGN']}>
               <GeographyWorkspace />
             </PermissionGuard>
           }
@@ -141,7 +145,7 @@ export function AppRoutes() {
         <Route
           path="hr"
           element={
-            <PermissionGuard permission="PERM_HR_EMPLOYEE_MANAGE">
+            <PermissionGuard anyPermissions={['PERM_HR_EMPLOYEE_MANAGE', 'PERM_FINANCE_EXPENSE']}>
               <Personnel360Workspace />
             </PermissionGuard>
           }
@@ -157,7 +161,7 @@ export function AppRoutes() {
         <Route
           path="partners"
           element={
-            <PermissionGuard anyPermissions={['PERM_FINANCE_SALES_ORDER', 'PERM_INVENTORY_RECEIPT', 'PERM_FARM_VIEW']}>
+            <PermissionGuard anyPermissions={['PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_INVENTORY_RECEIPT', 'PERM_FARM_UPDATE']}>
               <PartnersWorkspace />
             </PermissionGuard>
           }
@@ -205,7 +209,7 @@ export function AppRoutes() {
         <Route
           path="qa-traceability"
           element={
-            <PermissionGuard anyPermissions={['PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_LABEL_PRINT']}>
+            <PermissionGuard anyPermissions={['PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_LABEL_PRINT', 'PERM_HARVEST_MANAGE']}>
               <QaTraceabilityWorkspace />
             </PermissionGuard>
           }
@@ -241,7 +245,7 @@ export function AppRoutes() {
         <Route
           path="sales-cashflow"
           element={
-            <PermissionGuard permission="PERM_FINANCE_SALES_ORDER">
+            <PermissionGuard anyPermissions={['PERM_FINANCE_SALES_ORDER', 'PERM_DELIVERY_MANAGE', 'PERM_FINANCE_PAYMENT']}>
               <SalesCashflowWorkspace />
             </PermissionGuard>
           }
@@ -251,7 +255,7 @@ export function AppRoutes() {
         <Route
           path="settings"
           element={
-            <PermissionGuard anyPermissions={['PERM_TENANT_MANAGE', 'PERM_FARM_UPDATE', 'PERM_FARM_VIEW']}>
+            <PermissionGuard anyPermissions={['PERM_TENANT_MANAGE', 'PERM_FARM_UPDATE', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_INVENTORY_RECEIPT', 'PERM_FINANCE_EXPENSE']}>
               <SettingsPage />
             </PermissionGuard>
           }

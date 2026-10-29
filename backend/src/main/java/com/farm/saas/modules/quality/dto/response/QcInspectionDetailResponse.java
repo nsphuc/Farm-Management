@@ -41,7 +41,24 @@ public class QcInspectionDetailResponse {
         private String parameterName;
         private String standardThreshold;
         private String measuredValue;
+        private String unit;
         private Boolean isPassed;
         private String notes;
+
+        public String getCriterionName() {
+            return parameterName;
+        }
+
+        public String getStandardValue() {
+            return standardThreshold;
+        }
+
+        public String getActualValue() {
+            return measuredValue;
+        }
+
+        public Boolean getPassed() {
+            return isPassed;
+        }
     }
 }

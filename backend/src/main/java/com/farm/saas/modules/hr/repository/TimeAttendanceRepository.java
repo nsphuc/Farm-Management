@@ -11,4 +11,5 @@ public interface TimeAttendanceRepository extends JpaRepository<TimeAttendance, 
     java.util.Optional<TimeAttendance> findTopByEmployeeIdAndWorkDateOrderByCheckInTimeDesc(Long employeeId, java.time.LocalDate workDate);
     java.util.List<TimeAttendance> findByFarmIdAndWorkDate(Long farmId, java.time.LocalDate workDate);
     java.util.List<TimeAttendance> findByEmployeeIdAndWorkDateBetweenOrderByWorkDateAsc(Long employeeId, java.time.LocalDate fromDate, java.time.LocalDate toDate);
+    boolean existsByShiftId(Long shiftId);
 }

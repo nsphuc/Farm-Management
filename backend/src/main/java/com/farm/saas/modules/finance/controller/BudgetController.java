@@ -74,4 +74,14 @@ public class BudgetController {
             @RequestParam String status) {
         return ResponseEntity.ok(budgetService.updateBudgetStatus(farmId, id, status));
     }
+
+    @PostMapping({"/{id}/reject", "/{id}/cancel"})
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_REPORT', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.isFarmManagerOrOwner(#farmId))")
+    @Operation(summary = "Từ chối kế hoạch ngân sách", description = "Chuyển trạng thái ngân sách sang REVISED (yêu cầu lập lại) hoặc CLOSED")
+    public ResponseEntity<BudgetDetailResponse> rejectBudget(
+            @PathVariable(required = false) Long farmId,
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "REVISED") String status) {
+        return ResponseEntity.ok(budgetService.updateBudgetStatus(farmId, id, status));
+    }
 }

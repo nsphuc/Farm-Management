@@ -26,6 +26,7 @@ export function TenantAppShell() {
     userInfo,
     isOwner,
     isFarmManager,
+    isZoneManager,
     isFieldWorker,
     isFarmLocked,
     getOperationalRoleInfo,
@@ -74,7 +75,7 @@ export function TenantAppShell() {
         <TopBar onMobileMenuToggle={() => setIsMobileMenuOpen(!isMobileMenuOpen)} />
 
         {/* Banner Vận Hành Dành Riêng Cho Từng Nhóm Role */}
-        {/* Role 2: Giám đốc / Quản lý 1 Trang trại (Bắt buộc chấm công GPS + Selfie) */}
+        {/* Role 2: Giám Đốc / Quản lý 1 Trang trại (Bắt buộc chấm công GPS + Selfie) */}
         {isFarmManager() && !location.pathname.includes('/my-dashboard') && (
           <div className="flex items-center justify-between border-b border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-2 text-xs text-blue-900 shadow-2xs">
             <div className="flex items-center gap-2">
@@ -92,6 +93,29 @@ export function TenantAppShell() {
               className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 font-semibold text-white hover:bg-blue-700 transition-colors shadow-2xs"
             >
               <span>Chấm công GPS</span>
+              <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
+        {/* Role 3B: Trưởng Phân Khu / Tổ Trưởng Hiện Trường Banner */}
+        {isZoneManager && isZoneManager() && !location.pathname.includes('/my-dashboard') && (
+          <div className="flex items-center justify-between border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs text-sky-900 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-600 text-white">
+                <MapPin className="h-3 w-3" />
+              </span>
+              <span>
+                <strong className="font-semibold">Bàn Chỉ Huy Phân Khu:</strong> Bạn đang phụ trách phân khu tại{' '}
+                <span className="font-bold underline">{activeFarm?.farmName || activeFarm?.name || 'Trang trại'}</span>. Thực hiện chấm công tổ và giám sát sản xuất tại WS-G & WS-A.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/app/my-dashboard')}
+              className="flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1 font-semibold text-white hover:bg-sky-700 transition-colors shadow-2xs"
+            >
+              <span>Vào Điểm Danh Tổ</span>
               <ChevronRight className="h-3 w-3" />
             </button>
           </div>

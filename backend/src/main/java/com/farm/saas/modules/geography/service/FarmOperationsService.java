@@ -14,10 +14,14 @@ public interface FarmOperationsService {
     List<FarmAssignmentResponse> getAssignments(Long farmId);
     FarmAssignmentResponse createAssignment(Long farmId, CreateFarmAssignmentRequest request);
     void deleteAssignment(Long farmId, Long assignmentId);
+    default void deleteAssignment(Long farmId, Long assignmentId, Long employeeId) {
+        deleteAssignment(farmId, assignmentId);
+    }
 
     List<OperationalCycleResponse> getCycles(Long farmId);
     OperationalCycleResponse createCycle(Long farmId, CreateOperationalCycleRequest request);
     OperationalCycleResponse updateCycle(Long farmId, Long cycleId, UpdateOperationalCycleRequest request);
+    void deleteCycle(Long farmId, Long cycleId);
 
     FarmOperationalSettingResponse getSettings(Long farmId);
     FarmOperationalSettingResponse updateSettings(Long farmId, UpdateFarmSettingsRequest request);

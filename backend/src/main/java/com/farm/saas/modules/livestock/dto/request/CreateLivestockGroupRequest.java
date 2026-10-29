@@ -17,6 +17,8 @@ public class CreateLivestockGroupRequest {
     @NotNull(message = "Khu sản xuất không được để trống")
     private Long zoneId;
 
+    private Long locationId;
+
     private Long operationalCycleId;
 
     @Size(max = 50, message = "Mã đàn tối đa 50 ký tự")

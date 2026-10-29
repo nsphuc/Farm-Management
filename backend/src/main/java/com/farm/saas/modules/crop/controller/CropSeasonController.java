@@ -26,7 +26,7 @@ public class CropSeasonController {
     private final CropSeasonService cropSeasonService;
 
     @GetMapping
-    @PreAuthorize("(hasAuthority('PERM_CROP_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_CROP_VIEW', 'PERM_INVENTORY_ISSUE', 'PERM_INVENTORY_VIEW', 'PERM_HARVEST_MANAGE', 'PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Danh sách mùa vụ", description = "Lấy danh sách các mùa vụ có phân trang và lọc theo trạng thái")
     public ResponseEntity<Page<CropSeasonDetailResponse>> getSeasons(
             @PathVariable Long farmId,
@@ -37,7 +37,7 @@ public class CropSeasonController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("(hasAuthority('PERM_CROP_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_CROP_VIEW', 'PERM_INVENTORY_ISSUE', 'PERM_INVENTORY_VIEW', 'PERM_HARVEST_MANAGE', 'PERM_FINANCE_EXPENSE', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Chi tiết mùa vụ", description = "Lấy chi tiết mùa vụ kèm kiểm tra thời gian cách ly PHI và tổng chi phí")
     public ResponseEntity<CropSeasonDetailResponse> getSeasonById(
             @PathVariable Long farmId,

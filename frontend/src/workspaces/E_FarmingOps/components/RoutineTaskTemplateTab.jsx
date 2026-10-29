@@ -3,6 +3,7 @@ import {
   Repeat,
   Plus,
   Trash2,
+  Edit,
   Clock,
   Calendar,
   CheckCircle2,
@@ -49,8 +50,9 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Modal Thêm công việc cố định
+  // Modal Thêm / Sửa công việc cố định
   const [isAddRoutineOpen, setIsAddRoutineOpen] = useState(false);
+  const [editingRoutineTask, setEditingRoutineTask] = useState(null);
   const [routineForm, setRoutineForm] = useState({
     timeStr: '07:00',
     title: '',
@@ -100,8 +102,31 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
     loadTasks();
   }, [farmId, item?.zoneId, syncTrigger?.tasks]);
 
-  // Thêm công việc cố định hàng ngày
-  const handleCreateRoutineTask = async (e) => {
+  // Mở modal sửa công việc cố định
+  const handleOpenEditRoutine = (task) => {
+    const rawTitle = task.taskTitle || '';
+    const cleanTitle = rawTitle.replace(/^\[CỐ ĐỊNH HÀNG NGÀY\]\s*/i, '');
+    const timeMatch = cleanTitle.match(/^(\d{2}:\d{2})\s*(.*)$/);
+    const timeStr = timeMatch
+      ? timeMatch[1]
+      : task.deadline
+      ? new Date(task.deadline).toTimeString().slice(0, 5)
+      : '07:00';
+    const pureTitle = timeMatch ? timeMatch[2] : cleanTitle;
+
+    setRoutineForm({
+      timeStr,
+      title: pureTitle,
+      taskType: task.taskType || (sector === 'CROP' ? 'PLANTING' : 'FEEDING'),
+      priority: task.priority || 'MEDIUM',
+      assignedToEmployeeId: task.assignedToEmployeeId ? String(task.assignedToEmployeeId) : '',
+    });
+    setEditingRoutineTask(task);
+    setIsAddRoutineOpen(true);
+  };
+
+  // Thêm mới hoặc Cập nhật công việc cố định hàng ngày
+  const handleSaveRoutineTask = async (e) => {
     e.preventDefault();
     if (!routineForm.title.trim()) {
       toast.warning('Vui lòng nhập tên công việc cố định!');
@@ -136,11 +161,17 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
         ];
       }
 
-      await farmingService.createRoutineTask(farmId, payload);
-      toast.success(`Đã thêm công việc cố định hàng ngày: ${formattedTitle}`);
+      if (editingRoutineTask) {
+        await farmingService.updateRoutineTask(farmId, editingRoutineTask.id, payload);
+        toast.success(`Đã cập nhật công việc cố định: ${formattedTitle}`);
+      } else {
+        await farmingService.createRoutineTask(farmId, payload);
+        toast.success(`Đã thêm công việc cố định hàng ngày: ${formattedTitle}`);
+      }
 
       notifyDataChanged('tasks');
       setIsAddRoutineOpen(false);
+      setEditingRoutineTask(null);
       setRoutineForm({
         timeStr: '07:00',
         title: '',
@@ -151,8 +182,8 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
       loadTasks();
       if (onDataChanged) onDataChanged();
     } catch (err) {
-      console.error('Lỗi tạo công việc cố định:', err);
-      toast.error(err.response?.data?.message || err.message || 'Lỗi tạo công việc cố định');
+      console.error('Lỗi lưu công việc cố định:', err);
+      toast.error(err.response?.data?.message || err.message || 'Lỗi lưu công việc cố định');
     } finally {
       setIsSubmitting(false);
     }
@@ -306,16 +337,26 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${typeColor}`}>
                       {typeLabel}
                     </span>
-                    <Can permission="PERM_TASK_ASSIGN" role={['ROLE_TECHNICAL_STAFF', 'ROLE_FARM_MANAGER']}>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteRoutineTask(task.id, task.taskTitle)}
-                        className="text-slate-400 hover:text-rose-600 transition-colors p-1"
-                        title="Xóa / Ngừng công việc cố định này"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </Can>
+                    <div className="flex items-center gap-1">
+                      <Can permission="PERM_TASK_ASSIGN" role={['ROLE_TECHNICAL_STAFF', 'ROLE_FARM_MANAGER']}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditRoutine(task)}
+                          className="text-slate-400 hover:text-emerald-600 transition-colors p-1"
+                          title="Sửa công việc cố định này"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRoutineTask(task.id, task.taskTitle)}
+                          className="text-slate-400 hover:text-rose-600 transition-colors p-1"
+                          title="Xóa / Ngừng công việc cố định này"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </Can>
+                    </div>
                   </div>
 
                   <h5 className="font-bold text-slate-900 text-xs leading-snug">
@@ -350,26 +391,36 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
       )}
 
       {/* ======================================================== */}
-      {/* MODAL 1: THÊM CÔNG VIỆC CỐ ĐỊNH HÀNG NGÀY               */}
+      {/* MODAL 1: THÊM / SỬA CÔNG VIỆC CỐ ĐỊNH HÀNG NGÀY        */}
       {/* ======================================================== */}
       <Modal
         isOpen={isAddRoutineOpen}
-        onClose={() => setIsAddRoutineOpen(false)}
-        title="Thêm Công Việc Cố Định Hàng Ngày"
+        onClose={() => {
+          setIsAddRoutineOpen(false);
+          setEditingRoutineTask(null);
+        }}
+        title={editingRoutineTask ? 'Sửa Mẫu Công Việc Cố Định Hàng Ngày' : 'Thêm Công Việc Cố Định Hàng Ngày'}
         subtitle={`Gắn với ${sector === 'CROP' ? 'vụ mùa' : 'đàn nuôi'} ${item.seasonCode || item.groupCode} (${item.zoneName || 'Phân khu'})`}
         size="md"
         footer={
           <div className="flex items-center justify-between w-full">
-            <Button variant="ghost" size="sm" onClick={() => setIsAddRoutineOpen(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setIsAddRoutineOpen(false);
+                setEditingRoutineTask(null);
+              }}
+            >
               Hủy Bỏ
             </Button>
-            <Button variant="primary" size="sm" onClick={handleCreateRoutineTask} isLoading={isSubmitting}>
-              Lưu Đầu Việc
+            <Button variant="primary" size="sm" onClick={handleSaveRoutineTask} isLoading={isSubmitting}>
+              {editingRoutineTask ? 'Lưu Thay Đổi' : 'Lưu Đầu Việc'}
             </Button>
           </div>
         }
       >
-        <form onSubmit={handleCreateRoutineTask} className="space-y-3.5 text-xs">
+        <form onSubmit={handleSaveRoutineTask} className="space-y-3.5 text-xs">
           <div className="grid grid-cols-3 gap-3">
             <FormField label="Giờ thực hiện *" hint="Định dạng HH:mm">
               <Input

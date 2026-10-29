@@ -9,6 +9,7 @@ import {
   Users,
   X,
   RefreshCw,
+  Edit2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -47,15 +48,18 @@ function getDaysOfWeek(baseDate) {
 
 export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
   const navigate = useNavigate();
-  const { notifyDataChanged } = useActiveFarmStore();
+  const { notifyDataChanged, syncTrigger } = useActiveFarmStore();
   const [currentBaseDate, setCurrentBaseDate] = useState(new Date());
   const [assignments, setAssignments] = useState([]);
   const [localShifts, setLocalShifts] = useState(shifts || []);
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState(null);
 
   const daysOfWeek = getDaysOfWeek(currentBaseDate);
-  const activeEmployees = employees.filter((e) => e.status === 'ACTIVE');
+  const activeEmployees = employees.filter(
+    (e) => e.status === 'ACTIVE' && e.position !== 'FARM_MANAGER' && e.userRole !== 'ROLE_FARM_MANAGER'
+  );
 
   // Nạp danh sách ca làm việc nếu prop truyền vào trống
   useEffect(() => {
@@ -91,7 +95,7 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
 
   useEffect(() => {
     fetchAssignments();
-  }, [farmId, currentBaseDate]);
+  }, [farmId, currentBaseDate, syncTrigger?.employees, syncTrigger?.attendance, syncTrigger?.all]);
 
   const handlePrevWeek = () => {
     const d = new Date(currentBaseDate);
@@ -179,7 +183,10 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
               variant="primary"
               size="sm"
               icon={<Plus className="h-4 w-4" />}
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => {
+                setEditingAssignment(null);
+                setIsModalOpen(true);
+              }}
             >
               + Phân Ca Làm Việc
             </Button>
@@ -259,19 +266,40 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
                                 {assign.shiftName}
                               </span>
 
-                              {/* Nút Hủy Ca (CANCELLED) cho ca chưa diễn ra */}
-                              {assign.status === 'SCHEDULED' && (
+                              <div className="flex items-center gap-1 shrink-0">
                                 <Can permission="PERM_HR_EMPLOYEE_MANAGE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
                                   <button
                                     type="button"
-                                    onClick={() => handleCancelAssignment(assign, emp, day)}
-                                    title="Hủy ca làm việc này (CANCELLED)"
-                                    className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded p-0.5 transition-colors cursor-pointer shrink-0"
+                                    onClick={() => {
+                                      setEditingAssignment({
+                                        ...assign,
+                                        employeeName: emp.fullName,
+                                        employeeId: emp.id,
+                                        workDate: day.dateStr,
+                                      });
+                                      setIsModalOpen(true);
+                                    }}
+                                    title="Sửa ca làm việc này"
+                                    className="text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded p-0.5 transition-colors cursor-pointer"
                                   >
-                                    <X className="h-3 w-3" />
+                                    <Edit2 className="h-3 w-3" />
                                   </button>
                                 </Can>
-                              )}
+
+                                {/* Nút Hủy Ca (CANCELLED) cho ca chưa diễn ra */}
+                                {assign.status === 'SCHEDULED' && (
+                                  <Can permission="PERM_HR_EMPLOYEE_MANAGE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelAssignment(assign, emp, day)}
+                                      title="Hủy ca làm việc này (CANCELLED)"
+                                      className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded p-0.5 transition-colors cursor-pointer"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </Can>
+                                )}
+                              </div>
                             </div>
 
                             <div className="flex items-center gap-1 text-[10px] text-emerald-700 font-mono">
@@ -304,7 +332,11 @@ export function ShiftScheduleTab({ farmId, employees = [], shifts = [] }) {
 
       <ShiftScheduleModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        editingItem={editingAssignment}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingAssignment(null);
+        }}
         onSuccess={() => {
           fetchAssignments();
           notifyDataChanged?.('employees');

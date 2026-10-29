@@ -18,6 +18,7 @@ public interface MaterialService {
     List<MaterialCategoryResponse> getCategories();
     MaterialCategoryResponse createCategory(CreateMaterialCategoryRequest request);
     MaterialCategoryResponse updateCategory(Long id, UpdateMaterialCategoryRequest request);
+    void deleteCategory(Long id);
 
     // Materials
     Page<MaterialDetailResponse> getMaterials(Long categoryId, String keyword, Pageable pageable);
@@ -25,6 +26,7 @@ public interface MaterialService {
     MaterialDetailResponse createMaterial(CreateMaterialRequest request);
     MaterialDetailResponse updateMaterial(Long id, UpdateMaterialRequest request);
     MaterialDetailResponse addConversion(Long materialId, CreateUnitConversionRequest request);
+    void deleteMaterial(Long id);
 
     // Scanner
     BarcodeLookupResponse lookupBarcode(Long farmId, String code);

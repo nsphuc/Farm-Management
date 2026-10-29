@@ -8,14 +8,20 @@ import com.farm.saas.modules.crop.entity.CropSeason;
 import com.farm.saas.modules.crop.repository.CropSeasonRepository;
 import com.farm.saas.modules.crop.repository.FarmingLogRepository;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.hr.repository.EmployeeRepository;
 import com.farm.saas.modules.livestock.entity.LivestockGroup;
 import com.farm.saas.modules.livestock.repository.LivestockEventRepository;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
+import com.farm.saas.modules.notification.service.NotificationService;
 import com.farm.saas.modules.quality.dto.request.CreateHarvestRecordRequest;
 import com.farm.saas.modules.quality.dto.response.HarvestRecordDetailResponse;
 import com.farm.saas.modules.quality.entity.HarvestRecord;
+import com.farm.saas.modules.quality.entity.ProductBatch;
+import com.farm.saas.modules.quality.entity.ProductBatchSource;
 import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
+import com.farm.saas.modules.quality.repository.ProductBatchRepository;
+import com.farm.saas.modules.quality.repository.ProductBatchSourceRepository;
 import com.farm.saas.modules.quality.service.HarvestService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +35,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -44,6 +51,10 @@ public class HarvestServiceImpl implements HarvestService {
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
     private final CropTypeRepository cropTypeRepository;
+    private final EmployeeRepository employeeRepository;
+    private final ProductBatchSourceRepository productBatchSourceRepository;
+    private final ProductBatchRepository productBatchRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional
@@ -51,12 +62,23 @@ public class HarvestServiceImpl implements HarvestService {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
+        String sourceType = request.getSourceType();
+        if (!StringUtils.hasText(sourceType)) {
+            if (request.getSeasonId() != null) {
+                sourceType = "CROP_SEASON";
+            } else if (request.getLivestockGroupId() != null) {
+                sourceType = "LIVESTOCK_GROUP";
+            } else {
+                sourceType = "CROP_SEASON";
+            }
+        }
+
         // 1. Strict XOR Source Validation (chk_harvest_records_source)
-        if ("CROP_SEASON".equals(request.getSourceType())) {
+        if ("CROP_SEASON".equals(sourceType)) {
             if (request.getSeasonId() == null || request.getLivestockGroupId() != null) {
                 throw new BusinessException("INVALID_HARVEST_SOURCE", "Nguồn CROP_SEASON bắt buộc phải có seasonId và không được truyền livestockGroupId");
             }
-        } else if ("LIVESTOCK_GROUP".equals(request.getSourceType())) {
+        } else if ("LIVESTOCK_GROUP".equals(sourceType)) {
             if (request.getLivestockGroupId() == null || request.getSeasonId() != null) {
                 throw new BusinessException("INVALID_HARVEST_SOURCE", "Nguồn LIVESTOCK_GROUP bắt buộc phải có livestockGroupId và không được truyền seasonId");
             }
@@ -64,9 +86,12 @@ public class HarvestServiceImpl implements HarvestService {
             throw new BusinessException("INVALID_HARVEST_SOURCE", "sourceType phải là CROP_SEASON hoặc LIVESTOCK_GROUP");
         }
 
+        CropSeason season = null;
+        LivestockGroup group = null;
+
         // 2. PHI / Withdrawal Guard
-        if ("CROP_SEASON".equals(request.getSourceType())) {
-            CropSeason season = cropSeasonRepository.findById(request.getSeasonId())
+        if ("CROP_SEASON".equals(sourceType)) {
+            season = cropSeasonRepository.findById(request.getSeasonId())
                     .orElseThrow(() -> new ResourceNotFoundException("CropSeason", "id", request.getSeasonId()));
 
             if (!season.getFarmId().equals(farmId) || !season.getTenantId().equals(tenantId)) {
@@ -96,7 +121,7 @@ public class HarvestServiceImpl implements HarvestService {
             cropSeasonRepository.save(season);
 
         } else {
-            LivestockGroup group = livestockGroupRepository.findById(request.getLivestockGroupId())
+            group = livestockGroupRepository.findById(request.getLivestockGroupId())
                     .orElseThrow(() -> new ResourceNotFoundException("LivestockGroup", "id", request.getLivestockGroupId()));
 
             if (!group.getFarmId().equals(farmId) || !group.getTenantId().equals(tenantId)) {
@@ -109,8 +134,8 @@ public class HarvestServiceImpl implements HarvestService {
 
             LocalDate maxWithdrawalEndDate = livestockEventRepository.findMaxWithdrawalEndDateByGroupId(group.getId());
             if (maxWithdrawalEndDate != null && !request.getHarvestDate().isAfter(maxWithdrawalEndDate)) {
-                log.warn("HARVEST_BLOCKED_BY_PHI: Group {} harvestDate {} <= maxWithdrawalEndDate {}", group.getId(), request.getHarvestDate(), maxWithdrawalEndDate);
-                throw new BusinessException("HARVEST_BLOCKED_BY_PHI", "Đàn nuôi đang trong thời gian cách ly thuốc thú y (Withdrawal đến ngày " + maxWithdrawalEndDate + ")");
+                log.warn("HARVEST_BLOCKED_BY_WITHDRAWAL: Group {} harvestDate {} <= maxWithdrawalEndDate {}", group.getId(), request.getHarvestDate(), maxWithdrawalEndDate);
+                throw new BusinessException("HARVEST_BLOCKED_BY_WITHDRAWAL", "Đàn nuôi đang trong thời gian cách ly ngưng thuốc thú y đến hết ngày " + maxWithdrawalEndDate);
             }
         }
 
@@ -120,29 +145,91 @@ public class HarvestServiceImpl implements HarvestService {
             harvestCode = "HAR-" + DateTimeFormatter.ofPattern("yyMMdd").format(LocalDate.now()) + "-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
         }
 
-        String qualityGrade = StringUtils.hasText(request.getQualityGrade()) ? request.getQualityGrade() : "STANDARD";
+        String qualityGrade = request.getQualityGrade();
+
+        // 4. Resolve harvester User ID
+        Long harvesterUserId = request.getHarvestedByUserId();
+        if (harvesterUserId == null && request.getHarvestedByEmployeeId() != null) {
+            harvesterUserId = employeeRepository.findById(request.getHarvestedByEmployeeId())
+                    .map(e -> e.getUserId())
+                    .orElse(null);
+        }
+        if (harvesterUserId == null) {
+            harvesterUserId = currentUserId;
+        }
+
+        String combinedNotes = request.getNotes() != null ? request.getNotes().trim() : "";
+        if (request.getLossPercentage() != null && request.getLossPercentage().compareTo(BigDecimal.ZERO) > 0) {
+            String lossText = "Tỷ lệ hao hụt: " + request.getLossPercentage() + "%";
+            if (!combinedNotes.contains(lossText)) {
+                combinedNotes = (combinedNotes.isEmpty() ? "" : combinedNotes + " | ") + lossText;
+            }
+        }
 
         HarvestRecord record = HarvestRecord.builder()
                 .tenantId(tenantId)
                 .farmId(farmId)
                 .harvestCode(harvestCode)
                 .harvestDate(request.getHarvestDate())
-                .sourceType(request.getSourceType())
+                .sourceType(sourceType)
                 .seasonId(request.getSeasonId())
                 .livestockGroupId(request.getLivestockGroupId())
                 .quantity(request.getQuantity())
                 .unit(request.getUnit())
                 .qualityGrade(qualityGrade)
-                .harvestedByUserId(request.getHarvestedByUserId() != null ? request.getHarvestedByUserId() : currentUserId)
-                .notes(request.getNotes())
+                .harvestedByUserId(harvesterUserId)
+                .notes(combinedNotes)
                 .createdAt(Instant.now())
                 .createdBy(currentUserId)
                 .build();
 
-        record = harvestRecordRepository.save(record);
-        log.info("Saved harvest record id={}, code={} on farmId={}", record.getId(), record.getHarvestCode(), farmId);
+        final HarvestRecord savedRecord = harvestRecordRepository.save(record);
+        log.info("Saved harvest record id={}, code={} on farmId={}", savedRecord.getId(), savedRecord.getHarvestCode(), farmId);
 
-        return mapToDetailResponse(record);
+        // 5. Send Notification to Warehouse Staff and Farm Manager
+        try {
+            if (notificationService != null) {
+                String sourceInfo = "CROP_SEASON".equals(savedRecord.getSourceType())
+                        ? (season != null ? "mùa vụ [" + season.getSeasonCode() + "]" : "vụ mùa")
+                        : (group != null ? "đàn nuôi [" + group.getGroupCode() + "]" : "đàn nuôi");
+
+                String notifTitle = "Biên bản thu hoạch mới chờ tiếp nhận đóng gói lô";
+                String notifMsg = String.format("Đợt thu hoạch từ %s với sản lượng %s %s đã hoàn tất và đang chờ tiếp nhận đóng gói lô thành phẩm.",
+                        sourceInfo, savedRecord.getQuantity(), savedRecord.getUnit());
+
+                farmRepository.findById(farmId).ifPresent(farm -> {
+                    if (farm.getManagerUserId() != null) {
+                        notificationService.sendNotification(
+                                savedRecord.getTenantId(),
+                                farm.getManagerUserId(),
+                                notifTitle,
+                                notifMsg,
+                                "QC",
+                                "HARVEST_RECORD",
+                                savedRecord.getId(),
+                                "/app/farming"
+                        );
+                    }
+                });
+
+                userRepository.findByUsername("warehouse").ifPresent(whUser -> {
+                    notificationService.sendNotification(
+                            savedRecord.getTenantId(),
+                            whUser.getId(),
+                            notifTitle,
+                            notifMsg,
+                            "QC",
+                            "HARVEST_RECORD",
+                            savedRecord.getId(),
+                            "/app/farming"
+                    );
+                });
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to send harvest notification: {}", ex.getMessage());
+        }
+
+        return mapToDetailResponse(savedRecord);
     }
 
     @Override
@@ -185,6 +272,21 @@ public class HarvestServiceImpl implements HarvestService {
                     .map(u -> u.getFullName() != null ? u.getFullName() : u.getUsername()).orElse(null);
         }
 
+        Long productBatchId = null;
+        String productBatchCode = null;
+        if (productBatchSourceRepository != null) {
+            List<ProductBatchSource> sources = productBatchSourceRepository.findByHarvestRecordId(record.getId());
+            if (sources != null && !sources.isEmpty()) {
+                ProductBatchSource src = sources.get(0);
+                productBatchId = src.getProductBatchId();
+                if (productBatchId != null && productBatchRepository != null) {
+                    productBatchCode = productBatchRepository.findById(productBatchId)
+                            .map(ProductBatch::getBatchCode)
+                            .orElse(null);
+                }
+            }
+        }
+
         return HarvestRecordDetailResponse.builder()
                 .id(record.getId())
                 .farmId(record.getFarmId())
@@ -203,6 +305,8 @@ public class HarvestServiceImpl implements HarvestService {
                 .harvestedByUserId(record.getHarvestedByUserId())
                 .harvestedByName(harvesterName)
                 .notes(record.getNotes())
+                .productBatchId(productBatchId)
+                .productBatchCode(productBatchCode)
                 .createdAt(record.getCreatedAt())
                 .updatedAt(record.getUpdatedAt())
                 .build();

@@ -23,6 +23,7 @@ public class WarehouseIssueDetailResponse {
     private String issueType;
     private String receiverName;
     private Long seasonId;
+    private Long livestockGroupId;
     private Long farmingLogId;
     private Long livestockEventId;
     private Boolean isBackflushed;

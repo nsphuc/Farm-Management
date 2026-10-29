@@ -21,7 +21,7 @@ public class HarvestController {
     private final HarvestService harvestService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and hasAnyRole('ROLE_FIELD_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_SUPER_ADMIN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and (hasAnyRole('ROLE_FIELD_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_SUPER_ADMIN') or @farmSecurity.isZoneManager(#farmId)) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<HarvestRecordDetailResponse> createHarvestRecord(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateHarvestRecordRequest request) {
@@ -30,7 +30,7 @@ public class HarvestController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_LABEL_PRINT', 'PERM_QC_INSPECT', 'PERM_QC_APPROVE') or hasAnyRole('ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Page<HarvestRecordDetailResponse>> getHarvestRecords(
             @PathVariable Long farmId,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -38,7 +38,7 @@ public class HarvestController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_CROP_VIEW', 'PERM_LIVESTOCK_VIEW', 'PERM_LABEL_PRINT', 'PERM_QC_INSPECT', 'PERM_QC_APPROVE') or hasAnyRole('ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<HarvestRecordDetailResponse> getHarvestRecordById(
             @PathVariable Long farmId,
             @PathVariable Long id) {

@@ -23,6 +23,7 @@ export function CropSeasonModal({
   const [formData, setFormData] = useState({
     seasonCode: '',
     zoneId: '',
+    locationId: '',
     operationalCycleId: '',
     cropTypeId: '',
     startDate: new Date().toISOString().split('T')[0],
@@ -33,6 +34,8 @@ export function CropSeasonModal({
   });
 
   const [zones, setZones] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [isLoadingLocations, setIsLoadingLocations] = useState(false);
   const [cycles, setCycles] = useState([]);
   const [cropTypes, setCropTypes] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -84,6 +87,25 @@ export function CropSeasonModal({
     loadMetadata();
   }, [isOpen, farmId]);
 
+  // Tải danh sách Ô/Luống/Vị trí thuộc phân khu
+  const loadLocationsForZone = async (zId) => {
+    if (!zId || !farmId) {
+      setLocations([]);
+      return;
+    }
+    try {
+      setIsLoadingLocations(true);
+      const res = await geographyService.getLocations(farmId, zId);
+      const list = Array.isArray(res) ? res : (res?.content || []);
+      setLocations(list);
+    } catch (err) {
+      console.error('Lỗi khi nạp vị trí phân khu:', err);
+      setLocations([]);
+    } finally {
+      setIsLoadingLocations(false);
+    }
+  };
+
   // Thiết lập form khi mở hoặc chuyển chế độ Thêm / Sửa
   useEffect(() => {
     if (!isOpen) return;
@@ -92,6 +114,7 @@ export function CropSeasonModal({
       setFormData({
         seasonCode: editingSeason.seasonCode || '',
         zoneId: editingSeason.zoneId ? String(editingSeason.zoneId) : '',
+        locationId: editingSeason.locationId ? String(editingSeason.locationId) : '',
         operationalCycleId: editingSeason.operationalCycleId ? String(editingSeason.operationalCycleId) : '',
         cropTypeId: editingSeason.cropTypeId ? String(editingSeason.cropTypeId) : '',
         startDate: editingSeason.startDate ? String(editingSeason.startDate).split('T')[0] : '',
@@ -100,10 +123,14 @@ export function CropSeasonModal({
         seedQuantity: editingSeason.seedQuantity ? String(editingSeason.seedQuantity) : '',
         estimatedYieldKg: editingSeason.estimatedYieldKg ? String(editingSeason.estimatedYieldKg) : '',
       });
+      if (editingSeason.zoneId) {
+        loadLocationsForZone(editingSeason.zoneId);
+      }
     } else {
       setFormData({
         seasonCode: generateEntityCode(CODE_PREFIXES.SEASON),
         zoneId: '',
+        locationId: '',
         operationalCycleId: '',
         cropTypeId: '',
         startDate: new Date().toISOString().split('T')[0],
@@ -112,10 +139,11 @@ export function CropSeasonModal({
         seedQuantity: '',
         estimatedYieldKg: '',
       });
+      setLocations([]);
       setSelectedCropTypeInfo(null);
     }
     setErrors({});
-  }, [isOpen, editingSeason]);
+  }, [isOpen, editingSeason, farmId]);
 
   // Tìm Trưởng phân khu phụ trách cho từng zone
   const getZoneManagerName = (zoneId) => {
@@ -212,6 +240,7 @@ export function CropSeasonModal({
 
       const payload = {
         zoneId: Number(formData.zoneId),
+        locationId: formData.locationId ? Number(formData.locationId) : null,
         operationalCycleId: formData.operationalCycleId ? Number(formData.operationalCycleId) : null,
         seasonCode: formData.seasonCode.trim(),
         cropTypeId: Number(formData.cropTypeId),
@@ -224,6 +253,7 @@ export function CropSeasonModal({
 
       if (editingSeason) {
         await farmingService.updateCropSeason(farmId, editingSeason.id, {
+          locationId: payload.locationId,
           expectedHarvestDate: payload.expectedHarvestDate,
           actualHarvestDate: editingSeason.actualHarvestDate,
           actualYieldKg: editingSeason.actualYieldKg,
@@ -235,8 +265,10 @@ export function CropSeasonModal({
         toast.success(`Khởi tạo mùa vụ ${payload.seasonCode} thành công! Dữ liệu đã chuyển sang bàn làm việc của Trưởng phân khu.`);
       }
 
-      // Thông báo đồng bộ dữ liệu liên Workspace
+      // Thông báo đồng bộ dữ liệu liên Workspace (WS-E <-> WS-A)
+      notifyDataChanged('all');
       notifyDataChanged('zones');
+      notifyDataChanged('locations');
       notifyDataChanged('seasons');
 
       if (onSuccess) onSuccess();
@@ -335,9 +367,15 @@ export function CropSeasonModal({
                 setFormData((prev) => ({
                   ...prev,
                   zoneId: zId,
+                  locationId: '',
                   // Gợi ý luôn diện tích phân khu làm diện tích gieo trồng ban đầu
                   plantedAreaM2: prev.plantedAreaM2 || (zoneObj ? String(zoneObj.areaM2) : ''),
                 }));
+                if (zId) {
+                  loadLocationsForZone(zId);
+                } else {
+                  setLocations([]);
+                }
               }}
               disabled={Boolean(editingSeason)}
             >
@@ -350,6 +388,34 @@ export function CropSeasonModal({
                   </option>
                 );
               })}
+            </Select>
+          </FormField>
+        </div>
+
+        {/* Vị trí / Ô / Luống cụ thể (locationId) */}
+        <div>
+          <FormField
+            label="Vị trí / Luống / Ô cụ thể (locationId - Tùy chọn)"
+            hint={
+              isLoadingLocations
+                ? 'Đang nạp danh sách vị trí...'
+                : locations.length > 0
+                ? 'Tự động đồng bộ trạng thái OCCUPIED sang Sơ đồ vị trí (WS-A)'
+                : 'Phân khu này chưa tạo các vị trí/luống chi tiết'
+            }
+          >
+            <Select
+              name="locationId"
+              value={formData.locationId}
+              onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
+              disabled={!formData.zoneId || isLoadingLocations}
+            >
+              <option value="">-- Toàn bộ phân khu (hoặc chưa chọn ô cụ thể) --</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name} ({loc.code}) - {loc.status === 'OCCUPIED' ? '⚠️ Đang sử dụng (OCCUPIED)' : '✅ Còn trống (EMPTY)'}
+                </option>
+              ))}
             </Select>
           </FormField>
         </div>

@@ -14,6 +14,7 @@ import {
   Camera,
   Globe2,
   Sparkles,
+  XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
@@ -23,6 +24,7 @@ import { Input } from '@/components/ui/FormControls';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { toast } from '@/store/useToastStore';
 import { ReceiptPhotoModal } from './ReceiptPhotoModal';
 
 /**
@@ -91,7 +93,14 @@ export function MultiFarmExpenseSummary() {
 
   useEffect(() => {
     fetchSummary();
-  }, [activeFarmId, syncTrigger?.finance]);
+  }, [
+    activeFarmId,
+    syncTrigger?.expenses,
+    syncTrigger?.finance,
+    syncTrigger?.inventory,
+    syncTrigger?.farming,
+    syncTrigger?.all,
+  ]);
 
   // Tạo đối tượng đại diện cho Toàn Bộ Doanh Nghiệp (chỉ dùng khi isAllFarms === true)
   const enterpriseRow = useMemo(() => {
@@ -152,7 +161,14 @@ export function MultiFarmExpenseSummary() {
     if (activeDetailTarget) {
       fetchDetailExpenses(activeDetailTarget);
     }
-  }, [activeDetailTarget]);
+  }, [
+    activeDetailTarget,
+    syncTrigger?.expenses,
+    syncTrigger?.finance,
+    syncTrigger?.inventory,
+    syncTrigger?.farming,
+    syncTrigger?.all,
+  ]);
 
   // Chọn hàng để xem chi tiết
   const handleRowClick = (item) => {
@@ -163,14 +179,30 @@ export function MultiFarmExpenseSummary() {
     if (!window.confirm(`Xác nhận phê duyệt chứng từ chi phí ${row.expenseCode}? Chi phí sẽ được ghi sổ chính thức và phân bổ vào hạn mức ngân sách.`)) return;
     try {
       await financeService.confirmExpense(row.farmId, row.id);
-      alert('Đã phê duyệt chi phí thành công!');
+      toast.success('Đã phê duyệt chi phí thành công!');
       if (activeDetailTarget) {
         fetchDetailExpenses(activeDetailTarget);
       }
       fetchSummary();
     } catch (err) {
       console.error('Lỗi khi duyệt chi phí:', err);
-      alert('Không thể duyệt chi phí: ' + (err.response?.data?.message || err.message));
+      toast.error('Không thể duyệt chi phí: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleCancelExpense = async (row) => {
+    const reason = window.prompt(`Nhập lý do từ chối / hủy chứng từ chi phí ${row.expenseCode}:`);
+    if (reason === null) return;
+    try {
+      await financeService.cancelExpense(row.farmId, row.id, { reason });
+      toast.success('Đã từ chối / hủy chứng từ chi phí thành công!');
+      if (activeDetailTarget) {
+        fetchDetailExpenses(activeDetailTarget);
+      }
+      fetchSummary();
+    } catch (err) {
+      console.error('Lỗi khi hủy chi phí:', err);
+      toast.error('Không thể hủy chi phí: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -523,20 +555,31 @@ export function MultiFarmExpenseSummary() {
       key: 'actions',
       header: 'Thao Tác',
       align: 'center',
-      width: '130px',
+      width: '180px',
       render: (row) => {
         if (row.status === 'DRAFT') {
           return (
             <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
-              <Button
-                size="xs"
-                variant="primary"
-                icon={<CheckCircle2 className="h-3 w-3" />}
-                onClick={() => handleConfirmExpense(row)}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-              >
-                Phê Duyệt
-              </Button>
+              <div className="flex items-center justify-center gap-1">
+                <Button
+                  size="xs"
+                  variant="primary"
+                  icon={<CheckCircle2 className="h-3 w-3" />}
+                  onClick={() => handleConfirmExpense(row)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                >
+                  Duyệt
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  icon={<XCircle className="h-3 w-3" />}
+                  onClick={() => handleCancelExpense(row)}
+                  className="text-rose-600 hover:bg-rose-50 border-rose-200 font-semibold"
+                >
+                  Từ Chối
+                </Button>
+              </div>
             </Can>
           );
         }

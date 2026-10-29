@@ -28,16 +28,23 @@ public class ConsumptionQuotaController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<ConsumptionQuotaResponse> createQuota(@Valid @RequestBody CreateConsumptionQuotaRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(masterCatalogService.createQuota(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<ConsumptionQuotaResponse> updateQuota(
             @PathVariable Long id,
             @Valid @RequestBody UpdateConsumptionQuotaRequest request) {
         return ResponseEntity.ok(masterCatalogService.updateQuota(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    public ResponseEntity<Void> deleteQuota(@PathVariable Long id) {
+        masterCatalogService.deleteQuota(id);
+        return ResponseEntity.noContent().build();
     }
 }

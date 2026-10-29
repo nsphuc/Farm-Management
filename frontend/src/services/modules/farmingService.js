@@ -102,9 +102,35 @@ export const farmingService = {
     return res.data;
   },
 
+  getLivestockIndividuals: async (farmIdOrOptions, params = {}) => {
+    const { farmId, params: resolvedParams } = resolveFarmArgs(farmIdOrOptions, params);
+    if (!farmId) return { content: [] };
+    const res = await apiClient.get(API_ENDPOINTS.OPERATIONS.LIVESTOCK_INDIVIDUALS(farmId), { params: resolvedParams });
+    return res.data;
+  },
+
+  getLivestockIndividualById: async (farmId, id) => {
+    const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
+    if (!targetFarmId || !id) return null;
+    const res = await apiClient.get(API_ENDPOINTS.OPERATIONS.LIVESTOCK_INDIVIDUAL_DETAIL(targetFarmId, id));
+    return res.data;
+  },
+
+  createLivestockIndividual: async (farmId, data) => {
+    const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
+    const res = await apiClient.post(API_ENDPOINTS.OPERATIONS.LIVESTOCK_INDIVIDUALS(targetFarmId), data);
+    return res.data;
+  },
+
+  updateLivestockIndividual: async (farmId, id, data) => {
+    const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
+    const res = await apiClient.put(API_ENDPOINTS.OPERATIONS.LIVESTOCK_INDIVIDUAL_DETAIL(targetFarmId, id), data);
+    return res.data;
+  },
+
   deleteLivestockIndividual: async (farmId, id) => {
     const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
-    const res = await apiClient.delete(`${API_ENDPOINTS.OPERATIONS.LIVESTOCK_INDIVIDUALS(targetFarmId)}/${id}`);
+    const res = await apiClient.delete(API_ENDPOINTS.OPERATIONS.LIVESTOCK_INDIVIDUAL_DETAIL(targetFarmId, id));
     return res.data;
   },
 
@@ -145,10 +171,14 @@ export const farmingService = {
     return res.data;
   },
 
-  recordLivestockWeight: async (farmId, groupId, data) => {
+  recordLivestockWeight: async (farmId, payloadOrGroupId, maybeData) => {
     const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
-    const targetGroupId = typeof farmId === 'object' && farmId !== null ? farmId.groupId || groupId : groupId;
-    const res = await apiClient.post(API_ENDPOINTS.OPERATIONS.LIVESTOCK_WEIGHT_LOGS(targetFarmId, targetGroupId), data);
+    if (typeof payloadOrGroupId === 'object' && payloadOrGroupId !== null && payloadOrGroupId.weightKg !== undefined) {
+      const res = await apiClient.post(API_ENDPOINTS.OPERATIONS.LIVESTOCK_WEIGH_IN(targetFarmId), payloadOrGroupId);
+      return res.data;
+    }
+    const targetGroupId = payloadOrGroupId;
+    const res = await apiClient.post(API_ENDPOINTS.OPERATIONS.LIVESTOCK_WEIGHT_LOGS(targetFarmId, targetGroupId), maybeData);
     return res.data;
   },
 
@@ -186,6 +216,12 @@ export const farmingService = {
   createRoutineTask: async (farmId, data) => {
     const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
     const res = await apiClient.post(API_ENDPOINTS.HR.TASKS(targetFarmId), data);
+    return res.data;
+  },
+
+  updateRoutineTask: async (farmId, taskId, data) => {
+    const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
+    const res = await apiClient.put(API_ENDPOINTS.HR.TASK_DETAIL(targetFarmId, taskId), data);
     return res.data;
   },
 

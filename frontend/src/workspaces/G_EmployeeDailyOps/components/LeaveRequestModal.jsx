@@ -4,6 +4,8 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
 import { hrService } from '@/services/modules/hrService';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+
 
 const LEAVE_TYPES = [
   { value: 'ANNUAL_LEAVE', label: 'Nghỉ phép năm hưởng lương (ANNUAL_LEAVE)' },
@@ -80,6 +82,11 @@ export function LeaveRequestModal({
         totalDays: Number(formData.totalDays),
         reason: formData.reason.trim(),
       });
+
+      const store = useActiveFarmStore.getState();
+      store.notifyDataChanged?.('all');
+      store.notifyDataChanged?.('employees');
+      store.notifyDataChanged?.('tasks');
 
       onSuccess?.();
       onClose();

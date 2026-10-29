@@ -68,7 +68,14 @@ export function UnitCostAnalysisTab() {
 
   useEffect(() => {
     fetchData();
-  }, [activeFarmId, syncTrigger?.finance, syncTrigger?.farming]);
+  }, [
+    activeFarmId,
+    syncTrigger?.expenses,
+    syncTrigger?.finance,
+    syncTrigger?.inventory,
+    syncTrigger?.farming,
+    syncTrigger?.all,
+  ]);
 
   const handleSelectTarget = async (type, item) => {
     setSelectedTarget({ type, ...item });

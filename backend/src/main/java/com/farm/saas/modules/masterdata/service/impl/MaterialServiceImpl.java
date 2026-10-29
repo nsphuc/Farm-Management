@@ -2,10 +2,13 @@ package com.farm.saas.modules.masterdata.service.impl;
 
 import com.farm.saas.common.audit.AuditTrailEvent;
 import com.farm.saas.common.exception.ApiException;
+import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.inventory.entity.WarehouseInventory;
 import com.farm.saas.modules.inventory.repository.WarehouseInventoryRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseIssueItemRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseReceiptItemRepository;
 import com.farm.saas.modules.masterdata.dto.request.CreateMaterialCategoryRequest;
 import com.farm.saas.modules.masterdata.dto.request.CreateMaterialRequest;
 import com.farm.saas.modules.masterdata.dto.request.CreateUnitConversionRequest;
@@ -18,6 +21,7 @@ import com.farm.saas.modules.masterdata.entity.Material;
 import com.farm.saas.modules.masterdata.entity.MaterialCategory;
 import com.farm.saas.modules.masterdata.entity.MaterialUnitConversion;
 import com.farm.saas.modules.masterdata.entity.Warehouse;
+import com.farm.saas.modules.masterdata.repository.ConsumptionQuotaRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialCategoryRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialUnitConversionRepository;
@@ -51,6 +55,9 @@ public class MaterialServiceImpl implements MaterialService {
     private final MaterialUnitConversionRepository conversionRepository;
     private final WarehouseRepository warehouseRepository;
     private final WarehouseInventoryRepository inventoryRepository;
+    private final WarehouseReceiptItemRepository receiptItemRepository;
+    private final WarehouseIssueItemRepository issueItemRepository;
+    private final ConsumptionQuotaRepository consumptionQuotaRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -129,6 +136,30 @@ public class MaterialServiceImpl implements MaterialService {
                 .build());
 
         return toCategoryResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public void deleteCategory(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        MaterialCategory category = categoryRepository.findByTenantIdAndId(tenantId, id)
+                .orElseThrow(() -> new ResourceNotFoundException("Nhóm vật tư", id));
+
+        if (materialRepository.existsByTenantIdAndCategoryId(tenantId, id)) {
+            throw new BusinessException("Nhóm vật tư đang chứa mặt hàng, vui lòng xóa hoặc chuyển nhóm cho mặt hàng trước!");
+        }
+
+        categoryRepository.delete(category);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(tenantId)
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("DELETE_MATERIAL_CATEGORY")
+                .module("MASTERDATA")
+                .endpoint("/api/v1/material-categories/" + id)
+                .method("DELETE")
+                .newValue("Deleted category: " + category.getCode())
+                .build());
     }
 
     // --- Materials ---
@@ -303,6 +334,53 @@ public class MaterialServiceImpl implements MaterialService {
                 .build());
 
         return enrichMaterialDetail(updated);
+    }
+
+    @Override
+    @Transactional
+    public void deleteMaterial(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Material material = materialRepository.findByTenantIdAndId(tenantId, id)
+                .orElseThrow(() -> new ResourceNotFoundException("Vật tư", id));
+
+        boolean hasTransactions = inventoryRepository.existsByMaterialId(id)
+                || receiptItemRepository.existsByMaterialId(id)
+                || issueItemRepository.existsByMaterialId(id)
+                || consumptionQuotaRepository.existsByMaterialId(id);
+
+        if (hasTransactions) {
+            // Soft delete / Vô hiệu hóa
+            material.setStatus("DISCONTINUED");
+            material.setUpdatedAt(Instant.now());
+            material.setUpdatedBy(SecurityUtils.getCurrentUserId());
+            materialRepository.save(material);
+
+            eventPublisher.publishEvent(AuditTrailEvent.builder()
+                    .tenantId(tenantId)
+                    .userId(SecurityUtils.getCurrentUserId())
+                    .action("SOFT_DELETE_MATERIAL")
+                    .module("MASTERDATA")
+                    .endpoint("/api/v1/materials/" + id)
+                    .method("DELETE")
+                    .newValue("Discontinued material: " + material.getSkuCode())
+                    .build());
+        } else {
+            List<MaterialUnitConversion> conversions = conversionRepository.findByMaterialId(id);
+            if (!conversions.isEmpty()) {
+                conversionRepository.deleteAll(conversions);
+            }
+            materialRepository.delete(material);
+
+            eventPublisher.publishEvent(AuditTrailEvent.builder()
+                    .tenantId(tenantId)
+                    .userId(SecurityUtils.getCurrentUserId())
+                    .action("DELETE_MATERIAL")
+                    .module("MASTERDATA")
+                    .endpoint("/api/v1/materials/" + id)
+                    .method("DELETE")
+                    .newValue("Physically deleted material: " + material.getSkuCode())
+                    .build());
+        }
     }
 
     @Override

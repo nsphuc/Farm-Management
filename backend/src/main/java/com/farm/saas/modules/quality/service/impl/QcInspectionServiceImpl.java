@@ -15,6 +15,7 @@ import com.farm.saas.modules.quality.repository.ProductBatchRepository;
 import com.farm.saas.modules.quality.repository.QcInspectionItemRepository;
 import com.farm.saas.modules.quality.repository.QcInspectionRepository;
 import com.farm.saas.modules.quality.service.QcInspectionService;
+import com.farm.saas.modules.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -36,6 +37,7 @@ public class QcInspectionServiceImpl implements QcInspectionService {
     private final ProductBatchRepository productBatchRepository;
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional
@@ -53,6 +55,27 @@ public class QcInspectionServiceImpl implements QcInspectionService {
             throw new BusinessException("BATCH_ACCESS_DENIED", "Lô thành phẩm không thuộc quyền quản lý của khách thuê hiện tại");
         }
 
+        // Chuẩn hóa overallResult: FAILED -> REJECTED để thỏa mãn SQL check constraint chk_qc_result
+        String rawResult = request.getOverallResult();
+        String dbOverallResult = "FAILED".equalsIgnoreCase(rawResult) ? "REJECTED" : rawResult;
+        if (dbOverallResult == null || dbOverallResult.isBlank()) {
+            dbOverallResult = "PENDING";
+        }
+
+        // Hỗ trợ lưu trữ thông tin ảnh minh chứng photosJson nếu có
+        String notes = request.getNotes();
+        if (request.getPhotosJson() != null && !request.getPhotosJson().isBlank()) {
+            String photoTag = "[Photos: " + request.getPhotosJson().trim() + "]";
+            if (notes == null || notes.isBlank()) {
+                notes = photoTag;
+            } else if (!notes.contains(request.getPhotosJson().trim())) {
+                notes = notes + " " + photoTag;
+            }
+            if (notes.length() > 500) {
+                notes = notes.substring(0, 497) + "...";
+            }
+        }
+
         QcInspection inspection = QcInspection.builder()
                 .tenantId(tenantId != null ? tenantId : batch.getTenantId())
                 .farmId(farmId)
@@ -62,8 +85,8 @@ public class QcInspectionServiceImpl implements QcInspectionService {
                 .inspectorUserId(currentUserId)
                 .sampleSize(request.getSampleSize())
                 .sampleUnit(request.getSampleUnit())
-                .overallResult(request.getOverallResult())
-                .notes(request.getNotes())
+                .overallResult(dbOverallResult)
+                .notes(notes)
                 .createdAt(Instant.now())
                 .createdBy(currentUserId)
                 .build();
@@ -73,20 +96,68 @@ public class QcInspectionServiceImpl implements QcInspectionService {
         List<QcInspectionItem> savedItems = new ArrayList<>();
         if (request.getItems() != null) {
             for (QcInspectionRequest.QcInspectionItemRequest itemReq : request.getItems()) {
+                String paramName = itemReq.getParameterName() != null ? itemReq.getParameterName() : itemReq.getCriterionName();
+                String threshold = itemReq.getStandardThreshold() != null ? itemReq.getStandardThreshold() : itemReq.getStandardValue();
+                String measured = itemReq.getMeasuredValue() != null ? itemReq.getMeasuredValue() : itemReq.getActualValue();
+                Boolean passed = itemReq.getIsPassed() != null ? itemReq.getIsPassed() : itemReq.getPassed();
+
+                String itemNotes = itemReq.getNotes();
+                if (itemReq.getUnit() != null && !itemReq.getUnit().isBlank()) {
+                    String unitTag = "[ĐVT: " + itemReq.getUnit().trim() + "]";
+                    if (itemNotes == null || itemNotes.isBlank()) {
+                        itemNotes = unitTag;
+                    } else if (!itemNotes.contains(itemReq.getUnit().trim())) {
+                        itemNotes = itemNotes + " " + unitTag;
+                    }
+                    if (itemNotes.length() > 255) {
+                        itemNotes = itemNotes.substring(0, 252) + "...";
+                    }
+                }
+
                 QcInspectionItem item = QcInspectionItem.builder()
                         .inspectionId(inspection.getId())
-                        .parameterName(itemReq.getParameterName())
-                        .standardThreshold(itemReq.getStandardThreshold())
-                        .measuredValue(itemReq.getMeasuredValue())
-                        .isPassed(itemReq.getIsPassed())
-                        .notes(itemReq.getNotes())
+                        .parameterName(paramName != null ? paramName : "Chỉ tiêu kiểm định")
+                        .standardThreshold(threshold != null ? threshold : "Đạt chuẩn")
+                        .measuredValue(measured != null ? measured : "0.0")
+                        .isPassed(passed != null ? passed : true)
+                        .notes(itemNotes)
                         .createdAt(Instant.now())
                         .build();
                 savedItems.add(qcInspectionItemRepository.save(item));
             }
         }
 
-        log.info("Created QC inspection id={}, code={}, result={} for batchId={}", inspection.getId(), inspection.getInspectionCode(), inspection.getOverallResult(), batch.getId());
+        // Cập nhật timestamp của ProductBatch (giữ nguyên status = PENDING_APPROVAL)
+        batch.setUpdatedAt(Instant.now());
+        batch.setUpdatedBy(currentUserId);
+        productBatchRepository.save(batch);
+
+        // Bắn thông báo tự động cho Giám đốc trang trại
+        try {
+            if (notificationService != null) {
+                farmRepository.findById(farmId).ifPresent(farm -> {
+                    if (farm.getManagerUserId() != null) {
+                        String resultDisplay = "PASSED".equalsIgnoreCase(rawResult) ? "PASSED" : "FAILED";
+                        notificationService.sendNotification(
+                                batch.getTenantId(),
+                                farm.getManagerUserId(),
+                                "Biên bản kiểm định KCS lô thành phẩm",
+                                String.format("Lô thành phẩm [%s] đã được Kỹ sư KCS kiểm định với kết quả %s và đang chờ phê duyệt.",
+                                        batch.getBatchCode(), resultDisplay),
+                                "QC",
+                                "PRODUCT_BATCH",
+                                batch.getId(),
+                                "/app/qa-traceability"
+                        );
+                    }
+                });
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to send QC notification to farm manager: {}", ex.getMessage());
+        }
+
+        log.info("Created QC inspection id={}, code={}, rawResult={}, dbResult={} for batchId={}",
+                inspection.getId(), inspection.getInspectionCode(), rawResult, inspection.getOverallResult(), batch.getId());
         return mapToDetailResponse(inspection, batch, savedItems);
     }
 

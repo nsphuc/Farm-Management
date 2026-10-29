@@ -24,9 +24,11 @@ export const API_ENDPOINTS = {
   PLATFORM: {
     TENANTS: '/platform/tenants',
     TENANT_DETAIL: (id) => `/platform/tenants/${id}`,
-    SUBSCRIPTIONS: '/platform/subscriptions',
+    TENANT_STATUS: (id) => `/platform/tenants/${id}/status`,
+    TENANT_SUBSCRIPTIONS: (id) => `/platform/tenants/${id}/subscriptions`,
     METRICS: '/platform/metrics',
-    AUDIT_LOGS: '/platform/audit-logs',
+    AUDIT_LOGS: '/system/audit-logs',
+    BROADCAST_NOTIFICATION: '/platform/notifications/broadcast',
   },
 
   // 4. Geography (Farm, Zone, Location, Assignment, Cycle)
@@ -71,6 +73,7 @@ export const API_ENDPOINTS = {
     WORK_SHIFT_DETAIL: (id) => `/hr/shifts/${id}`,
     SHIFT_ASSIGN: '/hr/shifts/assign',
     SHIFT_ASSIGNMENTS: '/hr/shifts/assignments',
+    SHIFT_ASSIGNMENT_UPDATE: (id) => `/hr/shifts/assignments/${id}`,
     SHIFT_ASSIGNMENT_CANCEL: (id) => `/hr/shifts/assignments/${id}/cancel`,
     ATTENDANCE: '/hr/attendance',
     ATTENDANCE_DETAIL: (id) => `/hr/attendance/${id}`,
@@ -86,7 +89,9 @@ export const API_ENDPOINTS = {
     OVERTIME_APPROVE: (id) => `/hr/overtime/${id}/approve`,
     TASKS: (farmId) => `/farms/${farmId}/tasks`,
     TASK_DETAIL: (farmId, id) => `/farms/${farmId}/tasks/${id}`,
+    TASK_UPDATE: (farmId, id) => `/farms/${farmId}/tasks/${id}`,
     TASK_STATUS: (id) => `/tasks/${id}/status`,
+    TASK_CANCEL: (id) => `/tasks/${id}/cancel`,
     TASK_GENERATE_DAILY_ROUTINES: (farmId) => `/farms/${farmId}/tasks/generate-daily-routines`,
   },
 
@@ -116,7 +121,9 @@ export const API_ENDPOINTS = {
     FARMING_LOGS: (farmId) => `/farms/${farmId}/farming-logs`,
     LIVESTOCK_GROUPS: (farmId) => `/farms/${farmId}/livestock-groups`,
     LIVESTOCK_INDIVIDUALS: (farmId) => `/farms/${farmId}/livestock-individuals`,
+    LIVESTOCK_INDIVIDUAL_DETAIL: (farmId, id) => `/farms/${farmId}/livestock-individuals/${id}`,
     LIVESTOCK_WEIGHT_LOGS: (farmId, groupId) => groupId ? `/farms/${farmId}/livestock-groups/${groupId}/weight-logs` : `/farms/${farmId}/livestock-weight-logs`,
+    LIVESTOCK_WEIGH_IN: (farmId) => `/farms/${farmId}/livestock/weigh-in`,
     LIVESTOCK_EVENTS: (farmId) => `/farms/${farmId}/livestock-events`,
     HARVEST_RECORDS: (farmId) => `/farms/${farmId}/harvest-records`,
   },
@@ -175,6 +182,7 @@ export const API_ENDPOINTS = {
     DETAIL: (id) => `/users/${id}`,
     STATUS: (id) => `/users/${id}/status`,
     ROLES: (id) => `/users/${id}/roles`,
+    RESET_PASSWORD: (id) => `/users/${id}/reset-password`,
   },
 
   // 13. Public Traceability (Unauthenticated)

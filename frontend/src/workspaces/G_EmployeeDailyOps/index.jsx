@@ -38,9 +38,10 @@ export function EmployeeDailyOpsWorkspace() {
     isTechnicalLead,
     isWarehouseKeeper,
     isFarmAccountant,
+    isZoneManager,
     isFieldWorker,
   } = useAuthStore();
-  const { activeFarmId, activeFarm } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, syncTrigger } = useActiveFarmStore();
 
   // 1. Chặn Chủ Đầu Tư (Owner - Role 1): Người trả lương không cần chấm công
   if (isOwner()) {
@@ -50,9 +51,10 @@ export function EmployeeDailyOpsWorkspace() {
   const farmManager = isFarmManager();
   const technicalLead = isTechnicalLead();
   const warehouseKeeper = isWarehouseKeeper();
+  const zoneManager = isZoneManager ? isZoneManager(activeFarmId) : false;
   const fieldWorker = isFieldWorker();
-  const canRollCallTeam = farmManager || technicalLead || warehouseKeeper;
-  const canSuperviseTasks = farmManager || technicalLead || warehouseKeeper;
+  const canRollCallTeam = farmManager || technicalLead || warehouseKeeper || zoneManager;
+  const canSuperviseTasks = farmManager || technicalLead || warehouseKeeper || zoneManager;
 
   const [activeTaskTab, setActiveTaskTab] = useState('ROUTINES'); // 'ROUTINES' | 'KANBAN'
   const [employee, setEmployee] = useState(null);
@@ -165,7 +167,14 @@ export function EmployeeDailyOpsWorkspace() {
 
   useEffect(() => {
     handleRefreshAll();
-  }, [activeFarmId]);
+  }, [
+    activeFarmId,
+    syncTrigger?.all,
+    syncTrigger?.employees,
+    syncTrigger?.zones,
+    syncTrigger?.tasks,
+    syncTrigger?.attendance,
+  ]);
 
   useEffect(() => {
     if (employee && activeFarmId) {
@@ -228,6 +237,7 @@ export function EmployeeDailyOpsWorkspace() {
       <Can notRole="ROLE_FARM_OWNER">
         <OneTapTimekeepingCard
           activeFarm={activeFarm}
+          employee={employee}
           todayShift={todayShift}
           attendanceRecord={todayAttendance}
           annualLeaveQuota={employee?.annualLeaveQuota || 12.0}
@@ -249,8 +259,8 @@ export function EmployeeDailyOpsWorkspace() {
         />
       )}
 
-      {/* KHỐI 3: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động (ROLE_FARM_MANAGER, ROLE_TECHNICAL_STAFF, hoặc FARM_MANAGER / ZONE_MANAGER / TECHNICAL_LEAD) */}
-      <Can permission="PERM_HR_ATTENDANCE" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD']}>
+      {/* KHỐI 3: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động (ROLE_FARM_MANAGER, ROLE_TECHNICAL_STAFF, ROLE_WAREHOUSE_STAFF hoặc FARM_MANAGER / ZONE_MANAGER / TECHNICAL_LEAD / WAREHOUSE_KEEPER) */}
+      <Can permission="PERM_HR_ATTENDANCE" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
         <TeamRollCallPanel
           activeFarm={activeFarm}
           shifts={shifts}
@@ -309,6 +319,7 @@ export function EmployeeDailyOpsWorkspace() {
               employees={employees}
               isTechnicalLead={technicalLead}
               isWarehouseKeeper={warehouseKeeper}
+              isZoneManager={zoneManager}
               onRefresh={fetchTasks}
             />
           )}
@@ -322,6 +333,7 @@ export function EmployeeDailyOpsWorkspace() {
               employees={employees}
               isTechnicalLead={technicalLead}
               isWarehouseKeeper={warehouseKeeper}
+              isZoneManager={zoneManager}
               canManageTasks={true}
               onRefresh={fetchTasks}
             />

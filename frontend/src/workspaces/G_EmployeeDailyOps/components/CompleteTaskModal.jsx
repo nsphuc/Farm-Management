@@ -4,6 +4,8 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Textarea } from '@/components/ui/FormControls';
 import { hrService } from '@/services/modules/hrService';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+
 
 export function CompleteTaskModal({
   isOpen,
@@ -49,6 +51,11 @@ export function CompleteTaskModal({
         completionNotes: completionNotes.trim(),
         photosJson,
       });
+
+      const store = useActiveFarmStore.getState();
+      store.notifyDataChanged?.('all');
+      store.notifyDataChanged?.('employees');
+      store.notifyDataChanged?.('tasks');
 
       onSuccess?.();
       onClose();

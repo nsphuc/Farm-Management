@@ -4,6 +4,8 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
 import { hrService } from '@/services/modules/hrService';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+
 
 const OT_MULTIPLIERS = [
   { value: '1.50', label: '1.50 - Ngày thường (150% lương)' },
@@ -80,6 +82,11 @@ export function OvertimeRequestModal({
         otMultiplier: Number(formData.otMultiplier),
         reason: formData.reason.trim(),
       });
+
+      const store = useActiveFarmStore.getState();
+      store.notifyDataChanged?.('all');
+      store.notifyDataChanged?.('employees');
+      store.notifyDataChanged?.('tasks');
 
       onSuccess?.();
       onClose();

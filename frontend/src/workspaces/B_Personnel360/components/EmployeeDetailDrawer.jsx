@@ -14,12 +14,15 @@ import {
   CheckCircle2,
   AlertTriangle,
   Lock,
+  Unlock,
   Edit2,
   UserCheck,
   Hourglass,
   CalendarCheck,
+  RotateCcw,
 } from 'lucide-react';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
+import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Can } from '@/components/common/Can';
@@ -28,6 +31,7 @@ import { formatCurrency, formatDate, formatNumber } from '@/utils/formatters';
 import { hrService } from '@/services/modules/hrService';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { toast } from '@/store/useToastStore';
 
 // Danh mục 4 Role Cấp 4 (Maker / Chuyên môn) dành cho Giám đốc trang trại bổ nhiệm
 const TIER4_ROLES = [
@@ -52,7 +56,7 @@ export function EmployeeDetailDrawer({
 }) {
   const [activeTab, setActiveTab] = useState('profile');
   const { isOwner, isFarmManager } = useAuthStore();
-  const { activeFarmId } = useActiveFarmStore();
+  const { activeFarmId, syncTrigger } = useActiveFarmStore();
   const owner = isOwner();
   const farmManager = isFarmManager();
 
@@ -69,6 +73,14 @@ export function EmployeeDetailDrawer({
   const [provisionError, setProvisionError] = useState(null);
   const [provisionSuccess, setProvisionSuccess] = useState(false);
 
+  // Quản trị tài khoản SaaS (Lock/Unlock, Role, Reset Password)
+  const [targetRole, setTargetRole] = useState('ROLE_FIELD_STAFF');
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
+  const [isUpdatingRole, setIsUpdatingRole] = useState(false);
+  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
+  const [tempPassword, setTempPassword] = useState('Farm@123456');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+
   // Ledger stats state
   const [ledgerStats, setLedgerStats] = useState({
     totalWorkDays: 22,
@@ -84,8 +96,17 @@ export function EmployeeDetailDrawer({
       setUsername(employee.phone?.replace(/[^0-9]/g, '') || employee.employeeCode?.toLowerCase() || '');
       setProvisionError(null);
       setProvisionSuccess(false);
+      const currentRole = employee.userRole || employee.userRoles?.[0];
+      setTargetRole(currentRole || (owner ? 'ROLE_FARM_MANAGER' : 'ROLE_FIELD_STAFF'));
     }
-  }, [employee]);
+  }, [employee, owner]);
+
+  // GAP-SYNC-05: Lắng nghe syncTrigger để tự động làm mới hồ sơ nhân sự đang mở
+  useEffect(() => {
+    if (isOpen && employee?.id) {
+      onRefresh?.();
+    }
+  }, [isOpen, employee?.id, syncTrigger?.employees, syncTrigger?.attendance, syncTrigger?.all]);
 
   const handleProvisionAccount = async (e) => {
     e.preventDefault();
@@ -113,9 +134,66 @@ export function EmployeeDetailDrawer({
     }
   };
 
+  const handleToggleUserStatus = async (newStatus) => {
+    if (!employee?.userId) return;
+    try {
+      setIsTogglingStatus(true);
+      await hrService.updateUserStatus(employee.userId, newStatus);
+      toast.success(newStatus === 'ACTIVE' ? 'Đã mở khóa tài khoản nhân viên thành công!' : 'Đã khóa tài khoản nhân viên (đã thu hồi phiên đăng nhập)!');
+      onRefresh?.();
+    } catch (err) {
+      console.error('Toggle status error:', err);
+      toast.error(err.response?.data?.message || err.message || 'Lỗi cập nhật trạng thái');
+    } finally {
+      setIsTogglingStatus(false);
+    }
+  };
+
+  const handleSaveUserRole = async () => {
+    if (!employee?.userId) return;
+    try {
+      setIsUpdatingRole(true);
+      await hrService.updateUserRoles(employee.userId, {
+        roles: [targetRole],
+        assignedFarmIds: employee.farmId ? [employee.farmId] : [],
+      });
+      toast.success('Đã cập nhật vai trò người dùng thành công!');
+      onRefresh?.();
+    } catch (err) {
+      console.error('Update role error:', err);
+      toast.error(err.response?.data?.message || err.message || 'Lỗi cập nhật vai trò');
+    } finally {
+      setIsUpdatingRole(false);
+    }
+  };
+
+  const handleConfirmResetPassword = async () => {
+    if (!employee?.userId) return;
+    const passwordToSet = tempPassword.trim() || 'Farm@123456';
+    try {
+      setIsResettingPassword(true);
+      const res = await hrService.resetUserPassword(employee.userId, passwordToSet);
+      const finalPass = res?.temporaryPassword || passwordToSet;
+      toast.success(`Đã reset mật khẩu thành công! Mật khẩu tạm: ${finalPass}`);
+      setIsResetPasswordModalOpen(false);
+      setTempPassword('Farm@123456');
+      onRefresh?.();
+    } catch (err) {
+      console.error('Reset password error:', err);
+      toast.error(err.response?.data?.message || err.message || 'Lỗi đặt lại mật khẩu');
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  const isTargetFm = employee?.position === 'FARM_MANAGER' || employee?.userRole === 'ROLE_FARM_MANAGER';
+  const canEditProfile = owner || (farmManager && !isTargetFm);
+  const canManageThisUser = owner || (farmManager && !isTargetFm);
+
   if (!employee) return null;
 
   return (
+    <>
     <SlideOverDrawer
       isOpen={isOpen}
       onClose={onClose}
@@ -141,7 +219,7 @@ export function EmployeeDetailDrawer({
             Ngày tạo: {formatDate(employee.createdAt)}
           </span>
           <div className="flex items-center gap-2">
-            <Can permission="PERM_HR_EMPLOYEE_MANAGE">
+            {canEditProfile && (
               <Button
                 variant="outline"
                 size="sm"
@@ -152,7 +230,7 @@ export function EmployeeDetailDrawer({
               >
                 Chỉnh Sửa Hồ Sơ
               </Button>
-            </Can>
+            )}
             <Button variant="secondary" size="sm" onClick={onClose}>
               Đóng Khay
             </Button>
@@ -297,18 +375,21 @@ export function EmployeeDetailDrawer({
             {employee.userId ? (
               // ĐÃ CẤP TÀI KHOẢN SAAS
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
-                    <ShieldCheck className="h-6 w-6" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
+                      <ShieldCheck className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-emerald-900">
+                        Tài Khoản SaaS Đang Hoạt Động
+                      </h4>
+                      <p className="text-xs text-emerald-700">
+                        Nhân viên đã được cấp quyền truy cập hệ thống Farm Management
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-emerald-900">
-                      Tài Khoản SaaS Đang Hoạt Động
-                    </h4>
-                    <p className="text-xs text-emerald-700">
-                      Nhân viên đã được cấp quyền đăng nhập hệ thống Farm Management
-                    </p>
-                  </div>
+                  <StatusBadge status={employee.userStatus || 'ACTIVE'} size="sm" />
                 </div>
 
                 <div className="rounded-xl bg-white p-4 border border-emerald-100 space-y-3 text-xs">
@@ -323,20 +404,26 @@ export function EmployeeDetailDrawer({
                     </span>
                   </div>
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <span className="text-slate-500">Vai trò hiện tại (Role):</span>
+                    <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded border border-blue-200">
+                      {employee.userRole || (employee.userRoles?.length > 0 ? employee.userRoles.join(', ') : 'ROLE_FIELD_STAFF')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                     <span className="text-slate-500">Trạng thái tài khoản:</span>
-                    <StatusBadge status="ACTIVE" size="sm" />
+                    <StatusBadge status={employee.userStatus || 'ACTIVE'} size="sm" />
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Cơ chế bảo mật mật khẩu:</span>
+                    <span className="text-slate-500">Chính sách bảo mật:</span>
                     <span className="text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                      Yêu cầu đổi MK lần đầu (mustChangePassword)
+                      Yêu cầu đổi MK khi reset (mustChangePassword)
                     </span>
                   </div>
                 </div>
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
                   <span className="text-xs font-bold text-slate-800 block">
-                    Phạm vi trang trại được gán (user_farm_access #12):
+                    Phạm vi trang trại được gán (user_farm_access):
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="text-xs bg-slate-100 text-slate-700 font-medium px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1.5">
@@ -345,6 +432,126 @@ export function EmployeeDetailDrawer({
                     </span>
                   </div>
                 </div>
+
+                {/* KHỐI QUẢN TRỊ TÀI KHOẢN CẤP 4 / CẤP DƯỚI */}
+                <Can permission="PERM_HR_EMPLOYEE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4 shadow-sm">
+                    <h5 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-2 pb-2 border-b border-slate-100">
+                      <KeyRound className="h-4 w-4 text-emerald-600" />
+                      <span>Quản Trị Tài Khoản & Phân Quyền</span>
+                    </h5>
+
+                    {!canManageThisUser ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                        <span>Chỉ Chủ sở hữu (Owner) mới có quyền quản lý tài khoản của Giám đốc / Quản lý trang trại.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* 1. Nút Khóa / Mở Khóa */}
+                        <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+                          <div>
+                            <div className="text-xs font-bold text-slate-800">
+                              Trạng thái kích hoạt tài khoản
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              {employee.userStatus === 'ACTIVE'
+                                ? 'Khóa tài khoản sẽ thu hồi phiên đăng nhập ngay lập tức'
+                                : 'Mở khóa tài khoản để cho phép người dùng đăng nhập lại'}
+                            </div>
+                          </div>
+                          {canManageThisUser ? (
+                            employee.userStatus === 'ACTIVE' ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="text-rose-600 border-rose-300 hover:bg-rose-50 font-bold"
+                                icon={<Lock className="h-3.5 w-3.5" />}
+                                isLoading={isTogglingStatus}
+                                onClick={() => handleToggleUserStatus('LOCKED')}
+                              >
+                                [🔒 Khóa Tài Khoản]
+                              </Button>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="text-emerald-700 border-emerald-300 hover:bg-emerald-50 font-bold"
+                                icon={<Unlock className="h-3.5 w-3.5" />}
+                                isLoading={isTogglingStatus}
+                                onClick={() => handleToggleUserStatus('ACTIVE')}
+                              >
+                                [🔓 Mở Khóa Tài Khoản]
+                              </Button>
+                            )
+                          ) : (
+                            <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                              employee.userStatus === 'ACTIVE'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}>
+                              {employee.userStatus === 'ACTIVE' ? 'Đang hoạt động' : 'Đang bị khóa'}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 2. Khối Đổi Vai Trò */}
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+                          <label className="text-xs font-bold text-slate-800 block">
+                            Điều chỉnh vai trò (Role):
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <Select
+                                value={targetRole}
+                                onChange={(e) => setTargetRole(e.target.value)}
+                                options={availableRoles}
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              variant="primary"
+                              size="sm"
+                              isLoading={isUpdatingRole}
+                              onClick={handleSaveUserRole}
+                              icon={<UserCheck className="h-3.5 w-3.5" />}
+                            >
+                              Lưu Vai Trò
+                            </Button>
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            {farmManager && !owner
+                              ? 'Giám đốc trại được quyền chuyển đổi giữa 4 vai trò Cấp 4 của trang trại.'
+                              : 'Chủ sở hữu có thể phân bổ vai trò Giám đốc hoặc chuyên môn.'}
+                          </p>
+                        </div>
+
+                        {/* 3. Nút Reset Mật Khẩu */}
+                        <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+                          <div>
+                            <div className="text-xs font-bold text-slate-800">
+                              Đặt lại mật khẩu cho nhân viên
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              Khởi tạo mật khẩu tạm, bật cờ bắt buộc đổi mật khẩu ở lần đăng nhập tới
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            icon={<RotateCcw className="h-3.5 w-3.5 text-blue-600" />}
+                            onClick={() => setIsResetPasswordModalOpen(true)}
+                          >
+                            [🔑 Reset Mật Khẩu]
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Can>
               </div>
             ) : (
               // CHƯA CẤP TÀI KHOẢN SAAS -> FORM CẤP MỚI
@@ -514,6 +721,59 @@ export function EmployeeDetailDrawer({
         )}
       </div>
     </SlideOverDrawer>
+
+    {/* Modal Reset Mật Khẩu */}
+    <Modal
+      isOpen={isResetPasswordModalOpen}
+      onClose={() => setIsResetPasswordModalOpen(false)}
+      title="Đặt Lại Mật Khẩu Tài Khoản"
+      size="sm"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsResetPasswordModalOpen(false)}
+          >
+            Hủy
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            isLoading={isResettingPassword}
+            onClick={handleConfirmResetPassword}
+          >
+            Xác Nhận Đặt Lại
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-xs text-slate-600">
+          Đặt lại mật khẩu cho tài khoản <strong>{employee.username || employee.employeeCode}</strong> ({employee.fullName}).
+        </p>
+        <FormField
+          label="Mật Khẩu Tạm Thời Mới"
+          required
+          hint="Mặc định: Farm@123456 hoặc tự chỉ định mật khẩu mới"
+        >
+          <Input
+            value={tempPassword}
+            onChange={(e) => setTempPassword(e.target.value)}
+            placeholder="Farm@123456"
+          />
+        </FormField>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            Hệ thống sẽ tự động bật cờ <strong>mustChangePassword</strong> và thu hồi toàn bộ phiên đăng nhập cũ. Nhân viên bắt buộc phải đổi mật khẩu ở lần đăng nhập tiếp theo.
+          </div>
+        </div>
+      </div>
+    </Modal>
+    </>
   );
 }
 

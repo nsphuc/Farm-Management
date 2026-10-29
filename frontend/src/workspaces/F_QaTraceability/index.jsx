@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldCheck,
   Building,
@@ -18,11 +18,43 @@ import {
   AlertTriangle,
   UserCheck,
   Plus,
+  Trash2,
+  Sparkles,
+  FlaskConical,
+  Camera,
+  Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable } from '@/components/common/DataTable';
 import { Modal } from '@/components/ui/Modal';
+
+export const DEFAULT_VIETGAP_CRITERIA = [
+  {
+    criterionName: 'Dư lượng thuốc BVTV / Kháng sinh',
+    standardValue: 'Âm tính (< MRL)',
+    measuredValue: '0.00',
+    unit: 'ppm',
+    isPassed: true,
+    notes: 'Test nhanh kit quang phổ đạt chuẩn xuất xưởng',
+  },
+  {
+    criterionName: 'Vi sinh vật (E.Coli / Salmonella)',
+    standardValue: 'Không phát hiện',
+    measuredValue: '0',
+    unit: 'CFU/g',
+    isPassed: true,
+    notes: 'Mẫu cấy khuẩn 24h âm tính',
+  },
+  {
+    criterionName: 'Độ tươi / Ngoại quan & Quy cách',
+    standardValue: 'Đạt chuẩn Loại A',
+    measuredValue: '98',
+    unit: '%',
+    isPassed: true,
+    notes: 'Đồng đều về kích cỡ, vỏ sáng bóng, không dập nát',
+  },
+];
 import { FormField, Input, Select } from '@/components/ui/FormControls';
 import { Can } from '@/components/common/Can';
 import { toast } from '@/store/useToastStore';
@@ -83,7 +115,18 @@ export function QaTraceabilityWorkspace() {
     qualityGrade: 'GRADE_A',
     harvestDate: new Date().toISOString().split('T')[0],
     expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    sourceHarvestRecordIds: [],
   });
+
+  // Harvest records state for WS-F (GAP-WH-05)
+  const [harvestRecords, setHarvestRecords] = useState([]);
+  const [isLoadingHarvests, setIsLoadingHarvests] = useState(false);
+
+  // Lọc danh sách biên bản thu hoạch đang chờ tiếp nhận & đóng gói lô thành phẩm
+  const pendingHarvests = useMemo(
+    () => (harvestRecords || []).filter((hr) => !hr.productBatchId && !hr.productBatchCode),
+    [harvestRecords]
+  );
 
   // Create QC inspection modal (ROLE_TECHNICAL_STAFF)
   const [isCreateInspectionOpen, setIsCreateInspectionOpen] = useState(false);
@@ -94,23 +137,92 @@ export function QaTraceabilityWorkspace() {
     sampleSize: '5.0',
     sampleUnit: 'KG',
     overallResult: 'PASSED',
-    notes: 'Kiểm tra cảm quan & dư lượng đạt chuẩn',
-    parameterName: 'Dư lượng BVTV',
-    standardThreshold: '< 0.01 mg/kg',
-    actualValue: '0.002 mg/kg',
+    notes: 'Kiểm tra cảm quan & dư lượng đạt chuẩn VietGAP',
+    photoUrl: '',
+    items: JSON.parse(JSON.stringify(DEFAULT_VIETGAP_CRITERIA)),
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const fetchHarvestRecords = async () => {
+    const effectiveFarmId = activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId || 1;
+    if (!effectiveFarmId) return;
+    try {
+      setIsLoadingHarvests(true);
+      const res = await qaService.getHarvestRecords(effectiveFarmId, { size: 100 });
+      const list = res?.content || (Array.isArray(res) ? res : []);
+      setHarvestRecords(list);
+    } catch (err) {
+      console.warn('Failed to load harvest records for WS-F:', err);
+      setHarvestRecords([]);
+    } finally {
+      setIsLoadingHarvests(false);
+    }
+  };
+
+  const handleStartPackingFromHarvest = (hr) => {
+    const defaultName = hr.cropTypeName || (hr.seasonCode ? `Nông sản vụ ${hr.seasonCode}` : (hr.groupCode ? `Sản phẩm đàn ${hr.groupCode}` : 'Nông sản VietGAP'));
+    setCreateBatchForm({
+      batchCode: `BATCH-${Date.now().toString().slice(-6)}`,
+      productName: defaultName,
+      initialQuantity: String(hr.quantity || ''),
+      unit: hr.unit || 'KG',
+      qualityGrade: (hr.qualityGrade && ['GRADE_A', 'GRADE_B', 'EXPORT', 'STANDARD'].includes(hr.qualityGrade)) ? hr.qualityGrade : 'GRADE_A',
+      harvestDate: hr.harvestDate || new Date().toISOString().split('T')[0],
+      expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      sourceHarvestRecordIds: [hr.id],
+    });
+    setIsCreateBatchOpen(true);
+  };
+
+  const handleToggleSourceHarvest = (hrId) => {
+    setCreateBatchForm((prev) => {
+      const exists = prev.sourceHarvestRecordIds?.includes(hrId);
+      const updatedIds = exists
+        ? prev.sourceHarvestRecordIds.filter((id) => id !== hrId)
+        : [...(prev.sourceHarvestRecordIds || []), hrId];
+
+      const selectedRecords = harvestRecords.filter((r) => updatedIds.includes(r.id));
+      const totalQty = selectedRecords.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+
+      let newProdName = prev.productName;
+      let newUnit = prev.unit;
+      let newHarvestDate = prev.harvestDate;
+      let newGrade = prev.qualityGrade;
+
+      if (!exists && selectedRecords.length === 1) {
+        const first = selectedRecords[0];
+        if (!newProdName) {
+          newProdName = first.cropTypeName || (first.seasonCode ? `Nông sản vụ ${first.seasonCode}` : 'Nông sản VietGAP');
+        }
+        if (first.unit) newUnit = first.unit;
+        if (first.harvestDate) newHarvestDate = first.harvestDate;
+        if (first.qualityGrade && ['GRADE_A', 'GRADE_B', 'EXPORT', 'STANDARD'].includes(first.qualityGrade)) {
+          newGrade = first.qualityGrade;
+        }
+      }
+
+      return {
+        ...prev,
+        sourceHarvestRecordIds: updatedIds,
+        initialQuantity: totalQty > 0 ? String(totalQty) : prev.initialQuantity,
+        productName: newProdName,
+        unit: newUnit,
+        harvestDate: newHarvestDate,
+        qualityGrade: newGrade,
+      };
+    });
+  };
+
   const handleCreateBatch = async (e) => {
     e.preventDefault();
-    const targetFarmId = activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId;
+    const targetFarmId = activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId || 1;
     if (!targetFarmId) {
       toast.error('Vui lòng chọn trang trại cụ thể trên thanh điều hướng trước khi tạo lô thành phẩm!');
       return;
     }
     try {
       setIsSubmitting(true);
-      await qaService.createProductBatch(targetFarmId, {
+      const payload = {
         batchCode: createBatchForm.batchCode,
         productName: createBatchForm.productName,
         initialQuantity: Number(createBatchForm.initialQuantity),
@@ -118,16 +230,82 @@ export function QaTraceabilityWorkspace() {
         qualityGrade: createBatchForm.qualityGrade,
         harvestDate: createBatchForm.harvestDate,
         expiryDate: createBatchForm.expiryDate,
-      });
-      toast.success(`Đã tạo lô thành phẩm đóng gói thành công: ${createBatchForm.batchCode}!`);
+        sourceHarvestRecordIds: createBatchForm.sourceHarvestRecordIds && createBatchForm.sourceHarvestRecordIds.length > 0
+          ? createBatchForm.sourceHarvestRecordIds
+          : undefined,
+      };
+
+      await qaService.createBatch(targetFarmId, payload);
+      toast.success(`Đã tạo lô thành phẩm đóng gói thành công: ${createBatchForm.batchCode}! Tự động gửi thông báo KCS.`);
       setIsCreateBatchOpen(false);
       fetchBatches();
+      fetchHarvestRecords();
       notifyDataChanged?.('batches');
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || 'Lỗi tạo lô thành phẩm');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleLoadVietGapTemplate = () => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      items: JSON.parse(JSON.stringify(DEFAULT_VIETGAP_CRITERIA)),
+      overallResult: 'PASSED',
+    }));
+    toast.info('Đã nạp bộ 3 chỉ tiêu mẫu VietGAP!');
+  };
+
+  const handleAddCriterion = () => {
+    setInspectionForm((prev) => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        {
+          criterionName: '',
+          standardValue: '',
+          measuredValue: '',
+          unit: '',
+          isPassed: true,
+          notes: '',
+        },
+      ],
+    }));
+  };
+
+  const handleRemoveCriterion = (index) => {
+    setInspectionForm((prev) => {
+      if (prev.items.length <= 1) {
+        toast.warning('Biên bản KCS phải có ít nhất 1 chỉ tiêu kiểm nghiệm!');
+        return prev;
+      }
+      const updated = prev.items.filter((_, idx) => idx !== index);
+      const allPassed = updated.every((it) => it.isPassed);
+      return {
+        ...prev,
+        items: updated,
+        overallResult: allPassed ? 'PASSED' : 'FAILED',
+      };
+    });
+  };
+
+  const handleCriterionChange = (index, field, value) => {
+    setInspectionForm((prev) => {
+      const updated = [...prev.items];
+      updated[index] = { ...updated[index], [field]: value };
+      let newOverall = prev.overallResult;
+      if (field === 'isPassed') {
+        const allPassed = updated.every((it) => it.isPassed);
+        newOverall = allPassed ? 'PASSED' : 'FAILED';
+      }
+      return {
+        ...prev,
+        items: updated,
+        overallResult: newOverall,
+      };
+    });
   };
 
   const handleCreateInspection = async (e) => {
@@ -136,12 +314,19 @@ export function QaTraceabilityWorkspace() {
       toast.error('Vui lòng chọn lô thành phẩm cần kiểm định!');
       return;
     }
-    const targetBatch = batches.find((b) => Number(b.id) === Number(inspectionForm.productBatchId));
-    const targetFarmId = targetBatch?.farmId || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null);
-    if (!targetFarmId) {
-      toast.error('Không tìm thấy thông tin trang trại!');
+    const emptyRow = inspectionForm.items.find(
+      (it) => !it.criterionName?.trim() || it.measuredValue === undefined || it.measuredValue === ''
+    );
+    if (emptyRow) {
+      toast.error('Vui lòng điền đầy đủ Tên chỉ tiêu và Giá trị đo thực tế cho tất cả các dòng!');
       return;
     }
+
+    const selectedBatchTarget = batches.find((b) => String(b.id) === String(inspectionForm.productBatchId));
+    const targetFarmId =
+      selectedBatchTarget?.farmId ||
+      (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId || 1);
+
     try {
       setIsSubmitting(true);
       await qaService.createQcInspection(targetFarmId, {
@@ -152,19 +337,14 @@ export function QaTraceabilityWorkspace() {
         sampleUnit: inspectionForm.sampleUnit,
         overallResult: inspectionForm.overallResult,
         notes: inspectionForm.notes,
-        items: [
-          {
-            parameterName: inspectionForm.parameterName,
-            standardThreshold: inspectionForm.standardThreshold,
-            actualValue: inspectionForm.actualValue,
-            passed: inspectionForm.overallResult !== 'REJECTED',
-          },
-        ],
+        photoUrl: inspectionForm.photoUrl,
+        items: inspectionForm.items,
       });
       toast.success(`Đã lập biên bản kiểm định KCS thành công: ${inspectionForm.inspectionCode}!`);
       setIsCreateInspectionOpen(false);
       fetchBatches();
       notifyDataChanged?.('batches');
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || 'Lỗi lập biên bản KCS');
     } finally {
@@ -199,7 +379,8 @@ export function QaTraceabilityWorkspace() {
 
   useEffect(() => {
     fetchBatches();
-  }, [activeTab, activeFarmId, searchTerm, page, syncTrigger?.batches]);
+    fetchHarvestRecords();
+  }, [activeTab, activeFarmId, searchTerm, page, syncTrigger?.batches, syncTrigger?.all]);
 
   const handleOpenDrawer = async (batch) => {
     setSelectedBatch(batch);
@@ -429,6 +610,8 @@ export function QaTraceabilityWorkspace() {
                   ...prev,
                   productBatchId: pendingBatch ? String(pendingBatch.id) : '',
                   inspectionCode: `QC-${Date.now().toString().slice(-6)}`,
+                  items: JSON.parse(JSON.stringify(DEFAULT_VIETGAP_CRITERIA)),
+                  overallResult: 'PASSED',
                 }));
                 setIsCreateInspectionOpen(true);
               }}
@@ -552,7 +735,117 @@ export function QaTraceabilityWorkspace() {
         </div>
       ) : (
         /* Giao diện Kanban 6 Cột cấp trại cho Farm Manager / Technical Staff */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="space-y-6">
+          {/* KHỐI / BẢNG BIÊN BẢN THU HOẠCH CHỜ TIẾP NHẬN & ĐÓNG GÓI LÔ (GAP-WH-05) */}
+          <Can anyPermissions={['PERM_HARVEST_MANAGE', 'PERM_LABEL_PRINT']} role={['ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER']}>
+            {pendingHarvests.length > 0 && (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50/70 p-4 shadow-xs space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500 text-white shadow-xs">
+                      <Package className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-sm font-black text-amber-950">
+                          📥 Biên Bản Thu Hoạch Chờ Tiếp Nhận & Đóng Gói Lô Thành Phẩm
+                        </h2>
+                        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-black text-amber-900 border border-amber-300">
+                          {pendingHarvests.length} đợt chờ xử lý
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-800">
+                        Nông sản vừa thu hoạch từ hiện trường/chuồng trại đã chuyển về kho, chờ Thủ kho kiểm đếm và đóng gói lô thành phẩm để KCS kiểm tra.
+                      </p>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="primary"
+                    size="xs"
+                    icon={<Plus className="h-3.5 w-3.5" />}
+                    onClick={() => {
+                      setCreateBatchForm({
+                        batchCode: `BATCH-${Date.now().toString().slice(-6)}`,
+                        productName: '',
+                        initialQuantity: '',
+                        unit: 'KG',
+                        qualityGrade: 'GRADE_A',
+                        harvestDate: new Date().toISOString().split('T')[0],
+                        expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        sourceHarvestRecordIds: [],
+                      });
+                      setIsCreateBatchOpen(true);
+                    }}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-2xs"
+                  >
+                    + Đóng Gói Lô Mới
+                  </Button>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-amber-200 bg-white">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-amber-100/70 text-[11px] font-bold text-amber-900 border-b border-amber-200">
+                        <th className="py-2.5 px-3">Mã Thu Hoạch</th>
+                        <th className="py-2.5 px-3">Nguồn Thu Hoạch</th>
+                        <th className="py-2.5 px-3">Ngày Thu Hoạch</th>
+                        <th className="py-2.5 px-3 text-right">Sản Lượng</th>
+                        <th className="py-2.5 px-3 text-center">Phẩm Cấp</th>
+                        <th className="py-2.5 px-3">Người Thu Hoạch</th>
+                        <th className="py-2.5 px-3 text-center">Thao Tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100">
+                      {pendingHarvests.map((hr) => (
+                        <tr key={hr.id} className="hover:bg-amber-50/50 transition-colors">
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-950">
+                            {hr.harvestCode}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-semibold text-slate-800">
+                              {hr.cropTypeName || (hr.seasonCode ? `Vụ: ${hr.seasonCode}` : (hr.groupCode ? `Đàn: ${hr.groupCode}` : hr.sourceType))}
+                            </span>
+                            {hr.cropTypeName && hr.seasonCode && (
+                              <span className="text-[10px] text-slate-500 font-mono block">Mã vụ: {hr.seasonCode}</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600">
+                            {formatDate(hr.harvestDate)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
+                            {formatWeight(hr.quantity)} {hr.unit}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              {hr.qualityGrade || 'STANDARD'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 truncate max-w-[120px]">
+                            {hr.harvestedByName || 'Tổ thu hoạch'}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <Button
+                              variant="primary"
+                              size="xs"
+                              icon={<Package className="h-3.5 w-3.5" />}
+                              onClick={() => handleStartPackingFromHarvest(hr)}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] shadow-2xs"
+                            >
+                              📦 Tiếp Nhận & Đóng Gói Lô Ngay
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </Can>
+
+          {/* Giao diện Kanban 6 Cột cấp trại cho Farm Manager / Technical Staff */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {KANBAN_COLUMNS.map((col) => {
             const colBatches = batches.filter((b) => b.status === col.id);
 
@@ -598,19 +891,90 @@ export function QaTraceabilityWorkspace() {
                           </div>
                         )}
 
-                        {/* Trạng thái KCS đặc biệt trong cột Chờ Phê Duyệt */}
+                        {/* Trạng thái KCS đặc biệt trong cột Chờ Phê Duyệt (GAP-TECH-08) */}
                         {col.id === 'PENDING_APPROVAL' && (
-                          <div className="pt-0.5">
-                            {batch.qcInspectionCode ? (
-                              <span className="inline-flex items-center gap-1 rounded bg-amber-100/70 px-1.5 py-0.5 text-[9px] font-bold text-amber-900 border border-amber-200">
-                                <CheckCircle2 className="h-2.5 w-2.5 text-amber-700" />
-                                <span>KCS: {batch.qcOverallResult || 'Đã kiểm nghiệm'}</span>
-                              </span>
+                          <div className="pt-1.5 space-y-1.5 border-t border-slate-100">
+                            {!batch.qcOverallResult ? (
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center gap-1 rounded bg-amber-100/90 px-1.5 py-0.5 text-[9px] font-bold text-amber-900 border border-amber-300">
+                                  <Clock className="h-2.5 w-2.5 text-amber-600 animate-pulse" />
+                                  <span>⏳ Chờ Kỹ Sư KCS Kiểm Định</span>
+                                </span>
+
+                                <Can permission="PERM_QC_INSPECT" role="ROLE_TECHNICAL_STAFF">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setInspectionForm((prev) => ({
+                                        ...prev,
+                                        productBatchId: String(batch.id),
+                                        inspectionCode: `QC-${Date.now().toString().slice(-6)}`,
+                                        items: JSON.parse(JSON.stringify(DEFAULT_VIETGAP_CRITERIA)),
+                                        overallResult: 'PASSED',
+                                      }));
+                                      setIsCreateInspectionOpen(true);
+                                    }}
+                                    className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-1.5 text-[10px] shadow-xs transition-all"
+                                  >
+                                    <FlaskConical className="h-3 w-3" />
+                                    <span>🔬 Lập Biên Bản KCS Ngay</span>
+                                  </button>
+                                </Can>
+
+                                <Can permission="PERM_QC_APPROVE" role="ROLE_FARM_MANAGER">
+                                  <p className="text-[10px] text-amber-700 italic leading-snug">
+                                    Đang chờ Kỹ sư KCS lập biên bản kiểm nghiệm mẫu trước khi phê duyệt.
+                                  </p>
+                                </Can>
+                              </div>
+                            ) : batch.qcOverallResult === 'PASSED' ? (
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center gap-1 rounded bg-teal-100 px-1.5 py-0.5 text-[9px] font-bold text-teal-900 border border-teal-300">
+                                  <CheckCircle2 className="h-2.5 w-2.5 text-teal-700" />
+                                  <span>✅ KCS Đạt Chuẩn — Chờ Giám Đốc Duyệt</span>
+                                </span>
+                                {(batch.inspectorName || batch.inspectorFullName) && (
+                                  <div className="text-[9px] text-teal-800 font-mono">
+                                    KTV: {batch.inspectorName || batch.inspectorFullName}
+                                  </div>
+                                )}
+
+                                <Can permission="PERM_QC_APPROVE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenDrawer(batch);
+                                    }}
+                                    className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-1.5 text-[10px] shadow-xs transition-all"
+                                  >
+                                    <Check className="h-3 w-3" />
+                                    <span>✔️ Phê Duyệt Lô & Cấp Mã QR</span>
+                                  </button>
+                                </Can>
+                              </div>
                             ) : (
-                              <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600">
-                                <Clock className="h-2.5 w-2.5 text-slate-400" />
-                                <span>Chờ KCS lấy mẫu</span>
-                              </span>
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.5 text-[9px] font-bold text-rose-900 border border-rose-300">
+                                  <XCircle className="h-2.5 w-2.5 text-rose-600" />
+                                  <span>❌ KCS Không Đạt — Khuyến Nghị Từ Chối Lô</span>
+                                </span>
+
+                                <Can permission="PERM_QC_APPROVE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenRejectModal(batch);
+                                    }}
+                                    className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold py-1 px-1.5 text-[10px] shadow-xs transition-all"
+                                  >
+                                    <XCircle className="h-3 w-3" />
+                                    <span>🚫 Từ Chối / Hủy Lô</span>
+                                  </button>
+                                </Can>
+                              </div>
                             )}
                           </div>
                         )}
@@ -627,7 +991,8 @@ export function QaTraceabilityWorkspace() {
             );
           })}
         </div>
-      )}
+      </div>
+    )}
 
       {/* Drawer xem chi tiết hồ sơ KCS 360 & Phê duyệt / Thu hồi */}
       <TraceabilityDetailDrawer
@@ -673,27 +1038,89 @@ export function QaTraceabilityWorkspace() {
         isOpen={isCreateBatchOpen}
         onClose={() => setIsCreateBatchOpen(false)}
         title="Tạo Lô Thành Phẩm Đóng Gói Nhập Kho"
-        size="md"
+        subtitle="Tiếp nhận nông sản từ biên bản thu hoạch, đóng gói định lượng và phát thông báo kiểm định KCS"
+        size="lg"
       >
         <form onSubmit={handleCreateBatch} className="space-y-4 text-xs">
-          <FormField label="Mã Lô Thành Phẩm" required>
-            <Input
-              value={createBatchForm.batchCode}
-              onChange={(e) => setCreateBatchForm({ ...createBatchForm, batchCode: e.target.value })}
-              required
-            />
-          </FormField>
+          {/* Danh sách Checkbox chọn Biên bản thu hoạch nguồn (sourceHarvestRecordIds) */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5 text-blue-600" />
+                <span>Chọn Biên Bản Thu Hoạch Nguồn ({createBatchForm.sourceHarvestRecordIds?.length || 0} đã chọn)</span>
+              </span>
+              <span className="text-[10px] text-slate-500 font-medium">Tự động cộng dồn sản lượng vào Lô</span>
+            </div>
 
-          <FormField label="Tên Sản Phẩm Đóng Gói" required>
-            <Input
-              value={createBatchForm.productName}
-              placeholder="VD: Cà chua Cherry VietGAP, Gạo ST25..."
-              onChange={(e) => setCreateBatchForm({ ...createBatchForm, productName: e.target.value })}
-              required
-            />
-          </FormField>
+            {harvestRecords.length === 0 ? (
+              <div className="text-[11px] text-slate-400 italic py-1">
+                Không tìm thấy biên bản thu hoạch nào của trang trại.
+              </div>
+            ) : (
+              <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-200/60">
+                {harvestRecords.map((hr) => {
+                  const isChecked = createBatchForm.sourceHarvestRecordIds?.includes(hr.id);
+                  const isPackaged = Boolean(hr.productBatchId || hr.productBatchCode);
+                  return (
+                    <label
+                      key={hr.id}
+                      className={`flex items-center justify-between gap-2 p-2 rounded-lg cursor-pointer transition-colors text-[11px] ${
+                        isChecked
+                          ? 'bg-blue-50 border border-blue-200 text-blue-900 font-medium'
+                          : 'hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleSourceHarvest(hr.id)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div>
+                          <span className="font-mono font-bold">{hr.harvestCode}</span>
+                          <span className="text-slate-500 ml-1.5">
+                            ({hr.cropTypeName || (hr.seasonCode ? `Vụ: ${hr.seasonCode}` : (hr.groupCode ? `Đàn: ${hr.groupCode}` : 'Thu hoạch'))} • {formatDate(hr.harvestDate)})
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-slate-900">
+                          {formatWeight(hr.quantity)} {hr.unit}
+                        </span>
+                        {isPackaged && (
+                          <span className="text-[10px] text-slate-400 bg-slate-200/80 px-1.5 py-0.5 rounded">
+                            {hr.productBatchCode || 'Đã đóng gói'}
+                          </span>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
+            <FormField label="Mã Lô Thành Phẩm" required>
+              <Input
+                value={createBatchForm.batchCode}
+                onChange={(e) => setCreateBatchForm({ ...createBatchForm, batchCode: e.target.value })}
+                required
+              />
+            </FormField>
+
+            <FormField label="Tên Sản Phẩm Đóng Gói" required>
+              <Input
+                value={createBatchForm.productName}
+                placeholder="VD: Cà chua Cherry VietGAP, Gạo ST25..."
+                onChange={(e) => setCreateBatchForm({ ...createBatchForm, productName: e.target.value })}
+                required
+              />
+            </FormField>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
             <FormField label="Số Lượng Ban Đầu" required>
               <Input
                 type="number"
@@ -715,6 +1142,19 @@ export function QaTraceabilityWorkspace() {
                 <option value="BOX">Thùng (BOX)</option>
                 <option value="BAG">Bao (BAG)</option>
                 <option value="BUNCH">Bó (BUNCH)</option>
+                <option value="TON">Tấn (TON)</option>
+              </Select>
+            </FormField>
+
+            <FormField label="Phẩm Cấp Chất Lượng" required>
+              <Select
+                value={createBatchForm.qualityGrade}
+                onChange={(e) => setCreateBatchForm({ ...createBatchForm, qualityGrade: e.target.value })}
+              >
+                <option value="GRADE_A">Loại A (GRADE_A)</option>
+                <option value="GRADE_B">Loại B (GRADE_B)</option>
+                <option value="EXPORT">Xuất khẩu (EXPORT)</option>
+                <option value="STANDARD">Tiêu chuẩn (STANDARD)</option>
               </Select>
             </FormField>
           </div>
@@ -737,8 +1177,11 @@ export function QaTraceabilityWorkspace() {
             </FormField>
           </div>
 
-          <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-[11px]">
-            ⚠️ Lô mới sẽ có trạng thái <strong>PENDING_APPROVAL</strong>. Kỹ thuật viên KCS sẽ lấy mẫu kiểm nghiệm và Giám đốc trại sẽ phê duyệt cấp mã QR.
+          <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-[11px] flex items-start gap-2">
+            <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <span>
+              Lô mới tạo sẽ ở trạng thái <strong>PENDING_APPROVAL</strong>. Hệ thống tự động gửi thông báo kiểm định tới Kỹ sư KCS (tech) và Giám đốc trại.
+            </span>
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
@@ -752,32 +1195,32 @@ export function QaTraceabilityWorkspace() {
         </form>
       </Modal>
 
-      {/* Modal 2: Maker Lập Biên Bản KCS (ROLE_TECHNICAL_STAFF) */}
+      {/* Modal 2: Maker Lập Biên Bản KCS Đa Chỉ Tiêu (ROLE_TECHNICAL_STAFF - GAP-TECH-07) */}
       <Modal
         isOpen={isCreateInspectionOpen}
         onClose={() => setIsCreateInspectionOpen(false)}
-        title="Lập Biên Bản Kiểm Định KCS (Maker)"
-        size="md"
+        title="Lập Biên Bản Kiểm Định Chất Lượng KCS Đa Chỉ Tiêu (Maker)"
+        size="lg"
       >
         <form onSubmit={handleCreateInspection} className="space-y-4 text-xs">
-          <FormField label="Chọn Lô Thành Phẩm Kiểm Định" required>
+          <FormField label="Chọn Lô Thành Phẩm Cần Kiểm Định" required>
             <Select
               value={inspectionForm.productBatchId}
               onChange={(e) => setInspectionForm({ ...inspectionForm, productBatchId: e.target.value })}
               required
             >
-              <option value="">-- Chọn lô cần kiểm định --</option>
+              <option value="">-- Chọn lô thành phẩm --</option>
               {batches
                 .filter((b) => b.status === 'PENDING_APPROVAL')
                 .map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.batchCode} - {b.productName} ({formatWeight(b.remainingQuantity)})
+                    {b.batchCode} - {b.productName} ({formatWeight(b.remainingQuantity)}) • Trại: {b.farmName || b.farmId}
                   </option>
                 ))}
             </Select>
           </FormField>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <FormField label="Mã Biên Bản KCS" required>
               <Input
                 value={inspectionForm.inspectionCode}
@@ -794,9 +1237,7 @@ export function QaTraceabilityWorkspace() {
                 required
               />
             </FormField>
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
             <FormField label="Cỡ Mẫu Kiểm Tra" required>
               <Input
                 type="number"
@@ -816,45 +1257,183 @@ export function QaTraceabilityWorkspace() {
                 <option value="KG">Kilogram (KG)</option>
                 <option value="BOX">Thùng (BOX)</option>
                 <option value="SAMPLE">Mẫu thử (SAMPLE)</option>
+                <option value="BUNCH">Bó (BUNCH)</option>
               </Select>
             </FormField>
           </div>
 
-          <FormField label="Kết Luận Kiểm Nghiệm (KCS Verdict)" required>
+          {/* Bảng Chỉ Tiêu Kiểm Định Động (Multi-Criteria QC Table) */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                <FlaskConical className="h-4 w-4 text-emerald-600" />
+                <span>Bảng Chỉ Tiêu Kiểm Nghiệm Mẫu ({inspectionForm.items.length})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  icon={<Sparkles className="h-3.5 w-3.5 text-amber-500" />}
+                  onClick={handleLoadVietGapTemplate}
+                  className="bg-white border-amber-300 text-amber-900 hover:bg-amber-50 text-[11px]"
+                >
+                  Nạp Bộ Chỉ Tiêu Mẫu VietGAP
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  icon={<Plus className="h-3.5 w-3.5 text-emerald-600" />}
+                  onClick={handleAddCriterion}
+                  className="bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-[11px]"
+                >
+                  Thêm Chỉ Tiêu
+                </Button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                    <th className="py-2 px-2.5 w-8">#</th>
+                    <th className="py-2 px-2.5">Tên Chỉ Tiêu Kiểm Nghiệm *</th>
+                    <th className="py-2 px-2.5">Ngưỡng Tiêu Chuẩn</th>
+                    <th className="py-2 px-2.5">Giá Trị Đo Thực Tế *</th>
+                    <th className="py-2 px-2.5 w-20">Đơn Vị</th>
+                    <th className="py-2 px-2.5 w-28 text-center">Đánh Giá</th>
+                    <th className="py-2 px-2.5 w-10 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {inspectionForm.items.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-2 px-2.5 font-mono text-slate-400 font-bold">{idx + 1}</td>
+                      <td className="py-1.5 px-2.5">
+                        <Input
+                          value={item.criterionName}
+                          placeholder="VD: Dư lượng thuốc BVTV"
+                          onChange={(e) => handleCriterionChange(idx, 'criterionName', e.target.value)}
+                          className="h-8 text-xs"
+                          required
+                        />
+                      </td>
+                      <td className="py-1.5 px-2.5">
+                        <Input
+                          value={item.standardValue}
+                          placeholder="VD: <= 0.01 ppm"
+                          onChange={(e) => handleCriterionChange(idx, 'standardValue', e.target.value)}
+                          className="h-8 text-xs"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2.5">
+                        <Input
+                          value={item.measuredValue}
+                          placeholder="VD: 0.00 ppm"
+                          onChange={(e) => handleCriterionChange(idx, 'measuredValue', e.target.value)}
+                          className="h-8 text-xs font-semibold"
+                          required
+                        />
+                      </td>
+                      <td className="py-1.5 px-2.5">
+                        <Input
+                          value={item.unit}
+                          placeholder="ppm, %"
+                          onChange={(e) => handleCriterionChange(idx, 'unit', e.target.value)}
+                          className="h-8 text-xs w-20"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleCriterionChange(idx, 'isPassed', !item.isPassed)}
+                          className={`w-full py-1 px-2 rounded-lg font-bold text-[10px] inline-flex items-center justify-center gap-1 transition-all ${
+                            item.isPassed
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                              : 'bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200'
+                          }`}
+                        >
+                          {item.isPassed ? (
+                            <>
+                              <Check className="h-3 w-3 text-emerald-600" />
+                              <span>ĐẠT</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="h-3 w-3 text-rose-600" />
+                              <span>HỎNG</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-1.5 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCriterion(idx)}
+                          className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          title="Xóa chỉ tiêu này"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Banner gợi ý tự động kết luận tổng thể */}
+          {inspectionForm.items.every((it) => it.isPassed) ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 flex items-center gap-2.5 text-emerald-900 text-xs">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <div>
+                <strong>Tất cả {inspectionForm.items.length} chỉ tiêu đều ĐẠT CHUẨN!</strong>
+                <p className="text-[11px] text-emerald-800">
+                  Hệ thống tự động đề xuất kết luận <strong>ĐẠT (PASSED)</strong> để Giám đốc trại phê duyệt xuất xưởng.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 flex items-center gap-2.5 text-rose-900 text-xs">
+              <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+              <div>
+                <strong>Cảnh báo: Có chỉ tiêu KHÔNG ĐẠT TIÊU CHUẨN!</strong>
+                <p className="text-[11px] text-rose-800">
+                  Hệ thống tự động chuyển đề xuất kết luận sang <strong>KHÔNG ĐẠT (FAILED)</strong>. Giám đốc trại sẽ nhận khuyến nghị từ chối lô hàng.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <FormField label="Kết Luận Kiểm Nghiệm Tổng Thể (Overall Verdict)" required>
             <Select
               value={inspectionForm.overallResult}
               onChange={(e) => setInspectionForm({ ...inspectionForm, overallResult: e.target.value })}
             >
-              <option value="PASSED">ĐẠT CHUẨN (PASSED - Cho phép phê duyệt)</option>
-              <option value="CONDITIONAL">CÓ ĐIỀU KIỆN (CONDITIONAL)</option>
-              <option value="REJECTED">TRƯỢT KCS (REJECTED - Bắt buộc từ chối)</option>
+              <option value="PASSED">ĐẠT CHUẨN (PASSED - Cho phép Giám đốc phê duyệt cấp mã QR)</option>
+              <option value="FAILED">KHÔNG ĐẠT (FAILED - Đề xuất Giám đốc từ chối / hủy lô hàng)</option>
+              <option value="CONDITIONAL">CÓ ĐIỀU KIỆN (CONDITIONAL - Chờ xử lý thêm)</option>
             </Select>
           </FormField>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-            <span className="font-bold text-slate-800 block text-[11px]">Chỉ Tiêu Đo Lường</span>
-            <div className="grid grid-cols-3 gap-2">
+          <FormField label="Ảnh Minh Chứng / Phiếu Xét Nghiệm Phòng Lab (photosJson)">
+            <div className="relative">
+              <Camera className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
-                value={inspectionForm.parameterName}
-                placeholder="Tên chỉ tiêu"
-                onChange={(e) => setInspectionForm({ ...inspectionForm, parameterName: e.target.value })}
-              />
-              <Input
-                value={inspectionForm.standardThreshold}
-                placeholder="Ngưỡng chuẩn"
-                onChange={(e) => setInspectionForm({ ...inspectionForm, standardThreshold: e.target.value })}
-              />
-              <Input
-                value={inspectionForm.actualValue}
-                placeholder="Giá trị đo"
-                onChange={(e) => setInspectionForm({ ...inspectionForm, actualValue: e.target.value })}
+                value={inspectionForm.photoUrl}
+                placeholder="https://... hoặc URL ảnh chụp phiếu kiểm nghiệm test nhanh"
+                onChange={(e) => setInspectionForm({ ...inspectionForm, photoUrl: e.target.value })}
+                className="pl-9"
               />
             </div>
-          </div>
+          </FormField>
 
-          <FormField label="Ghi Chú KCS">
+          <FormField label="Ghi Chú Kết Luận Của Kỹ Sư KCS">
             <Input
               value={inspectionForm.notes}
+              placeholder="VD: Kiểm tra cảm quan & dư lượng đạt chuẩn VietGAP"
               onChange={(e) => setInspectionForm({ ...inspectionForm, notes: e.target.value })}
             />
           </FormField>

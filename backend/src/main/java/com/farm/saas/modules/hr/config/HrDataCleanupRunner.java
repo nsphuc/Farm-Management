@@ -28,6 +28,21 @@ public class HrDataCleanupRunner implements CommandLineRunner {
         } catch (Exception ex) {
             log.warn("Không thể hoàn tất dọn dẹp dữ liệu test rác khởi động: {}", ex.getMessage());
         }
+
+        try {
+            seedStandardEmployeeProfiles();
+        } catch (Exception ex) {
+            log.warn("Không thể hoàn tất khởi tạo hồ sơ nhân sự chuẩn: {}", ex.getMessage());
+        }
+    }
+
+    /**
+     * @deprecated Đã loại bỏ hoàn toàn việc tự động seed tài khoản mẫu khi phát hiện hệ thống trống.
+     * Toàn bộ nhân sự và tài khoản sẽ do Quản trị viên/Chủ đầu tư tự tạo mới trên Web UI.
+     */
+    @Deprecated
+    public void seedZoneManagerSampleAccount() {
+        // No-op: Không tự động tạo tài khoản mẫu zone_manager
     }
 
     public void cleanupJunkTestData() {
@@ -66,4 +81,71 @@ public class HrDataCleanupRunner implements CommandLineRunner {
         } catch (Exception ignored) {
         }
     }
+
+    public void seedStandardEmployeeProfiles() {
+        String findUsersSql = "SELECT DISTINCT u.id, u.tenant_id, u.username, u.full_name, u.phone, u.email " +
+                "FROM users u " +
+                "JOIN user_roles ur ON u.id = ur.user_id " +
+                "JOIN roles r ON ur.role_id = r.id " +
+                "WHERE u.tenant_id IS NOT NULL " +
+                "  AND r.code IN ('ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF', 'ROLE_ACCOUNTANT', 'ROLE_FIELD_STAFF') " +
+                "  AND NOT EXISTS ( " +
+                "      SELECT 1 FROM employees e WHERE e.tenant_id = u.tenant_id AND e.user_id = u.id " +
+                "  )";
+
+        List<java.util.Map<String, Object>> missingUsers = jdbcTemplate.queryForList(findUsersSql);
+        if (missingUsers.isEmpty()) {
+            log.info("Tất cả tài khoản vận hành đều đã được liên kết với hồ sơ nhân sự Employee.");
+            return;
+        }
+
+        log.info("Phát hiện {} tài khoản vận hành chưa có hồ sơ nhân sự. Bắt đầu tự động khởi tạo hồ sơ chuẩn...", missingUsers.size());
+        for (java.util.Map<String, Object> row : missingUsers) {
+            Long userId = ((Number) row.get("id")).longValue();
+            Long tenantId = ((Number) row.get("tenant_id")).longValue();
+            String username = (String) row.get("username");
+            String fullName = (String) row.get("full_name");
+            if (fullName == null || fullName.isBlank()) {
+                fullName = username;
+            }
+            String phone = (String) row.get("phone");
+            String email = (String) row.get("email");
+
+            Long farmId = null;
+            List<Long> farmIds = jdbcTemplate.queryForList(
+                    "SELECT farm_id FROM user_farm_access WHERE user_id = ? AND farm_id IN (SELECT id FROM farms WHERE tenant_id = ?) LIMIT 1",
+                    Long.class, userId, tenantId);
+            if (!farmIds.isEmpty() && farmIds.get(0) != null) {
+                farmId = farmIds.get(0);
+            } else {
+                List<Long> defaultFarmIds = jdbcTemplate.queryForList(
+                        "SELECT id FROM farms WHERE tenant_id = ? ORDER BY id ASC LIMIT 1",
+                        Long.class, tenantId);
+                if (!defaultFarmIds.isEmpty()) {
+                    farmId = defaultFarmIds.get(0);
+                }
+            }
+
+            String employeeCode = "EMP-SEED-" + userId;
+            Integer codeCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM employees WHERE tenant_id = ? AND employee_code = ?",
+                    Integer.class, tenantId, employeeCode);
+            if (codeCount != null && codeCount > 0) {
+                employeeCode = "EMP-SEED-" + userId + "-" + (System.currentTimeMillis() % 1000);
+            }
+
+            String insertSql = "INSERT INTO employees (tenant_id, farm_id, user_id, employee_code, full_name, phone, email, " +
+                    "joined_date, base_salary, hourly_rate, contract_type, annual_leave_quota, status, created_at, created_by) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_DATE, 0, 0, 'FULL_TIME', 12.0, 'ACTIVE', NOW(), ?)";
+
+            try {
+                jdbcTemplate.update(insertSql, tenantId, farmId, userId, employeeCode, fullName, phone, email, userId);
+                log.info("Đã tạo hồ sơ Employee tự động cho user: id={}, username={}, employeeCode={}, farmId={}",
+                        userId, username, employeeCode, farmId);
+            } catch (Exception ex) {
+                log.warn("Không thể tạo tự động Employee cho userId {}: {}", userId, ex.getMessage());
+            }
+        }
+    }
 }
+

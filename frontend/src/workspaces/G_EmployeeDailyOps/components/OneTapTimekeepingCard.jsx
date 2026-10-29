@@ -16,6 +16,7 @@ import { SelfieCameraModal } from '@/components/common/SelfieCameraModal';
 import { Can } from '@/components/common/Can';
 import { hrService } from '@/services/modules/hrService';
 import { formatNumber, formatDateTime } from '@/utils/formatters';
+import { toast } from '@/store/useToastStore';
 
 /**
  * Thẻ Chấm Công Thông Minh 2 Đầu (Mục 1 Khối 1 Workspace G & Điều 2.7 File 08)
@@ -24,6 +25,7 @@ import { formatNumber, formatDateTime } from '@/utils/formatters';
  */
 export function OneTapTimekeepingCard({
   activeFarm,
+  employee,
   todayShift,
   attendanceRecord,
   onAttendanceSuccess,
@@ -55,7 +57,7 @@ export function OneTapTimekeepingCard({
 
   const handleCaptureConfirm = async (captureResult) => {
     if (!activeFarm?.id) {
-      alert('Vui lòng chọn trang trại đang tác nghiệp trước khi chấm công!');
+      toast.error('Vui lòng chọn trang trại đang tác nghiệp trước khi chấm công!');
       return;
     }
 
@@ -75,6 +77,7 @@ export function OneTapTimekeepingCard({
         photoUrl: effectivePhoto, // Đính kèm ảnh Base64 / URL
         notes: effectiveNotes,
         deviceInfo: navigator.userAgent.substring(0, 100),
+        ...(employee?.id ? { employeeId: employee.id } : {}),
       };
 
       // Kiểm tra mạng Online / Offline (Tiêu chí 3 File 10)
@@ -107,7 +110,7 @@ export function OneTapTimekeepingCard({
       setIsSelfieModalOpen(false);
     } catch (err) {
       console.error('Attendance error:', err);
-      alert('Chấm công thất bại: ' + (err.response?.data?.message || err.message));
+      toast.error('Chấm công thất bại: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsSubmitting(false);
     }

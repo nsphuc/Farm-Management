@@ -74,6 +74,7 @@ export function DailyRoutineTaskTab({
   employees = [],
   isTechnicalLead = false,
   isWarehouseKeeper = false,
+  isZoneManager = false,
   onRefresh,
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -139,7 +140,10 @@ export function DailyRoutineTaskTab({
       onRefresh?.();
     } catch (err) {
       console.error('Delete routine error:', err);
-      alert('Không thể ngừng việc: ' + (err.response?.data?.message || err.message));
+      setActionMessage({
+        type: 'error',
+        text: 'Không thể ngừng việc: ' + (err.response?.data?.message || err.message),
+      });
     }
   };
 
@@ -159,7 +163,7 @@ export function DailyRoutineTaskTab({
   // Danh mục preset hiển thị theo vai trò
   const availablePresets = isWarehouseKeeper
     ? WAREHOUSE_PRESETS
-    : isTechnicalLead
+    : isTechnicalLead || isZoneManager
     ? TECH_PRESETS
     : [...TECH_PRESETS, ...WAREHOUSE_PRESETS];
 

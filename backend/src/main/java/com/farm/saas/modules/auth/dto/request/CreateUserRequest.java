@@ -32,7 +32,8 @@ public class CreateUserRequest {
 
     private String password;
 
-    @NotEmpty(message = "Phải gán ít nhất 1 vai trò")
+    private Long tenantId;
+
     private List<Long> roleIds;
 
     private List<Long> assignedFarmIds;

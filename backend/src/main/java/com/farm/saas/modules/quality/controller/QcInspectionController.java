@@ -21,7 +21,7 @@ public class QcInspectionController {
     private final QcInspectionService qcInspectionService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_QC_INSPECT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_QC_INSPECT') or hasRole('ROLE_TECHNICAL_STAFF')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<QcInspectionDetailResponse> createInspection(
             @PathVariable Long farmId,
             @Valid @RequestBody QcInspectionRequest request) {

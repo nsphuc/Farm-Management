@@ -240,7 +240,14 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
         farm.setLongitude(request.getLongitude());
         farm.setGeofenceRadiusM(request.getGeofenceRadiusM());
         farm.setAddress(request.getAddress());
-        if (request.getManagerUserId() != null) farm.setManagerUserId(request.getManagerUserId());
+
+        // Giám đốc trang trại được sửa các thông số kỹ thuật/vận hành nhưng giữ nguyên managerUserId nếu không phải Owner/Admin
+        com.farm.saas.common.security.CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+        boolean isOwnerOrAdmin = currentUser != null && (currentUser.isSuperAdmin() || currentUser.hasAnyRole("ROLE_FARM_OWNER", "ROLE_SUPER_ADMIN"));
+        if (request.getManagerUserId() != null && isOwnerOrAdmin) {
+            farm.setManagerUserId(request.getManagerUserId());
+        }
+
         if (request.getStatus() != null) farm.setStatus(request.getStatus().toUpperCase());
         farm.setUpdatedAt(Instant.now());
         farm.setUpdatedBy(SecurityUtils.getCurrentUserId());

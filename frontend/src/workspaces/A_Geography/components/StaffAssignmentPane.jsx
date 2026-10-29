@@ -32,31 +32,39 @@ export function StaffAssignmentPane({
   selectedZoneId = null,
   onOpenAssignModal,
   onDeleteAssignment,
+  employees = [],
 }) {
-  const { isOwner, isFarmManager, isTechnicalLead, isWarehouseKeeper } = useAuthStore();
+  const { isOwner, isFarmManager, isZoneManager, isTechnicalLead, isWarehouseKeeper } = useAuthStore();
   const owner = isOwner();
   const farmManager = isFarmManager();
+  const zoneManager = isZoneManager ? isZoneManager() : false;
   const techLead = isTechnicalLead();
   const whKeeper = isWarehouseKeeper();
 
   // Đếm số lượng công nhân chi tiết
-  const totalWorkers = assignments.filter((a) => a.roleInFarm === 'FIELD_WORKER').length;
+  const totalWorkers = assignments.filter((a) => a.roleInFarm === 'FIELD_WORKER' && a.isActive !== false).length;
 
   // Lọc phân công:
+  // - Lọc bỏ các phân công đã kết thúc (isActive === false)
   // - Nếu là Owner: ẩn bảng phân công công nhân chi tiết (FIELD_WORKER) để giao diện gọn nhẹ, chỉ xem ban quản trị & phụ trách
   // - Nếu chọn zone: chỉ hiển thị cán bộ phân khu đó hoặc cán bộ quản lý
   const filteredAssignments = assignments.filter((a) => {
+    if (a.isActive === false) return false;
     if (owner && a.roleInFarm === 'FIELD_WORKER') {
       return false; // Ẩn công nhân chi tiết cho Owner
     }
     if (!selectedZoneId) return true;
-    return a.zoneId === selectedZoneId || !a.zoneId;
+    return Number(a.zoneId) === Number(selectedZoneId);
   });
 
   const paneTitle = owner
     ? 'Ban Quản Trị & Cán Bộ Chủ Chốt Trang Trại'
+    : selectedZoneId
+    ? 'Danh Sách Cán Bộ & Nhân Sự Phụ Trách Phân Khu'
     : farmManager
     ? 'Phân Công Cấp 1: Phụ Trách Phân Khu / Kho / Kế Toán'
+    : zoneManager
+    ? 'Danh Sách Tổ Viên Phân Khu Phụ Trách'
     : techLead || whKeeper
     ? 'Danh Sách Nhân Sự Thuộc Khu Vực / Kho'
     : 'Phân Công Nhân Sự Hiện Trường';
@@ -79,7 +87,9 @@ export function StaffAssignmentPane({
             onClick={() => onOpenAssignModal?.(null)}
             icon={<Plus className="h-3.5 w-3.5" />}
           >
-            {farmManager && !owner
+            {selectedZoneId
+              ? '+ Phân Công Nhân Sự Vào Phân Khu'
+              : farmManager && !owner
               ? '+ Phân Công Trưởng Phân Khu / Phụ Trách Bộ Phận'
               : '+ Phân Công Nhân Sự'}
           </Button>
@@ -88,38 +98,58 @@ export function StaffAssignmentPane({
 
       {filteredAssignments.length === 0 ? (
         <div className="text-center py-6 text-xs text-slate-400">
-          Chưa có cán bộ nào được phân công tại phạm vi này.
+          {selectedZoneId
+            ? 'Chưa có cán bộ hay nhân sự nào được phân công phụ trách phân khu này.'
+            : 'Chưa có cán bộ nào được phân công tại phạm vi này.'}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {filteredAssignments.map((a) => {
+            const empMatch = employees.find(
+              (e) => (a.employeeId && Number(e.id) === Number(a.employeeId)) ||
+                     (a.userId && Number(e.userId) === Number(a.userId)) ||
+                     (e.employeeCode && e.employeeCode === a.employeeCode)
+            );
+            const departmentName = a.department || empMatch?.department;
+            const empCode = a.employeeCode || empMatch?.employeeCode;
+            const fullName = a.userFullName || empMatch?.fullName || a.username || (empCode ? `NV ${empCode}` : `User #${a.userId || a.id}`);
             const badgeClass =
               ROLE_BADGE_STYLES[a.roleInFarm] || 'bg-slate-100 text-slate-800 border-slate-200';
             const roleName = ROLE_LABELS[a.roleInFarm] || a.roleInFarm;
 
             return (
               <div
-                key={a.id}
+                key={`assign-${a.id}-${a.employeeCode || a.userId || a.employeeId || a.id}`}
                 className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 hover:bg-slate-50 transition-colors space-y-3"
               >
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <UserCheck className="h-4 w-4 text-slate-500" />
+                    <UserCheck className="h-4 w-4 text-slate-500 shrink-0" />
                     <span className="font-bold text-xs text-slate-900">
-                      {a.userFullName || a.username || `User #${a.userId}`}
+                      {fullName}
                     </span>
+                    {empCode && (
+                      <span className="font-mono text-[10px] text-slate-400">
+                        ({empCode})
+                      </span>
+                    )}
                   </div>
 
-                  <div>
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span
                       className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-bold ${badgeClass}`}
                     >
                       {roleName}
                     </span>
+                    {departmentName && (
+                      <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-100 text-slate-700 px-2 py-0.5 text-[10px] font-medium">
+                        {departmentName}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 pt-1">
-                    <Calendar className="h-3 w-3" />
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 pt-0.5">
+                    <Calendar className="h-3 w-3 shrink-0" />
                     <span>
                       {formatDate(a.assignedFrom)} &rarr; {a.assignedTo ? formatDate(a.assignedTo) : 'Hiện tại'}
                     </span>
@@ -139,31 +169,33 @@ export function StaffAssignmentPane({
                     </span>
                   </div>
 
-                  <Can permission="PERM_ZONE_MANAGE">
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="xs"
-                        className="text-[11px] border-slate-200 text-slate-700 hover:bg-slate-100 font-medium"
-                        onClick={() => onOpenAssignModal?.(a)}
-                        icon={<RefreshCw className="h-3 w-3 text-slate-500" />}
-                      >
-                        [🔄 Thay Đổi Người Phụ Trách]
-                      </Button>
+                  {(owner || (farmManager && a.roleInFarm !== 'FARM_MANAGER')) && (
+                    <Can permission="PERM_ZONE_MANAGE">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          className="text-[11px] border-slate-200 text-slate-700 hover:bg-slate-100 font-medium"
+                          onClick={() => onOpenAssignModal?.(a)}
+                          icon={<RefreshCw className="h-3 w-3 text-slate-500" />}
+                        >
+                          [🔄 Thay Đổi Người Phụ Trách]
+                        </Button>
 
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="xs"
-                        className="text-[11px] border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 font-medium"
-                        onClick={() => onDeleteAssignment?.(a.id, a)}
-                        icon={<Square className="h-3 w-3 text-rose-500" />}
-                      >
-                        [⏹️ Kết Thúc Phân Công]
-                      </Button>
-                    </div>
-                  </Can>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          className="text-[11px] border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 font-medium"
+                          onClick={() => onDeleteAssignment?.(a.id, a)}
+                          icon={<Square className="h-3 w-3 text-rose-500" />}
+                        >
+                          [⏹️ Kết Thúc Phân Công]
+                        </Button>
+                      </div>
+                    </Can>
+                  )}
                 </div>
               </div>
             );

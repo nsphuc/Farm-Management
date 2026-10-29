@@ -24,7 +24,7 @@ public class MaterialController {
     private final MaterialService materialService;
 
     @GetMapping("/api/v1/materials")
-    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')")
     public ResponseEntity<Page<MaterialDetailResponse>> getMaterials(
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword,
@@ -33,7 +33,7 @@ public class MaterialController {
     }
 
     @GetMapping("/api/v1/materials/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')")
     public ResponseEntity<MaterialDetailResponse> getMaterialById(@PathVariable Long id) {
         return ResponseEntity.ok(materialService.getMaterialById(id));
     }
@@ -45,11 +45,18 @@ public class MaterialController {
     }
 
     @PutMapping("/api/v1/materials/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<MaterialDetailResponse> updateMaterial(
             @PathVariable Long id,
             @Valid @RequestBody UpdateMaterialRequest request) {
         return ResponseEntity.ok(materialService.updateMaterial(id, request));
+    }
+
+    @DeleteMapping("/api/v1/materials/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_INVENTORY_RECEIPT', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    public ResponseEntity<Void> deleteMaterial(@PathVariable Long id) {
+        materialService.deleteMaterial(id);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/api/v1/materials/{id}/conversions")

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   ShieldAlert,
@@ -9,6 +9,9 @@ import {
   LogOut,
   User,
   Sparkles,
+  Users,
+  Radio,
+  Bell,
 } from 'lucide-react';
 import { apiClient } from '@/services/api/apiClient';
 import { API_ENDPOINTS } from '@/services/api/endpoints';
@@ -16,6 +19,9 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { cn } from '@/utils/formatters';
 import { renderIcon } from '@/utils/iconHelper';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
+import { Button } from '@/components/ui/Button';
+import { NotificationBell } from '@/components/layout/NotificationBell';
+import { BroadcastNotificationModal } from '@/pages/platform/components/BroadcastNotificationModal';
 
 const PLATFORM_NAV = [
   {
@@ -29,6 +35,12 @@ const PLATFORM_NAV = [
     label: 'Gói Dịch Vụ & Hạn Mức',
     path: '/platform/subscriptions',
     icon: CreditCard,
+  },
+  {
+    id: 'users',
+    label: 'Tài Khoản & Chủ Đầu Tư',
+    path: '/platform/users',
+    icon: Users,
   },
   {
     id: 'audit',
@@ -51,6 +63,7 @@ const PLATFORM_NAV = [
 export function PlatformShell() {
   const navigate = useNavigate();
   const { userInfo, clearAuth, logout } = useAuthStore();
+  const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -143,8 +156,24 @@ export function PlatformShell() {
             </span>
           </div>
 
-          <div className="text-xs text-slate-400">
-            Trang thái máy chủ: <span className="font-semibold text-emerald-600">Bình thường (72/72 Tables)</span>
+          <div className="flex items-center gap-4 text-xs">
+            <span className="text-slate-400 hidden sm:inline">
+              Trang thái máy chủ: <span className="font-semibold text-emerald-600">Bình thường (72/72 Tables)</span>
+            </span>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              icon={<Radio className="h-3.5 w-3.5 text-rose-600 animate-pulse" />}
+              onClick={() => setIsBroadcastModalOpen(true)}
+              className="border-rose-200 text-rose-700 hover:bg-rose-50 font-bold"
+            >
+              Phát Thông Báo
+            </Button>
+
+            {/* GAP-SYNC-04: Chuông thông báo thời gian thực kết nối NotificationBell */}
+            <NotificationBell />
           </div>
         </header>
 
@@ -154,6 +183,12 @@ export function PlatformShell() {
             <Outlet />
           </ErrorBoundary>
         </main>
+
+        {/* Modal Phát Thông Báo Diện Rộng */}
+        <BroadcastNotificationModal
+          isOpen={isBroadcastModalOpen}
+          onClose={() => setIsBroadcastModalOpen(false)}
+        />
       </div>
     </div>
   );

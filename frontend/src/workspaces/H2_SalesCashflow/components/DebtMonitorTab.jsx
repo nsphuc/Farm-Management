@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Building, Search, Filter, RotateCcw, AlertCircle, 
-  ArrowUpRight, ArrowDownLeft, Clock, DollarSign, UserCheck 
+import {
+  Building, Search, Filter, RotateCcw, AlertCircle,
+  ArrowUpRight, ArrowDownLeft, Clock, DollarSign, UserCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
@@ -10,8 +10,9 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { Can } from '@/components/common/Can';
+import { toast } from '@/store/useToastStore';
 
-export function DebtMonitorTab({ farmId }) {
+export function DebtMonitorTab({ farmId, onOpenAllocateModal, onOpenPaymentModal }) {
   const { syncTrigger } = useActiveFarmStore();
   const [debts, setDebts] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -45,7 +46,7 @@ export function DebtMonitorTab({ farmId }) {
 
   useEffect(() => {
     loadDebts();
-  }, [farmId, debtTypeFilter, statusFilter, syncTrigger?.finance]);
+  }, [farmId, debtTypeFilter, statusFilter, syncTrigger?.finance, syncTrigger?.partners, syncTrigger?.all]);
 
   const filteredDebts = debts.filter((d) => {
     if (!searchTerm) return true;
@@ -78,11 +79,10 @@ export function DebtMonitorTab({ farmId }) {
       render: (row) => {
         const isReceivable = row.debtType === 'RECEIVABLE';
         return (
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-            isReceivable
-              ? 'bg-blue-50 text-blue-700 border-blue-200'
-              : 'bg-orange-50 text-orange-700 border-orange-200'
-          }`}>
+          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border ${isReceivable
+            ? 'bg-blue-50 text-blue-700 border-blue-200'
+            : 'bg-orange-50 text-orange-700 border-orange-200'
+            }`}>
             {isReceivable ? <ArrowDownLeft className="h-3 w-3 text-blue-600" /> : <ArrowUpRight className="h-3 w-3 text-orange-600" />}
             <span>{isReceivable ? 'Phải thu KH' : 'Phải trả NCC'}</span>
           </span>
@@ -178,23 +178,23 @@ export function DebtMonitorTab({ farmId }) {
       align: 'center',
       render: (row) => (
         <div className="flex items-center justify-center gap-1.5">
-          <Can permission="PERM_PAYMENT_ALLOCATE" role="ROLE_ACCOUNTANT">
+          <Can permission="PERM_PAYMENT_ALLOCATE" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
             <Button
               size="xs"
               variant="outline"
-              onClick={() => alert(`Kế toán phân bổ hoặc cấn trừ nợ cho ${row.partnerName}`)}
+              onClick={() => onOpenAllocateModal ? onOpenAllocateModal(row) : toast.info(`Mở bảng phân bổ / cấn trừ nợ cho ${row.partnerName}`)}
             >
               Phân Bổ Nợ
             </Button>
           </Can>
-          <Can permission="PERM_FINANCE_PAYMENT" role="ROLE_FARM_MANAGER">
+          <Can permission="PERM_FINANCE_PAYMENT" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
             <Button
               size="xs"
               variant="primary"
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-              onClick={() => alert(`Giám đốc trại đối soát và duyệt thanh toán nợ cho ${row.partnerName}`)}
+              onClick={() => onOpenPaymentModal ? onOpenPaymentModal(row) : toast.info(`Lập phiếu thu / chi cho ${row.partnerName}`)}
             >
-              Duyệt Nợ
+              Thu / Trả Nợ
             </Button>
           </Can>
         </div>
@@ -272,10 +272,10 @@ export function DebtMonitorTab({ farmId }) {
               className="text-xs rounded-xl border border-slate-200 px-3 py-1.5 bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
             >
               <option value="">Tất cả trạng thái nợ</option>
-              <option value="OPEN">Chưa thanh toán (OPEN)</option>
-              <option value="PARTIALLY_PAID">Thanh toán 1 phần</option>
-              <option value="PAID">Đã tất toán (PAID)</option>
+              <option value="ACTIVE">Đang trong hạn / Chưa tất toán (ACTIVE)</option>
               <option value="OVERDUE">Quá hạn (OVERDUE)</option>
+              <option value="SETTLED">Đã tất toán (SETTLED)</option>
+              <option value="BAD_DEBT">Nợ xấu (BAD_DEBT)</option>
             </select>
           </div>
         </div>

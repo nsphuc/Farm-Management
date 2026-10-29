@@ -1,6 +1,5 @@
 package com.farm.saas.modules.auth.dto.request;
 
-import jakarta.validation.constraints.NotEmpty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,8 +13,11 @@ import java.util.List;
 @AllArgsConstructor
 public class UpdateUserRolesRequest {
 
-    @NotEmpty(message = "Phải gán ít nhất 1 vai trò")
     private List<Long> roleIds;
+
+    private List<String> roleCodes;
+
+    private List<String> roles;
 
     private List<Long> assignedFarmIds;
 }

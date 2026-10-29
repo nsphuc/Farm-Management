@@ -16,6 +16,7 @@ import com.farm.saas.modules.crop.repository.CropSeasonRepository;
 import com.farm.saas.modules.crop.repository.FarmingLogRepository;
 import com.farm.saas.modules.crop.repository.FarmingLogSupplyRepository;
 import com.farm.saas.modules.crop.service.FarmingLogService;
+import com.farm.saas.modules.finance.service.BudgetService;
 import com.farm.saas.modules.finance.entity.FarmExpense;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
 import com.farm.saas.modules.inventory.entity.WarehouseInventory;
@@ -62,6 +63,7 @@ public class FarmingLogServiceImpl implements FarmingLogService {
     private final WarehouseInventoryTransactionRepository warehouseInventoryTransactionRepository;
     private final CostCategoryRepository costCategoryRepository;
     private final FarmExpenseRepository farmExpenseRepository;
+    private final BudgetService budgetService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
 
@@ -124,6 +126,14 @@ public class FarmingLogServiceImpl implements FarmingLogService {
         }
 
         LocalDate phiEndDate = maxPhiDays > 0 ? request.getLogDate().plusDays(maxPhiDays) : null;
+        if (phiEndDate != null) {
+            log.info("Xác định ngày kết thúc cách ly PHI cho nhật ký vụ mùa {}: {}", season.getId(), phiEndDate);
+        }
+
+        String weatherNotes = request.getWeatherNotes();
+        if ((weatherNotes == null || weatherNotes.isBlank()) && request.getNotes() != null) {
+            weatherNotes = request.getNotes();
+        }
 
         String imageUrlsJson = null;
         if (request.getImageUrls() != null && !request.getImageUrls().isEmpty()) {
@@ -159,7 +169,7 @@ public class FarmingLogServiceImpl implements FarmingLogService {
                 .activityType(request.getActivityType())
                 .phiDays(maxPhiDays)
                 .phiEndDate(phiEndDate)
-                .weatherNotes(request.getWeatherNotes())
+                .weatherNotes(weatherNotes)
                 .performedByUserId(request.getPerformedByUserId() != null ? request.getPerformedByUserId() : currentUserId)
                 .imageUrlsJson(imageUrlsJson)
                 .isInventoryBackflushed(false)
@@ -231,13 +241,27 @@ public class FarmingLogServiceImpl implements FarmingLogService {
                     inv.setQuantityOnHand(balanceAfter);
                     warehouseInventoryRepository.save(inv);
 
+                    Material mat = materialRepository.findById(sReq.getMaterialId()).orElse(null);
+                    String effectiveUnit = sReq.getUnit();
+                    if ((effectiveUnit == null || effectiveUnit.isBlank()) && mat != null && mat.getStandardUnit() != null) {
+                        effectiveUnit = mat.getStandardUnit();
+                    }
+                    if (effectiveUnit == null || effectiveUnit.isBlank()) {
+                        effectiveUnit = "Đơn vị";
+                    }
+
+                    String supplyNotes = sReq.getNotes();
+                    if (sReq.getVarianceReason() != null && !sReq.getVarianceReason().isBlank()) {
+                        supplyNotes = sReq.getVarianceReason();
+                    }
+
                     // Create issue item
                     WarehouseIssueItem issueItem = WarehouseIssueItem.builder()
                             .issueId(issue.getId())
                             .tenantId(tenantId)
                             .materialId(sReq.getMaterialId())
                             .batchNumber(sReq.getBatchNumber())
-                            .enteredUnit(sReq.getUnit())
+                            .enteredUnit(effectiveUnit)
                             .enteredQuantity(sReq.getActualQuantity())
                             .conversionFactor(BigDecimal.ONE)
                             .quantity(sReq.getActualQuantity())
@@ -282,11 +306,11 @@ public class FarmingLogServiceImpl implements FarmingLogService {
                             .warehouseId(warehouseId)
                             .batchNumber(sReq.getBatchNumber())
                             .actualQuantity(sReq.getActualQuantity())
-                            .unit(sReq.getUnit())
+                            .unit(effectiveUnit)
                             .unitPrice(unitPrice)
                             .totalPrice(lineTotal)
                             .warehouseIssueItemId(issueItem.getId())
-                            .notes(sReq.getNotes())
+                            .notes(supplyNotes)
                             .createdAt(Instant.now())
                             .createdBy(currentUserId)
                             .build();
@@ -294,7 +318,6 @@ public class FarmingLogServiceImpl implements FarmingLogService {
                     farmingLogSupplyRepository.save(supplyEntity);
 
                     // Add to snapshot
-                    Material mat = materialRepository.findById(sReq.getMaterialId()).orElse(null);
                     Map<String, Object> itemSnapshot = new LinkedHashMap<>();
                     itemSnapshot.put("material_id", sReq.getMaterialId());
                     itemSnapshot.put("material_name", mat != null ? mat.getName() : "");
@@ -302,9 +325,15 @@ public class FarmingLogServiceImpl implements FarmingLogService {
                     itemSnapshot.put("warehouse_id", warehouseId);
                     itemSnapshot.put("batch_number", sReq.getBatchNumber());
                     itemSnapshot.put("quantity", sReq.getActualQuantity());
-                    itemSnapshot.put("unit", sReq.getUnit());
+                    itemSnapshot.put("unit", effectiveUnit);
                     itemSnapshot.put("unit_price", unitPrice);
                     itemSnapshot.put("total_price", lineTotal);
+                    if (sReq.getSuggestedQuantity() != null) {
+                        itemSnapshot.put("suggested_quantity", sReq.getSuggestedQuantity());
+                    }
+                    if (sReq.getVarianceReason() != null) {
+                        itemSnapshot.put("variance_reason", sReq.getVarianceReason());
+                    }
                     snapshotList.add(itemSnapshot);
                 }
 
@@ -344,7 +373,8 @@ public class FarmingLogServiceImpl implements FarmingLogService {
                         .createdBy(currentUserId)
                         .build();
 
-                farmExpenseRepository.save(expense);
+                expense = farmExpenseRepository.save(expense);
+                budgetService.consumeBudgetForConfirmedExpense(expense);
             }
 
             farmingLog.setIsInventoryBackflushed(true);
@@ -397,6 +427,7 @@ public class FarmingLogServiceImpl implements FarmingLogService {
                     .totalPrice(s.getTotalPrice())
                     .warehouseIssueItemId(s.getWarehouseIssueItemId())
                     .notes(s.getNotes())
+                    .varianceReason(s.getNotes())
                     .build();
         }).collect(Collectors.toList());
 

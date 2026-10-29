@@ -14,4 +14,6 @@ public interface MaterialRepository extends JpaRepository<Material, Long>, JpaSp
     boolean existsByTenantIdAndBarcode(Long tenantId, String barcode);
     java.util.List<Material> findByTenantId(Long tenantId);
     java.util.List<Material> findByTenantIdAndCategoryId(Long tenantId, Long categoryId);
+    boolean existsByCategoryId(Long categoryId);
+    boolean existsByTenantIdAndCategoryId(Long tenantId, Long categoryId);
 }

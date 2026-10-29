@@ -40,6 +40,7 @@ export const Button = React.forwardRef(
       variant = 'primary',
       size = 'md',
       isLoading = false,
+      loading,
       loadingText = 'Đang xử lý...',
       icon,
       leftIcon,
@@ -53,7 +54,8 @@ export const Button = React.forwardRef(
     },
     ref
   ) => {
-    const isDisabled = Boolean(disabled || isLoading);
+    const showLoading = Boolean(isLoading || loading);
+    const isDisabled = Boolean(disabled || showLoading);
 
     const handleClick = (e) => {
       if (isDisabled) {
@@ -91,7 +93,7 @@ export const Button = React.forwardRef(
         )}
         {...props}
       >
-        {isLoading ? (
+        {showLoading ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
             <span>{loadingText}</span>

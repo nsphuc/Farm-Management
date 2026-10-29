@@ -19,6 +19,8 @@ public interface DebtAndPaymentService {
 
     PaymentTransactionDetailResponse confirmPayment(Long farmId, Long paymentId);
 
+    PaymentTransactionDetailResponse cancelPayment(Long farmId, Long paymentId, String reason);
+
     PaymentAllocationResponse allocatePayment(Long farmId, Long paymentId, AllocatePaymentRequest request);
 
     PaymentTransactionDetailResponse offsetDebts(Long farmId, DebtOffsetRequest request);

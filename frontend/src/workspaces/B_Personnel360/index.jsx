@@ -67,6 +67,7 @@ export function Personnel360Workspace() {
     isTechnicalLead,
     isWarehouseKeeper,
     isFarmAccountant,
+    hasPermission,
   } = useAuthStore();
 
   const owner = isOwner();
@@ -74,6 +75,7 @@ export function Personnel360Workspace() {
   const technicalLead = isTechnicalLead();
   const warehouseKeeper = isWarehouseKeeper();
   const farmAccountant = isFarmAccountant();
+  const isAccountant = farmAccountant || (!hasPermission('PERM_HR_EMPLOYEE_MANAGE') && hasPermission('PERM_FINANCE_EXPENSE'));
 
   // Tab điều hướng: 'DIRECTORY' | 'SCHEDULE' | 'ATTENDANCE' | 'LEAVE_OT'
   const [activeSegment, setActiveSegment] = useState('DIRECTORY');
@@ -173,10 +175,10 @@ export function Personnel360Workspace() {
 
   useEffect(() => {
     fetchFarms();
-    if (farmManager || farmAccountant) {
+    if (farmManager || farmAccountant || isAccountant) {
       fetchShifts();
     }
-  }, [farmManager, farmAccountant, syncTrigger?.farms]);
+  }, [farmManager, farmAccountant, isAccountant, syncTrigger?.farms]);
 
   useEffect(() => {
     fetchEmployees();
@@ -265,6 +267,7 @@ export function Personnel360Workspace() {
       toast.success(`Đã chuyển nhân viên "${emp.fullName}" sang trạng thái Thôi việc (RESIGNED)!`);
       notifyDataChanged?.('employees');
       notifyDataChanged?.('zones');
+      notifyDataChanged?.('farms');
       await fetchEmployees();
     } catch (err) {
       const errInfo = extractApiErrors(err);
@@ -280,12 +283,8 @@ export function Personnel360Workspace() {
     notifyDataChanged?.('farms');
   };
 
-  // Client-side search bổ trợ & Lọc bỏ Quản lý trang trại khỏi bảng nhân sự
+  // Client-side search bổ trợ
   const filteredEmployees = employees.filter((emp) => {
-    // Bảng nhân sự không cần hiện thông tin quản lý trang trại
-    if (emp.position === 'FARM_MANAGER') {
-      return false;
-    }
     if (!searchTerm) return true;
     const q = searchTerm.toLowerCase();
     return (
@@ -499,11 +498,14 @@ export function Personnel360Workspace() {
       key: 'actions',
       header: 'Thao Tác',
       align: 'center',
-      width: owner ? '230px' : farmManager ? '280px' : '110px',
+      width: owner ? '230px' : (farmManager && !isAccountant) ? '280px' : '110px',
       render: (row) => {
+        const isFm = row.position === 'FARM_MANAGER';
+        const isResigned = row.status === 'RESIGNED' || row.status === 'TERMINATED';
+        const isLocked = row.userStatus === 'LOCKED';
+
+        // 1. Phân quyền cho Chủ đầu tư (Owner):
         if (owner) {
-          const isFm = row.position === 'FARM_MANAGER';
-          const isResigned = row.status === 'RESIGNED' || row.status === 'TERMINATED';
           return (
             <div className="flex items-center justify-center gap-1.5">
               <Button
@@ -551,9 +553,29 @@ export function Personnel360Workspace() {
           );
         }
 
-        if (farmManager) {
-          const isResigned = row.status === 'RESIGNED' || row.status === 'TERMINATED';
-          const isLocked = row.userStatus === 'LOCKED';
+        // 2. Phân quyền cho Giám đốc trang trại (FARM_MANAGER):
+        // - Chỉ duy nhất bản ghi FARM_MANAGER: ẩn sửa, khóa tài khoản, thôi việc; chỉ cho phép xem Hồ sơ 360°
+        // - Với tất cả nhân sự khác: có đầy đủ thao tác 360°, Sửa, Khóa/Mở TK hoặc Cấp TK, Thôi việc
+        if (farmManager && !isAccountant) {
+          if (isFm) {
+            return (
+              <div className="flex items-center justify-center">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  icon={<Eye className="h-3.5 w-3.5" />}
+                  onClick={() => {
+                    setSelectedEmployee(row);
+                    setIsDetailDrawerOpen(true);
+                  }}
+                  title="Xem Chi Tiết Hồ Sơ 360°"
+                >
+                  Hồ sơ 360°
+                </Button>
+              </div>
+            );
+          }
+
           return (
             <div className="flex items-center justify-center gap-1">
               <Button
@@ -621,18 +643,22 @@ export function Personnel360Workspace() {
           );
         }
 
+        // 3. Các vai trò khác (Kế toán, Kỹ thuật, Thủ kho...)
         return (
-          <Button
-            size="sm"
-            variant="outline"
-            icon={<ExternalLink className="h-3.5 w-3.5" />}
-            onClick={() => {
-              setSelectedEmployee(row);
-              setIsDetailDrawerOpen(true);
-            }}
-          >
-            Hồ sơ 360°
-          </Button>
+          <div className="flex items-center justify-center">
+            <Button
+              size="xs"
+              variant="outline"
+              icon={<Eye className="h-3.5 w-3.5" />}
+              onClick={() => {
+                setSelectedEmployee(row);
+                setIsDetailDrawerOpen(true);
+              }}
+              title="Xem Chi Tiết Hồ Sơ 360°"
+            >
+              Hồ sơ 360°
+            </Button>
+          </div>
         );
       },
     },
@@ -718,9 +744,9 @@ export function Personnel360Workspace() {
             </Button>
           </Can>
         </div>
-      ) : farmAccountant ? (
+      ) : (farmAccountant || isAccountant) ? (
         // BANNER CHO KẾ TOÁN TRẠI (FARM ACCOUNTANT)
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-blue-200 bg-white p-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50/70 via-white to-blue-50/30 p-5 shadow-xs">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-200">
               <Calculator className="h-6 w-6" />
@@ -733,9 +759,12 @@ export function Personnel360Workspace() {
                 <span className="rounded-full bg-blue-100 text-blue-800 px-2.5 py-0.5 text-[10px] font-bold">
                   Kế Toán Trại • {activeFarm?.name || 'Trang Trại'}
                 </span>
+                <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-300">
+                  Read-Only Đối Soát
+                </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Theo dõi danh bạ nhân sự và bảng tổng hợp giờ công phục vụ căn cứ tính lương cuối kỳ (Chế độ Xem & Đối Soát)
+              <p className="text-xs text-slate-600 mt-1 font-medium">
+                📊 Chế độ Kế Toán Tiền Lương (Read-Only): Bạn đang tra cứu hồ sơ lương cơ bản, bảng chấm công thực tế và dữ liệu tăng ca (OT) đã duyệt để tổng hợp quỹ lương.
               </p>
             </div>
           </div>
@@ -911,7 +940,7 @@ export function Personnel360Workspace() {
           >
             <Clock className="h-4 w-4" />
             <span>
-              {farmAccountant ? '2. Bảng Tổng Hợp Công (Tính Lương)' : '3. Bảng Công & Điều Chỉnh Giờ Công'}
+              {(farmAccountant || isAccountant) ? '2. Bảng Tổng Hợp Công (Tính Lương)' : '3. Bảng Công & Điều Chỉnh Giờ Công'}
             </span>
           </button>
 
@@ -1017,7 +1046,7 @@ export function Personnel360Workspace() {
       {/* ======================================================== */}
       {/* 6. TAB 3: BẢNG TỔNG HỢP CÔNG (FARM MANAGER & KẾ TOÁN)    */}
       {/* ======================================================== */}
-      {(farmManager || farmAccountant) && activeSegment === 'ATTENDANCE' && (
+      {(farmManager || farmAccountant || isAccountant) && activeSegment === 'ATTENDANCE' && (
         <AttendanceAdjustTab
           farmId={activeFarmId || farms[0]?.id}
           geofenceRadiusM={activeFarm?.geofenceRadiusM || 300}

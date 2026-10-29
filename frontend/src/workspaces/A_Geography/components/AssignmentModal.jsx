@@ -17,6 +17,7 @@ const FARM_MANAGER_ROLES = [
   { value: 'TECHNICAL_LEAD', label: 'TECHNICAL_LEAD - Trưởng Bộ Phận Kỹ Thuật' },
   { value: 'WAREHOUSE_KEEPER', label: 'WAREHOUSE_KEEPER - Thủ Kho Chính Của Trại' },
   { value: 'ACCOUNTANT', label: 'ACCOUNTANT - Kế Toán Phụ Trách Trại' },
+  { value: 'FIELD_WORKER', label: 'FIELD_WORKER - Công Nhân Nông Nghiệp Hiện Trường' },
 ];
 
 const TECH_LEAD_ROLES = [
@@ -93,7 +94,7 @@ export function AssignmentModal({
 
     if (editingAssignment) {
       setFormData({
-        userId: String(editingAssignment.userId || ''),
+        userId: String(editingAssignment.userId || editingAssignment.employeeId || ''),
         roleInFarm: editingAssignment.roleInFarm || availableRoles[0]?.value || 'ZONE_MANAGER',
         selectedZoneId: editingAssignment.zoneId ? String(editingAssignment.zoneId) : (zoneId ? String(zoneId) : ''),
         assignedFrom: editingAssignment.assignedFrom || new Date().toISOString().substring(0, 10),
@@ -148,8 +149,10 @@ export function AssignmentModal({
         assignedTo: formData.assignedTo || null,
       };
 
-      if (editingAssignment?.id) {
-        await geographyService.deleteAssignment(farmId, editingAssignment.id);
+      if (editingAssignment?.id && Number(editingAssignment.userId || editingAssignment.employeeId) !== Number(formData.userId)) {
+        const isOldNonUser = !editingAssignment.userId || editingAssignment.id < 0;
+        const targetOldEmpId = editingAssignment.employeeId || (isOldNonUser ? Math.abs(editingAssignment.id) : undefined);
+        await geographyService.deleteAssignment(farmId, editingAssignment.id, targetOldEmpId ? { employeeId: targetOldEmpId } : {});
       }
       await geographyService.createAssignment(farmId, payload);
 
@@ -161,6 +164,7 @@ export function AssignmentModal({
 
       notifyDataChanged?.('zones');
       notifyDataChanged?.('employees');
+      notifyDataChanged?.('farms');
       onSuccess?.();
       onClose();
     } catch (err) {
@@ -243,7 +247,7 @@ export function AssignmentModal({
                 { value: '', label: '-- Chọn nhân sự thuộc trang trại --' },
                 ...employees.map((emp) => ({
                   value: String(emp.userId || emp.id),
-                  label: `${emp.fullName} (${emp.employeeCode || 'NV'} - ${emp.position || 'Nhân viên'})`,
+                  label: `${emp.fullName} (${emp.employeeCode || 'NV'}${emp.department ? ' • ' + emp.department : ''} • ${emp.position || 'Nhân viên'})`,
                 })),
               ]}
             />

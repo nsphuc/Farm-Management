@@ -17,6 +17,7 @@ import com.farm.saas.modules.finance.repository.SalesOrderRepository;
 import com.farm.saas.modules.geography.dto.request.CreateFarmAssignmentRequest;
 import com.farm.saas.modules.geography.dto.request.CreateFarmRequest;
 import com.farm.saas.modules.geography.dto.request.CreateProductionZoneRequest;
+import com.farm.saas.modules.geography.dto.request.CreateZoneLocationRequest;
 import com.farm.saas.modules.geography.dto.request.UpdateFarmRequest;
 import com.farm.saas.modules.geography.dto.request.UpdateProductionZoneRequest;
 import com.farm.saas.modules.geography.dto.response.FarmDetailResponse;
@@ -923,5 +924,70 @@ public class OwnerRoleWorkflowIntegrationTest {
                         .param("size", "100")
                         .header("Authorization", "Bearer " + tokenOwner))
                 .andExpect(status().isOk());
+
+        // Assert 7: Owner tạo vị trí/lô cho GREENHOUSE (có areaM2) và cho BARN (có capacity)
+        CreateProductionZoneRequest ghZoneReq = CreateProductionZoneRequest.builder()
+                .code("ZONE-GH-" + timestamp)
+                .name("Nhà Màng Dưa Lưới " + timestamp)
+                .zoneType("GREENHOUSE")
+                .areaM2(new BigDecimal("500.00"))
+                .soilType("GIATHE")
+                .waterSource("GIENGKHOAN")
+                .build();
+
+        var ghZoneRes = mockMvc.perform(post("/api/v1/farms/{farmId}/zones", bacNinhId)
+                        .header("Authorization", "Bearer " + tokenOwner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(ghZoneReq)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long ghZoneId = objectMapper.readTree(ghZoneRes.getResponse().getContentAsString()).get("id").asLong();
+
+        CreateZoneLocationRequest ghLocReq = CreateZoneLocationRequest.builder()
+                .code("LOC-GH-" + timestamp)
+                .name("Luống Dưa 01")
+                .areaM2(new BigDecimal("250.50"))
+                .status("EMPTY")
+                .build();
+
+        mockMvc.perform(post("/api/v1/farms/{farmId}/zones/{zoneId}/locations", bacNinhId, ghZoneId)
+                        .header("Authorization", "Bearer " + tokenOwner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(ghLocReq)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.areaM2").value(250.50))
+                .andExpect(jsonPath("$.name").value("Luống Dưa 01"));
+
+        CreateProductionZoneRequest barnZoneReq = CreateProductionZoneRequest.builder()
+                .code("ZONE-BN-" + timestamp)
+                .name("Chuồng Bò " + timestamp)
+                .zoneType("BARN")
+                .areaM2(new BigDecimal("1000.00"))
+                .soilType("BETONG")
+                .waterSource("MAY")
+                .build();
+
+        var barnZoneRes = mockMvc.perform(post("/api/v1/farms/{farmId}/zones", bacNinhId)
+                        .header("Authorization", "Bearer " + tokenOwner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(barnZoneReq)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long barnZoneId = objectMapper.readTree(barnZoneRes.getResponse().getContentAsString()).get("id").asLong();
+
+        CreateZoneLocationRequest barnLocReq = CreateZoneLocationRequest.builder()
+                .code("LOC-BN-" + timestamp)
+                .name("Ô Chuồng Bò Thịt 01")
+                .capacity(35)
+                .status("EMPTY")
+                .build();
+
+        mockMvc.perform(post("/api/v1/farms/{farmId}/zones/{zoneId}/locations", bacNinhId, barnZoneId)
+                        .header("Authorization", "Bearer " + tokenOwner)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(barnLocReq)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.capacity").value(35))
+                .andExpect(jsonPath("$.name").value("Ô Chuồng Bò Thịt 01"));
     }
 }

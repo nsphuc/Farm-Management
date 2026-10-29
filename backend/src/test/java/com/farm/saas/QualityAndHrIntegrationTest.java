@@ -714,4 +714,99 @@ public class QualityAndHrIntegrationTest {
         assertEquals(0, new BigDecimal("9.0").compareTo(updatedEmp.getAnnualLeaveQuota()),
                 "Quỹ phép năm của nhân viên phải được trừ chính xác còn 9.0 ngày");
     }
+
+    @Test
+    @DisplayName("GAP-TECH-07 & GAP-TECH-08: Kỹ sư KCS lập biên bản đa chỉ tiêu với JSON aliases, overallResult=FAILED tự chuẩn hóa về REJECTED, và đồng bộ ProductBatch")
+    void testMultiCriteriaQcInspectionNormalizationAndBatchSync() throws Exception {
+        // 1. Tạo lô thành phẩm mới
+        String batchCode = "LOT-QC-MULTI-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        CreateProductBatchRequest batchReq = CreateProductBatchRequest.builder()
+                .batchCode(batchCode)
+                .productName("Cà Chua Cherry VietGAP")
+                .warehouseId(warehouseId)
+                .seasonId(testSeason.getId())
+                .harvestDate(LocalDate.now())
+                .initialQuantity(new BigDecimal("150.00"))
+                .unit("KG")
+                .qualityGrade("GRADE_A")
+                .sources(List.of(
+                        CreateProductBatchRequest.ProductBatchSourceItemRequest.builder()
+                                .sourceType("CROP_SEASON")
+                                .cropSeasonId(testSeason.getId())
+                                .contributedQuantity(new BigDecimal("150.00"))
+                                .unit("KG")
+                                .harvestDate(LocalDate.now())
+                                .build()
+                ))
+                .build();
+
+        var batchRes = mockMvc.perform(post("/api/v1/farms/{farmId}/product-batches", farmId)
+                        .header("Authorization", "Bearer " + tokenTech)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(batchReq)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long batchId = objectMapper.readTree(batchRes.getResponse().getContentAsString()).get("id").asLong();
+
+        // 2. Kỹ sư KCS gửi payload JSON đa chỉ tiêu với alias: criterionName, standardValue, measuredValue, unit, isPassed
+        // và overallResult = 'FAILED' (chuẩn hóa về REJECTED)
+        String multiQcJson = """
+                {
+                    "productBatchId": %d,
+                    "inspectionCode": "QC-MULTI-%s",
+                    "inspectionDate": "%s",
+                    "sampleSize": 5.0,
+                    "sampleUnit": "KG",
+                    "overallResult": "FAILED",
+                    "photoUrl": "https://cdn.farm.vn/photos/lab-test-01.jpg",
+                    "notes": "Phát hiện chỉ tiêu vi sinh không đạt chuẩn VietGAP",
+                    "items": [
+                        {
+                            "criterionName": "Dư lượng thuốc BVTV / Kháng sinh",
+                            "standardValue": "Âm tính (< MRL)",
+                            "measuredValue": "0.00",
+                            "unit": "ppm",
+                            "isPassed": true,
+                            "notes": "Kit test nhanh âm tính"
+                        },
+                        {
+                            "criterionName": "Vi sinh vật (E.Coli / Salmonella)",
+                            "standardValue": "Không phát hiện",
+                            "measuredValue": "15",
+                            "unit": "CFU/g",
+                            "isPassed": false,
+                            "notes": "Phát hiện khuẩn lạc vượt ngưỡng"
+                        },
+                        {
+                            "criterionName": "Độ tươi / Ngoại quan & Quy cách",
+                            "standardValue": "Đạt chuẩn Loại A",
+                            "measuredValue": "95",
+                            "unit": "%%",
+                            "isPassed": true,
+                            "notes": "Ngoại quan đều đẹp"
+                        }
+                    ]
+                }
+                """.formatted(batchId, UUID.randomUUID().toString().substring(0, 6).toUpperCase(), LocalDate.now().toString());
+
+        mockMvc.perform(post("/api/v1/farms/{farmId}/qc-inspections", farmId)
+                        .header("Authorization", "Bearer " + tokenTech)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(multiQcJson))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.overallResult").value("REJECTED"))
+                .andExpect(jsonPath("$.items.length()").value(3))
+                .andExpect(jsonPath("$.items[0].parameterName").value("Dư lượng thuốc BVTV / Kháng sinh"))
+                .andExpect(jsonPath("$.items[1].isPassed").value(false));
+
+        // 3. Kiểm tra ProductBatch vẫn giữ status PENDING_APPROVAL và nạp thông tin KCS mới nhất
+        mockMvc.perform(get("/api/v1/farms/{farmId}/product-batches/{id}", farmId, batchId)
+                        .header("Authorization", "Bearer " + tokenTech))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"))
+                .andExpect(jsonPath("$.qcOverallResult").value("REJECTED"))
+                .andExpect(jsonPath("$.inspectorFullName").isNotEmpty())
+                .andExpect(jsonPath("$.qcInspectionJson").isNotEmpty());
+    }
 }

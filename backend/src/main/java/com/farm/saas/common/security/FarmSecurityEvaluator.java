@@ -147,13 +147,35 @@ public class FarmSecurityEvaluator {
         if (user == null) {
             return false;
         }
-        if (user.isSuperAdmin() || user.hasRole("ROLE_FARM_MANAGER") || user.hasRole("ROLE_TECHNICAL_STAFF")) {
+        if (user.isSuperAdmin() || user.hasRole("ROLE_FARM_MANAGER") || user.hasRole("ROLE_TECHNICAL_STAFF") || user.hasRole("ROLE_WAREHOUSE_STAFF")) {
             return true;
         }
         try {
             Integer count = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM farm_assignments " +
-                            "WHERE user_id = ? AND farm_id = ? AND role_in_farm IN ('FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD') AND is_active = TRUE",
+                            "WHERE user_id = ? AND farm_id = ? AND role_in_farm IN ('FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER') AND is_active = TRUE",
+                    Integer.class, user.getId(), farmId);
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Checks if current user is an active Zone Manager at the specified farmId.
+     */
+    public boolean isZoneManager(Long farmId) {
+        if (farmId == null || !canAccessFarm(farmId)) {
+            return false;
+        }
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        if (user == null) {
+            return false;
+        }
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM farm_assignments " +
+                            "WHERE user_id = ? AND farm_id = ? AND role_in_farm = 'ZONE_MANAGER' AND is_active = TRUE",
                     Integer.class, user.getId(), farmId);
             return count != null && count > 0;
         } catch (Exception ex) {

@@ -413,6 +413,14 @@ public class AuthServiceImpl implements AuthService {
                     .build();
         }).toList();
 
+        // Dynamic Field Leadership Promotion: ZONE_MANAGER automatically gets PERM_TASK_ASSIGN
+        if (activeAssignments.stream().anyMatch(a -> "ZONE_MANAGER".equalsIgnoreCase(a.getRoleInFarm()))) {
+            if (!permCodes.contains("PERM_TASK_ASSIGN")) {
+                permCodes = new ArrayList<>(permCodes);
+                permCodes.add("PERM_TASK_ASSIGN");
+            }
+        }
+
         // Collect accessible farm IDs
         Set<Long> accessibleFarmIds = new LinkedHashSet<>();
         List<UserFarmAccess> accesses = userFarmAccessRepository.findByUserId(user.getId());
@@ -495,7 +503,9 @@ public class AuthServiceImpl implements AuthService {
             operationalRole = "FARM_MANAGER";
         } else if (hasAccountantRole) {
             operationalRole = "FARM_ACCOUNTANT";
-        } else if (hasTechRole || activeAssignments.stream().anyMatch(a -> Arrays.asList("ZONE_MANAGER", "TECHNICAL_LEAD", "AGRONOMIST", "VETERINARIAN").contains(a.getRoleInFarm()))) {
+        } else if (activeAssignments.stream().anyMatch(a -> "ZONE_MANAGER".equalsIgnoreCase(a.getRoleInFarm()))) {
+            operationalRole = "ZONE_MANAGER";
+        } else if (hasTechRole || activeAssignments.stream().anyMatch(a -> Arrays.asList("TECHNICAL_LEAD", "AGRONOMIST", "VETERINARIAN").contains(a.getRoleInFarm()))) {
             operationalRole = "TECHNICAL_LEAD";
         } else if (hasWarehouseRole || activeAssignments.stream().anyMatch(a -> "WAREHOUSE_KEEPER".equalsIgnoreCase(a.getRoleInFarm()))) {
             operationalRole = "WAREHOUSE_KEEPER";
@@ -511,6 +521,13 @@ public class AuthServiceImpl implements AuthService {
                 maxFarms = activeSub.getMaxFarms();
                 planType = activeSub.getPlanType();
             }
+        }
+
+        Long employeeId = null;
+        if (user.getId() != null) {
+            employeeId = employeeRepository.findByUserId(user.getId())
+                    .map(Employee::getId)
+                    .orElse(null);
         }
 
         return UserInfoDto.builder()
@@ -531,6 +548,7 @@ public class AuthServiceImpl implements AuthService {
                 .primaryScope(primaryScope)
                 .maxFarms(maxFarms)
                 .planType(planType)
+                .employeeId(employeeId)
                 .build();
     }
 

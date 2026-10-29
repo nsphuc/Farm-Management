@@ -23,7 +23,7 @@ public class InventoryQueryController {
     private final InventoryService inventoryService;
 
     @GetMapping({"/api/v1/farms/{farmId}/inventory/summary", "/api/v1/inventory/summary"})
-    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<InventorySummaryResponse> getInventorySummary(
             @PathVariable(required = false) Long farmId,
             @RequestParam(required = false) Long warehouseId) {
@@ -31,7 +31,7 @@ public class InventoryQueryController {
     }
 
     @GetMapping({"/api/v1/farms/{farmId}/inventory", "/api/v1/inventory"})
-    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<Page<InventoryItemResponse>> getInventory(
             @PathVariable(required = false) Long farmId,
             @RequestParam(required = false) Long warehouseId,
@@ -45,7 +45,7 @@ public class InventoryQueryController {
     }
 
     @GetMapping({"/api/v1/farms/{farmId}/inventory/transactions", "/api/v1/inventory/transactions"})
-    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<Page<InventoryTransactionResponse>> getTransactions(
             @PathVariable(required = false) Long farmId,
             @RequestParam(required = false) Long warehouseId,

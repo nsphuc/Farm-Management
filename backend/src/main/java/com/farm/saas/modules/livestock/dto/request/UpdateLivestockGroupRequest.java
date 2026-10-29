@@ -15,6 +15,8 @@ public class UpdateLivestockGroupRequest {
 
     private Long zoneId;
 
+    private Long locationId;
+
     @Min(value = 0, message = "Số lượng hiện tại không được âm")
     private Integer currentQuantity;
 

@@ -97,9 +97,9 @@ export const geographyService = {
     const res = await apiClient.post(API_ENDPOINTS.GEOGRAPHY.ASSIGNMENTS(farmId), data);
     return res.data;
   },
-  deleteAssignment: async (farmId, assignmentId) => {
+  deleteAssignment: async (farmId, assignmentId, params = {}) => {
     if (!isValidFarmId(farmId)) return null;
-    const res = await apiClient.delete(`${API_ENDPOINTS.GEOGRAPHY.ASSIGNMENTS(farmId)}/${assignmentId}`);
+    const res = await apiClient.delete(`${API_ENDPOINTS.GEOGRAPHY.ASSIGNMENTS(farmId)}/${assignmentId}`, { params });
     return res.data;
   },
 
@@ -119,6 +119,11 @@ export const geographyService = {
   updateCycle: async (farmId, cycleId, data) => {
     if (!isValidFarmId(farmId)) return null;
     const res = await apiClient.put(`${API_ENDPOINTS.GEOGRAPHY.CYCLES(farmId)}/${cycleId}`, data);
+    return res.data;
+  },
+  deleteCycle: async (farmId, cycleId) => {
+    if (!isValidFarmId(farmId)) return null;
+    const res = await apiClient.delete(`${API_ENDPOINTS.GEOGRAPHY.CYCLES(farmId)}/${cycleId}`);
     return res.data;
   },
 

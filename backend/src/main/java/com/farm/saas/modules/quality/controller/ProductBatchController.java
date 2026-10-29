@@ -21,7 +21,7 @@ public class ProductBatchController {
     private final ProductBatchService productBatchService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_HARVEST_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_LABEL_PRINT') or hasAnyRole('ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<ProductBatchDetailResponse> createProductBatch(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateProductBatchRequest request) {
@@ -30,7 +30,7 @@ public class ProductBatchController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_QC_VIEW', 'PERM_QC_APPROVE', 'PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_QC_VIEW', 'PERM_QC_APPROVE', 'PERM_FARM_VIEW', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Page<ProductBatchDetailResponse>> getProductBatches(
             @PathVariable Long farmId,
             @RequestParam(required = false) String status,
@@ -40,7 +40,7 @@ public class ProductBatchController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_QC_VIEW', 'PERM_QC_APPROVE', 'PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_HARVEST_MANAGE', 'PERM_QC_VIEW', 'PERM_QC_APPROVE', 'PERM_FARM_VIEW', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<ProductBatchDetailResponse> getProductBatchById(
             @PathVariable Long farmId,
             @PathVariable Long id) {
@@ -78,7 +78,7 @@ public class ProductBatchController {
     }
 
     @PostMapping("/{id}/print-label")
-    @PreAuthorize("hasAuthority('PERM_LABEL_PRINT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("hasAnyAuthority('PERM_LABEL_PRINT', 'PERM_QC_APPROVE') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<ProductBatchDetailResponse> printLabel(
             @PathVariable Long farmId,
             @PathVariable Long id,

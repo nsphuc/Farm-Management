@@ -97,9 +97,16 @@ export function PartnersWorkspace() {
       });
 
       if (res) {
-        setPartners(res.content || res || []);
+        const content = res.content || res || [];
+        setPartners(content);
         setTotalPages(res.totalPages || 1);
         setTotalElements(res.totalElements || (res.content ? res.content.length : 0));
+
+        setSelectedPartner((prev) => {
+          if (!prev) return null;
+          const updated = content.find((p) => p.id === prev.id);
+          return updated || prev;
+        });
       }
     } catch (err) {
       console.error('Failed to load partners', err);
@@ -110,7 +117,7 @@ export function PartnersWorkspace() {
 
   useEffect(() => {
     fetchPartners();
-  }, [partnerTypeTab, statusFilter, searchTerm, page, activeFarmId, syncTrigger?.partners]);
+  }, [partnerTypeTab, statusFilter, searchTerm, page, activeFarmId, syncTrigger?.partners, syncTrigger?.finance, syncTrigger?.all]);
 
   const handleRowClick = (item) => {
     setSelectedPartner(item);

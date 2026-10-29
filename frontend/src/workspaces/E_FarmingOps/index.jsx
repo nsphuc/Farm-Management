@@ -22,6 +22,7 @@ import {
   TrendingUp,
   Info,
   Trash2,
+  Tag,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
@@ -39,6 +40,7 @@ import { LivestockGroupModal } from './components/LivestockGroupModal';
 import { RoutineTaskTemplateTab } from './components/RoutineTaskTemplateTab';
 import { FarmingLogsTimelineTab } from './components/FarmingLogsTimelineTab';
 import { GrowthAndHarvestTab } from './components/GrowthAndHarvestTab';
+import { LivestockIndividualsTab } from './components/LivestockIndividualsTab';
 
 /**
  * Workspace E: Bàn Làm Việc Canh Tác & Chăn Nuôi Hiện Trường (Điều 2.5 File 08)
@@ -137,9 +139,11 @@ export function FarmingOpsWorkspace() {
       setActionLoadingId(season.id);
       await farmingService.closeCropSeason(queryFarmId, season.id);
       toast.success(`Đã đóng thành công mùa vụ ${season.seasonCode}! Toàn bộ nhiệm vụ thường nhật đã được dừng.`);
-      notifyDataChanged('zones');
-      notifyDataChanged('seasons');
-      notifyDataChanged('tasks');
+      notifyDataChanged?.('all');
+      notifyDataChanged?.('zones');
+      notifyDataChanged?.('locations');
+      notifyDataChanged?.('seasons');
+      notifyDataChanged?.('tasks');
       fetchData();
     } catch (err) {
       console.error('Lỗi khi đóng mùa vụ:', err);
@@ -160,9 +164,11 @@ export function FarmingOpsWorkspace() {
       setActionLoadingId(group.id);
       await farmingService.closeLivestockGroup(queryFarmId, group.id);
       toast.success(`Đã kết thúc thành công đàn ${group.groupCode}! Toàn bộ nhiệm vụ thường nhật đã dừng.`);
-      notifyDataChanged('zones');
-      notifyDataChanged('groups');
-      notifyDataChanged('tasks');
+      notifyDataChanged?.('all');
+      notifyDataChanged?.('zones');
+      notifyDataChanged?.('locations');
+      notifyDataChanged?.('groups');
+      notifyDataChanged?.('tasks');
       fetchData();
     } catch (err) {
       console.error('Lỗi khi kết thúc đàn nuôi:', err);
@@ -183,7 +189,9 @@ export function FarmingOpsWorkspace() {
       setActionLoadingId(season.id);
       await farmingService.deleteCropSeason(queryFarmId, season.id);
       toast.success(`Đã xóa mùa vụ ${season.seasonCode}!`);
+      notifyDataChanged?.('all');
       notifyDataChanged?.('zones');
+      notifyDataChanged?.('locations');
       notifyDataChanged?.('seasons');
       notifyDataChanged?.('tasks');
       fetchData();
@@ -206,7 +214,9 @@ export function FarmingOpsWorkspace() {
       setActionLoadingId(group.id);
       await farmingService.deleteLivestockGroup(queryFarmId, group.id);
       toast.success(`Đã xóa đàn vật nuôi ${group.groupCode}!`);
+      notifyDataChanged?.('all');
       notifyDataChanged?.('zones');
+      notifyDataChanged?.('locations');
       notifyDataChanged?.('groups');
       notifyDataChanged?.('tasks');
       fetchData();
@@ -567,6 +577,23 @@ export function FarmingOpsWorkspace() {
               </Button>
             </Can>
 
+            {/* Nút Xem Thẻ Tai RFID */}
+            <Button
+              size="xs"
+              variant="outline"
+              icon={<Tag className="h-3 w-3 text-purple-600" />}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedItem(row);
+                setDrawerActiveTab('individuals');
+                setIsDrawerOpen(true);
+              }}
+              title="Xem danh sách cá thể đeo thẻ tai RFID"
+              className="text-purple-700 border-purple-200 hover:bg-purple-50"
+            >
+              Thẻ RFID
+            </Button>
+
             {/* Nút Chi Tiết */}
             <Button
               size="xs"
@@ -592,6 +619,7 @@ export function FarmingOpsWorkspace() {
     { id: 'routines', label: '1. Việc Cố Định & Thu Hoạch', icon: Repeat },
     { id: 'logs', label: '2. Nhật Ký Trừ Kho FEFO', icon: BookOpen },
     { id: 'growth', label: sector === 'CROP' ? '3. Cách Ly PHI & Thu Hoạch' : '3. Cách Ly & Tăng Trưởng ADG', icon: ShieldCheck },
+    ...(sector === 'LIVESTOCK' ? [{ id: 'individuals', label: '4. Cá Thể Thẻ Tai RFID', icon: Tag }] : []),
   ];
 
   return (
@@ -916,6 +944,15 @@ export function FarmingOpsWorkspace() {
               item={selectedItem}
               sector={sector}
               farmId={queryFarmId}
+            />
+          )}
+
+          {/* TAB 4: QUẢN LÝ CÁ THỂ ĐEO THẺ TAI RFID (BẢNG livestock_individuals #23) */}
+          {drawerActiveTab === 'individuals' && selectedItem && sector === 'LIVESTOCK' && (
+            <LivestockIndividualsTab
+              item={selectedItem}
+              farmId={queryFarmId}
+              onDataChanged={fetchData}
             />
           )}
         </div>

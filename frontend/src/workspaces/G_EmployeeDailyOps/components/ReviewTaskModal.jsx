@@ -194,7 +194,7 @@ export function ReviewTaskModal({
             <Button variant="outline" size="md" onClick={onClose} disabled={isSubmitting}>
               Đóng
             </Button>
-            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
               <Button
                 type="button"
                 variant="primary"

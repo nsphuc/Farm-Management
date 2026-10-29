@@ -41,6 +41,9 @@ public class WarehouseIssue {
     @Column(name = "season_id")
     private Long seasonId;
 
+    @Column(name = "livestock_group_id")
+    private Long livestockGroupId;
+
     @Column(name = "farming_log_id")
     private Long farmingLogId;
 

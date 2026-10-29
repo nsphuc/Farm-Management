@@ -44,6 +44,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Map;
@@ -512,6 +513,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (request.getIdCardNumber() != null) {
             employee.setIdCardNumber(request.getIdCardNumber());
         }
+        String oldPosition = employee.getPosition();
         if (request.getPosition() != null) {
             employee.setPosition(request.getPosition());
             // Tự động cập nhật phòng ban nếu người dùng không truyền phòng ban mới
@@ -534,11 +536,9 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         boolean isResigningOrTerminated = false;
         if (StringUtils.hasText(request.getStatus())) {
-            String oldStatus = employee.getStatus();
             String newStatus = request.getStatus();
             employee.setStatus(newStatus);
-            if (("RESIGNED".equalsIgnoreCase(newStatus) || "TERMINATED".equalsIgnoreCase(newStatus))
-                    && !"RESIGNED".equalsIgnoreCase(oldStatus) && !"TERMINATED".equalsIgnoreCase(oldStatus)) {
+            if ("RESIGNED".equalsIgnoreCase(newStatus) || "TERMINATED".equalsIgnoreCase(newStatus)) {
                 isResigningOrTerminated = true;
             }
         }
@@ -562,118 +562,207 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         final Long empUserId = employee.getUserId();
         final Long empFarmId = employee.getFarmId();
-
-        // Xử lý chuyển phân khu (assignedZoneId)
-        if (request.getAssignedZoneId() != null && request.getAssignedZoneId() > 0 && empFarmId != null) {
-            ProductionZone targetZone = productionZoneRepository.findById(request.getAssignedZoneId())
-                    .filter(z -> Objects.equals(z.getFarmId(), empFarmId))
-                    .orElseThrow(() -> new BusinessException("ZONE_NOT_FOUND", "Phân khu được chỉ định không thuộc trang trại này"));
-            if (!StringUtils.hasText(request.getDepartment())) {
-                employee.setDepartment("Phân khu: " + targetZone.getName());
-            }
-            if (empUserId != null) {
-                farmAssignmentRepository.findByUserIdAndIsActiveTrue(empUserId)
-                        .stream()
-                        .filter(fa -> Objects.equals(fa.getFarmId(), empFarmId))
-                        .forEach(fa -> {
-                            fa.setIsActive(false);
-                            fa.setAssignedTo(LocalDate.now());
-                            farmAssignmentRepository.save(fa);
-                        });
-
-                FarmAssignment newFa = FarmAssignment.builder()
-                        .tenantId(tenantId)
-                        .farmId(empFarmId)
-                        .zoneId(request.getAssignedZoneId())
-                        .userId(empUserId)
-                        .roleInFarm(employee.getPosition() != null ? employee.getPosition() : "TECHNICAL_STAFF")
-                        .assignedFrom(LocalDate.now())
-                        .isActive(true)
-                        .createdAt(Instant.now())
-                        .createdBy(SecurityUtils.getCurrentUserId())
-                        .build();
-                farmAssignmentRepository.save(newFa);
-            }
-        }
+        Set<Long> candidateUserIds = new HashSet<>();
+        if (empUserId != null) candidateUserIds.add(empUserId);
+        if (employee.getId() != null) candidateUserIds.add(employee.getId());
 
         // Xử lý khi nhân sự THÔI VIỆC (RESIGNED / TERMINATED)
-        if (isResigningOrTerminated && empUserId != null) {
-            // 1. Khóa tài khoản user
-            userRepository.findById(empUserId).ifPresent(u -> {
-                u.setStatus("LOCKED");
-                u.setUpdatedAt(Instant.now());
-                userRepository.save(u);
-            });
+        if (isResigningOrTerminated) {
+            // 1. Khóa tài khoản user & thu hồi quyền truy cập
+            if (empUserId != null) {
+                userRepository.findById(empUserId).ifPresent(u -> {
+                    u.setStatus("LOCKED");
+                    u.setUpdatedAt(Instant.now());
+                    userRepository.save(u);
+                });
+                userFarmAccessRepository.deleteByUserId(empUserId);
+            }
 
-            // 2. Giải phóng vị trí quản lý tại trang trại nếu là FARM_MANAGER
-            if (empFarmId != null) {
-                farmRepository.findById(empFarmId).ifPresent(f -> {
-                    if (Objects.equals(f.getManagerUserId(), empUserId)) {
+            // 2. Giải phóng vị trí quản lý tại TẤT CẢ các trang trại
+            farmRepository.findAll().stream()
+                    .filter(f -> (empUserId != null && Objects.equals(f.getManagerUserId(), empUserId))
+                            || Objects.equals(f.getManagerUserId(), employee.getId()))
+                    .forEach(f -> {
                         f.setManagerUserId(null);
                         f.setUpdatedAt(Instant.now());
                         farmRepository.save(f);
-                    }
-                });
+                    });
 
-                // Vô hiệu hóa farm_assignments
-                farmAssignmentRepository.findByUserIdAndIsActiveTrue(empUserId)
-                        .stream()
-                        .filter(fa -> Objects.equals(fa.getFarmId(), empFarmId))
-                        .forEach(fa -> {
-                            fa.setIsActive(false);
-                            fa.setAssignedTo(LocalDate.now());
-                            farmAssignmentRepository.save(fa);
-                        });
-            }
-        }
-
-        // Xử lý khi ĐỔI TRANG TRẠI cho FARM_MANAGER
-        boolean isFm = "FARM_MANAGER".equalsIgnoreCase(employee.getPosition());
-        if (farmChanged && isFm && empUserId != null && !isResigningOrTerminated) {
-            // Giải phóng trại cũ
-            if (oldFarmId != null) {
-                farmRepository.findById(oldFarmId).ifPresent(oldF -> {
-                    if (Objects.equals(oldF.getManagerUserId(), empUserId)) {
-                        oldF.setManagerUserId(null);
-                        oldF.setUpdatedAt(Instant.now());
-                        farmRepository.save(oldF);
+            // 3. Vô hiệu hóa TOÀN BỘ phân công trong WS-A (farm_assignments)
+            for (Long uid : candidateUserIds) {
+                farmAssignmentRepository.findByUserIdAndIsActiveTrue(uid).forEach(fa -> {
+                    fa.setIsActive(false);
+                    if (fa.getAssignedTo() == null || fa.getAssignedTo().isAfter(LocalDate.now())) {
+                        fa.setAssignedTo(LocalDate.now());
                     }
+                    fa.setUpdatedAt(Instant.now());
+                    fa.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                    farmAssignmentRepository.save(fa);
                 });
-                farmAssignmentRepository.findByUserIdAndIsActiveTrue(empUserId)
-                        .stream()
-                        .filter(fa -> Objects.equals(fa.getFarmId(), oldFarmId))
-                        .forEach(fa -> {
-                            fa.setIsActive(false);
-                            fa.setAssignedTo(LocalDate.now());
-                            farmAssignmentRepository.save(fa);
-                        });
             }
-            // Gán sang trại mới
-            if (request.getFarmId() != null) {
-                farmRepository.findById(request.getFarmId()).ifPresent(newF -> {
-                    newF.setManagerUserId(empUserId);
-                    newF.setUpdatedAt(Instant.now());
-                    farmRepository.save(newF);
-                });
-                if (!userFarmAccessRepository.existsByUserIdAndFarmId(empUserId, request.getFarmId())) {
-                    userFarmAccessRepository.save(UserFarmAccess.builder()
-                            .userId(empUserId)
-                            .farmId(request.getFarmId())
-                            .tenantId(tenantId)
-                            .grantedAt(Instant.now())
-                            .grantedBy(SecurityUtils.getCurrentUserId())
-                            .build());
+        } else {
+            // Trường hợp nhân sự ĐANG HOẠT ĐỘNG: Đồng bộ thông tin bộ phận, chức vụ và phân công sang WS-A
+            boolean wasFm = "FARM_MANAGER".equalsIgnoreCase(oldPosition);
+            boolean isNowFm = "FARM_MANAGER".equalsIgnoreCase(employee.getPosition());
+
+            // 1. Thay đổi chức vụ Giám đốc điều hành trại
+            if (wasFm && !isNowFm) {
+                // Thôi chức FARM_MANAGER -> Gỡ bỏ khỏi manager_user_id trên farm
+                farmRepository.findAll().stream()
+                        .filter(f -> (empUserId != null && Objects.equals(f.getManagerUserId(), empUserId))
+                                || Objects.equals(f.getManagerUserId(), employee.getId()))
+                        .forEach(f -> {
+                            f.setManagerUserId(null);
+                            f.setUpdatedAt(Instant.now());
+                            farmRepository.save(f);
+                        });
+            } else if (!wasFm && isNowFm && "ACTIVE".equalsIgnoreCase(employee.getStatus())) {
+                // Bổ nhiệm làm FARM_MANAGER
+                if (empFarmId != null) {
+                    farmRepository.findById(empFarmId).ifPresent(f -> {
+                        f.setManagerUserId(empUserId != null ? empUserId : employee.getId());
+                        f.setUpdatedAt(Instant.now());
+                        farmRepository.save(f);
+                    });
+                    if (empUserId != null && !userFarmAccessRepository.existsByUserIdAndFarmId(empUserId, empFarmId)) {
+                        userFarmAccessRepository.save(UserFarmAccess.builder()
+                                .userId(empUserId)
+                                .farmId(empFarmId)
+                                .tenantId(tenantId)
+                                .grantedAt(Instant.now())
+                                .grantedBy(SecurityUtils.getCurrentUserId())
+                                .build());
+                    }
                 }
-                farmAssignmentRepository.save(FarmAssignment.builder()
-                        .tenantId(tenantId)
-                        .farmId(request.getFarmId())
-                        .userId(empUserId)
-                        .roleInFarm("FARM_MANAGER")
-                        .assignedFrom(LocalDate.now())
-                        .isActive(true)
-                        .createdAt(Instant.now())
-                        .createdBy(SecurityUtils.getCurrentUserId())
-                        .build());
+            }
+
+            // 2. Xử lý chuyển / phân công phân khu (assignedZoneId / zoneId)
+            Long effectiveZoneId = request.getAssignedZoneId();
+            if (effectiveZoneId != null && effectiveZoneId > 0 && empFarmId != null) {
+                ProductionZone targetZone = productionZoneRepository.findById(effectiveZoneId)
+                        .filter(z -> Objects.equals(z.getFarmId(), empFarmId))
+                        .orElseThrow(() -> new BusinessException("ZONE_NOT_FOUND", "Phân khu được chỉ định không thuộc trang trại này"));
+                if (!StringUtils.hasText(request.getDepartment())) {
+                    employee.setDepartment("Phân khu: " + targetZone.getName());
+                }
+
+                Long assignmentUserId = empUserId != null ? empUserId : employee.getId();
+                List<FarmAssignment> existingList = new ArrayList<>();
+                for (Long uid : candidateUserIds) {
+                    farmAssignmentRepository.findByUserIdAndIsActiveTrue(uid)
+                            .stream()
+                            .filter(fa -> Objects.equals(fa.getFarmId(), empFarmId))
+                            .forEach(existingList::add);
+                }
+
+                String effectiveRoleInFarm = StringUtils.hasText(request.getRoleInFarm())
+                        ? request.getRoleInFarm().trim()
+                        : (employee.getPosition() != null ? employee.getPosition() : "TECHNICAL_STAFF");
+
+                if (!existingList.isEmpty()) {
+                    FarmAssignment existingFa = existingList.get(0);
+                    existingFa.setZoneId(effectiveZoneId);
+                    existingFa.setRoleInFarm(effectiveRoleInFarm);
+                    existingFa.setIsActive(true);
+                    existingFa.setUpdatedAt(Instant.now());
+                    existingFa.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                    farmAssignmentRepository.save(existingFa);
+
+                    for (int i = 1; i < existingList.size(); i++) {
+                        FarmAssignment dup = existingList.get(i);
+                        dup.setIsActive(false);
+                        dup.setAssignedTo(LocalDate.now());
+                        dup.setUpdatedAt(Instant.now());
+                        dup.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                        farmAssignmentRepository.save(dup);
+                    }
+                } else {
+                    FarmAssignment newFa = FarmAssignment.builder()
+                            .tenantId(tenantId)
+                            .farmId(empFarmId)
+                            .zoneId(effectiveZoneId)
+                            .userId(assignmentUserId)
+                            .roleInFarm(effectiveRoleInFarm)
+                            .assignedFrom(LocalDate.now())
+                            .isActive(true)
+                            .createdAt(Instant.now())
+                            .createdBy(SecurityUtils.getCurrentUserId())
+                            .build();
+                    farmAssignmentRepository.save(newFa);
+                }
+            } else {
+                // 3. Đồng bộ vai trò trong phân công hiện trường (farm_assignments) nếu có thay đổi chức vụ / vai trò
+                String newRoleInFarm = StringUtils.hasText(request.getRoleInFarm())
+                        ? request.getRoleInFarm().trim()
+                        : (employee.getPosition() != null ? employee.getPosition().trim() : null);
+
+                if (newRoleInFarm != null) {
+                    for (Long uid : candidateUserIds) {
+                        farmAssignmentRepository.findByUserIdAndIsActiveTrue(uid).forEach(fa -> {
+                            if (Objects.equals(fa.getFarmId(), empFarmId)) {
+                                fa.setRoleInFarm(newRoleInFarm);
+                                fa.setUpdatedAt(Instant.now());
+                                fa.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                                farmAssignmentRepository.save(fa);
+                            }
+                        });
+                    }
+                }
+            }
+
+            // 4. Xử lý khi ĐỔI TRANG TRẠI cho nhân sự
+            if (farmChanged) {
+                if (oldFarmId != null) {
+                    farmRepository.findById(oldFarmId).ifPresent(oldF -> {
+                        if (Objects.equals(oldF.getManagerUserId(), empUserId) || Objects.equals(oldF.getManagerUserId(), employee.getId())) {
+                            oldF.setManagerUserId(null);
+                            oldF.setUpdatedAt(Instant.now());
+                            farmRepository.save(oldF);
+                        }
+                    });
+                    for (Long uid : candidateUserIds) {
+                        farmAssignmentRepository.findByUserIdAndIsActiveTrue(uid)
+                                .stream()
+                                .filter(fa -> Objects.equals(fa.getFarmId(), oldFarmId))
+                                .forEach(fa -> {
+                                    fa.setIsActive(false);
+                                    fa.setAssignedTo(LocalDate.now());
+                                    fa.setUpdatedAt(Instant.now());
+                                    fa.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                                    farmAssignmentRepository.save(fa);
+                                });
+                    }
+                }
+                if (request.getFarmId() != null) {
+                    if (isNowFm) {
+                        farmRepository.findById(request.getFarmId()).ifPresent(newF -> {
+                            newF.setManagerUserId(empUserId != null ? empUserId : employee.getId());
+                            newF.setUpdatedAt(Instant.now());
+                            farmRepository.save(newF);
+                        });
+                    }
+                    if (empUserId != null && !userFarmAccessRepository.existsByUserIdAndFarmId(empUserId, request.getFarmId())) {
+                        userFarmAccessRepository.save(UserFarmAccess.builder()
+                                .userId(empUserId)
+                                .farmId(request.getFarmId())
+                                .tenantId(tenantId)
+                                .grantedAt(Instant.now())
+                                .grantedBy(SecurityUtils.getCurrentUserId())
+                                .build());
+                    }
+                    if (isNowFm) {
+                        farmAssignmentRepository.save(FarmAssignment.builder()
+                                .tenantId(tenantId)
+                                .farmId(request.getFarmId())
+                                .userId(empUserId != null ? empUserId : employee.getId())
+                                .roleInFarm("FARM_MANAGER")
+                                .assignedFrom(LocalDate.now())
+                                .isActive(true)
+                                .createdAt(Instant.now())
+                                .createdBy(SecurityUtils.getCurrentUserId())
+                                .build());
+                    }
+                }
             }
         }
 
@@ -965,11 +1054,16 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
         String username = null;
         String userStatus = null;
+        List<String> userRoles = new ArrayList<>();
         if (emp.getUserId() != null) {
             User u = userRepository.findById(emp.getUserId()).orElse(null);
             if (u != null) {
                 username = u.getUsername();
                 userStatus = u.getStatus();
+                List<com.farm.saas.modules.auth.entity.UserRole> urs = userRoleRepository.findByUserId(u.getId());
+                for (com.farm.saas.modules.auth.entity.UserRole ur : urs) {
+                    roleRepository.findById(ur.getRoleId()).ifPresent(r -> userRoles.add(r.getCode()));
+                }
             }
         }
 
@@ -1007,6 +1101,8 @@ public class EmployeeServiceImpl implements EmployeeService {
                 .userId(emp.getUserId())
                 .username(username)
                 .userStatus(userStatus)
+                .userRole(!userRoles.isEmpty() ? userRoles.get(0) : null)
+                .userRoles(userRoles)
                 .employeeCode(emp.getEmployeeCode())
                 .fullName(emp.getFullName())
                 .phone(emp.getPhone())

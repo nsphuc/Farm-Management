@@ -10,4 +10,5 @@ public interface ShiftAssignmentRepository extends JpaRepository<ShiftAssignment
     java.util.Optional<ShiftAssignment> findByEmployeeIdAndWorkDateAndShiftId(Long employeeId, java.time.LocalDate workDate, Long shiftId);
     java.util.List<ShiftAssignment> findByEmployeeIdAndWorkDate(Long employeeId, java.time.LocalDate workDate);
     java.util.List<ShiftAssignment> findByFarmIdAndWorkDate(Long farmId, java.time.LocalDate workDate);
+    boolean existsByShiftId(Long shiftId);
 }

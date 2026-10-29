@@ -33,7 +33,7 @@ export const ALL_WORKSPACES = {
     label: 'WS-B: Nhân Sự 360° & SaaS',
     path: '/app/hr',
     icon: Users,
-    permission: 'PERM_HR_EMPLOYEE_MANAGE',
+    anyPermissions: ['PERM_HR_EMPLOYEE_MANAGE', 'PERM_FINANCE_EXPENSE'],
     badge: 'HR',
   },
   C_InventoryHub: {
@@ -64,7 +64,7 @@ export const ALL_WORKSPACES = {
     label: 'WS-F: Đường Ống QA & QR',
     path: '/app/qa-traceability',
     icon: ShieldCheck,
-    anyPermissions: ['PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_LABEL_PRINT'],
+    anyPermissions: ['PERM_QC_INSPECT', 'PERM_QC_APPROVE', 'PERM_LABEL_PRINT', 'PERM_HARVEST_MANAGE'],
     badge: 'Kanban',
   },
   G_EmployeeDailyOps: {
@@ -94,7 +94,7 @@ export const ALL_WORKSPACES = {
     label: 'WS-H2: Bán Hàng & VietQR',
     path: '/app/sales-cashflow',
     icon: BadgeDollarSign,
-    permission: 'PERM_FINANCE_SALES_ORDER',
+    anyPermissions: ['PERM_FINANCE_SALES_ORDER', 'PERM_DELIVERY_MANAGE', 'PERM_FINANCE_PAYMENT'],
     badge: 'VietQR',
   },
 };
@@ -106,7 +106,7 @@ export const ALL_INDEPENDENT_MODULES = {
     label: 'Cài Đặt Danh Mục Tĩnh',
     path: '/app/settings',
     icon: Settings,
-    anyPermissions: ['PERM_TENANT_MANAGE', 'PERM_FARM_UPDATE'],
+    anyPermissions: ['PERM_TENANT_MANAGE', 'PERM_FARM_UPDATE', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_INVENTORY_RECEIPT', 'PERM_FINANCE_EXPENSE'],
   },
   reports: {
     id: 'reports',
@@ -245,6 +245,30 @@ export function getSidebarMenuConfig(operationalRole) {
         ],
       };
 
+    // 3B. Role 3B: Zone Manager (Trưởng phân khu / Tổ trưởng sản xuất hiện trường)
+    case 'ZONE_MANAGER':
+      return {
+        sectionTitle: 'Bàn Chỉ Huy Phân Khu & Tổ Trưởng',
+        workspaces: [
+          {
+            ...ALL_WORKSPACES.G_EmployeeDailyOps,
+            label: 'WS-G: Điểm Danh Tổ & Điều Phối Việc',
+            badge: 'Tổ trưởng',
+          },
+          {
+            ...ALL_WORKSPACES.A_Geography,
+            label: 'WS-A: Sơ Đồ Phân Khu & Nhân Sự Tổ',
+            badge: 'Phân khu',
+          },
+          {
+            ...ALL_WORKSPACES.E_FarmingOps,
+            label: 'WS-E: Nhật Ký Canh Tác & Thu Hoạch Khu',
+            badge: 'Sản xuất',
+          },
+        ],
+        independentModules: [],
+      };
+
     // 3. Role 3: Technical Lead (Trưởng bộ phận kỹ thuật / Trưởng phân khu)
     case 'TECHNICAL_LEAD':
       return {
@@ -266,12 +290,23 @@ export function getSidebarMenuConfig(operationalRole) {
             badge: 'Tác nghiệp',
           },
           {
+            ...ALL_WORKSPACES.C_InventoryHub,
+            label: 'WS-C: Tra Cứu Tồn Kho Vật Tư',
+            badge: 'Tra cứu kho',
+          },
+          {
             ...ALL_WORKSPACES.F_QaTraceability,
             label: 'WS-F: Lập Biên Bản Kiểm Định KCS',
             badge: 'Kiểm định',
           },
         ],
-        independentModules: [],
+        independentModules: [
+          {
+            ...ALL_INDEPENDENT_MODULES.settings,
+            label: 'Danh Mục Giống & Định Mức BOM',
+            badge: 'Kỹ thuật',
+          },
+        ],
       };
 
     // 4. Role 4: Warehouse Keeper (Thủ kho trang trại)
@@ -291,7 +326,7 @@ export function getSidebarMenuConfig(operationalRole) {
           },
           {
             ...ALL_WORKSPACES.F_QaTraceability,
-            label: 'WS-F: In Tem Nhãn Nhiệt QR & Mã Vạch',
+            label: 'WS-F: Đóng Gói Lô & In Tem Nhãn Nhiệt QR',
             badge: 'In tem QR',
           },
           {
@@ -300,7 +335,13 @@ export function getSidebarMenuConfig(operationalRole) {
             badge: 'Giao hàng',
           },
         ],
-        independentModules: [],
+        independentModules: [
+          {
+            ...ALL_INDEPENDENT_MODULES.settings,
+            label: 'Danh Mục Kho Bãi & Vật Tư',
+            badge: 'Kho & Vật tư',
+          },
+        ],
       };
 
     // 5. Role 5: Farm Accountant (Kế toán trang trại)
@@ -341,11 +382,16 @@ export function getSidebarMenuConfig(operationalRole) {
         ],
         independentModules: [
           ALL_INDEPENDENT_MODULES.reports,
+          {
+            ...ALL_INDEPENDENT_MODULES.settings,
+            label: 'Danh Mục Nhóm Chi Phí',
+            badge: 'Kế toán',
+          },
         ],
       };
 
     // 6. Role 6A: Field Worker (Nhân viên hiện trường có tài khoản)
-    // Chỉ hiển thị DUY NHẤT WS-G
+    // Hiển thị 2 Workspaces phục vụ hiện trường: WS-G và WS-E
     case 'FIELD_WORKER':
       return {
         sectionTitle: 'Bàn Tác Nghiệp Hiện Trường',
@@ -354,6 +400,11 @@ export function getSidebarMenuConfig(operationalRole) {
             ...ALL_WORKSPACES.G_EmployeeDailyOps,
             label: 'WS-G: Bảng Tác Nghiệp & Chấm Công',
             badge: 'Hôm nay',
+          },
+          {
+            ...ALL_WORKSPACES.E_FarmingOps,
+            label: 'WS-E: Nhật Ký Canh Tác & Thu Hoạch',
+            badge: 'Đồng ruộng / Chuồng',
           },
         ],
         independentModules: [],

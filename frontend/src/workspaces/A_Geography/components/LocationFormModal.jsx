@@ -124,6 +124,8 @@ export function LocationFormModal({
     name: '',
     description: '',
     status: 'EMPTY',
+    areaM2: '',
+    capacity: '',
   });
 
   const [fieldErrors, setFieldErrors] = useState({});
@@ -176,6 +178,8 @@ export function LocationFormModal({
         name: editingItem.name || '',
         description: editingItem.description || '',
         status: editingItem.status || 'EMPTY',
+        areaM2: editingItem.areaM2 != null ? String(editingItem.areaM2) : '',
+        capacity: editingItem.capacity != null ? String(editingItem.capacity) : '',
       });
     } else {
       setFormData({
@@ -183,6 +187,8 @@ export function LocationFormModal({
         name: '',
         description: '',
         status: 'EMPTY',
+        areaM2: '',
+        capacity: '',
       });
     }
   }, [isOpen, editingItem, initialFarmId, initialZoneId, activeFarmId, activeFarms, farms]);
@@ -270,6 +276,20 @@ export function LocationFormModal({
       errors.name = `${dynamicConfig.nameLabel} không được để trống`;
     }
 
+    if (zoneType === 'GREENHOUSE' && formData.areaM2 !== '' && formData.areaM2 != null) {
+      const val = Number(formData.areaM2);
+      if (isNaN(val) || val < 0) {
+        errors.areaM2 = 'Diện tích / sức chứa phải là số dương hoặc bằng 0';
+      }
+    }
+
+    if (zoneType === 'BARN' && formData.capacity !== '' && formData.capacity != null) {
+      const val = Number(formData.capacity);
+      if (isNaN(val) || val < 0 || !Number.isInteger(val)) {
+        errors.capacity = 'Sức chứa phải là số nguyên dương hoặc bằng 0 (đơn vị con)';
+      }
+    }
+
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return;
@@ -288,6 +308,8 @@ export function LocationFormModal({
         name: formData.name.trim(),
         description: formData.description?.trim() || null,
         status: formData.status,
+        areaM2: zoneType === 'GREENHOUSE' && formData.areaM2 !== '' && formData.areaM2 != null ? Number(formData.areaM2) : null,
+        capacity: zoneType === 'BARN' && formData.capacity !== '' && formData.capacity != null ? parseInt(formData.capacity, 10) : null,
       };
 
       let result;
@@ -443,6 +465,56 @@ export function LocationFormModal({
             placeholder={dynamicConfig.namePlaceholder}
           />
         </FormField>
+
+        {/* 3.1. Sức chứa / diện tích (m²) nếu là GREENHOUSE */}
+        {zoneType === 'GREENHOUSE' && (
+          <FormField
+            label="Sức Chứa / Diện Tích (mét vuông)"
+            error={fieldErrors.areaM2}
+            hint="Nhập diện tích canh tác hoặc sức chứa quy đổi (m²) của luống / ô đất này"
+          >
+            <div className="relative">
+              <Input
+                name="areaM2"
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.areaM2}
+                onChange={handleChange}
+                placeholder="VD: 50.5"
+                className="pr-12 font-mono"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none select-none">
+                m²
+              </span>
+            </div>
+          </FormField>
+        )}
+
+        {/* 3.2. Sức chứa (đơn vị con) nếu là BARN */}
+        {zoneType === 'BARN' && (
+          <FormField
+            label="Sức Chứa (đơn vị con)"
+            error={fieldErrors.capacity}
+            hint="Nhập quy mô sức chứa số lượng vật nuôi tối đa cho ô chuồng này (con)"
+          >
+            <div className="relative">
+              <Input
+                name="capacity"
+                type="number"
+                step="1"
+                min="0"
+                value={formData.capacity}
+                onChange={handleChange}
+                placeholder="VD: 30"
+                className="pr-12 font-mono"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none select-none">
+                con
+              </span>
+            </div>
+          </FormField>
+        )}
 
         {/* 4. Trạng thái vận hành */}
         <FormField label="Trạng Thái Vận Hành" required error={fieldErrors.status}>
