@@ -44,7 +44,7 @@ public class StocktakeController {
         return ResponseEntity.ok(inventoryService.getStocktakeById(farmId, id));
     }
 
-    @PostMapping("/{id}/count")
+    @PostMapping({"/{id}/count", "/{id}/record-count"})
     @PreAuthorize("hasAuthority('PERM_INVENTORY_STOCKTAKE') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<StocktakeDetailResponse> recordStocktakeCount(
             @PathVariable Long farmId,

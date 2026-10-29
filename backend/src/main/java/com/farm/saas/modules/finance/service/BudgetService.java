@@ -14,4 +14,8 @@ public interface BudgetService {
     BudgetDetailResponse createBudget(Long farmId, CreateBudgetRequest request);
 
     BudgetDetailResponse updateBudgetStatus(Long farmId, Long id, String status);
+
+    void consumeBudgetForConfirmedExpense(com.farm.saas.modules.finance.entity.FarmExpense expense);
+
+    void revertBudgetForCancelledExpense(com.farm.saas.modules.finance.entity.FarmExpense expense);
 }

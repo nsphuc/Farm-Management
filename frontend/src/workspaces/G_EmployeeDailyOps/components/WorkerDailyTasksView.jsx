@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { CompleteTaskModal } from './CompleteTaskModal';
 import { hrService } from '@/services/modules/hrService';
 import { formatDateTime } from '@/utils/formatters';
+import { toast } from '@/store/useToastStore';
 
 const TASK_TYPE_LABELS = {
   PLANTING: { label: 'Tưới nước / Cây trồng', color: 'bg-emerald-100 text-emerald-800' },
@@ -61,7 +62,7 @@ export function WorkerDailyTasksView({
       onRefresh?.();
     } catch (err) {
       console.error('Start task error:', err);
-      alert('Không thể nhận việc: ' + (err.response?.data?.message || err.message));
+      toast.error('Không thể nhận việc: ' + (err.response?.data?.message || err.message));
     }
   };
 

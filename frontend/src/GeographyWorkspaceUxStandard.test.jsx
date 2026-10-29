@@ -191,6 +191,8 @@ describe('Workspace A Geography UX/UI & Contextual Flow Standards', () => {
     expect(screen.getByText('Thêm Ô Chuồng / Dãy Chuồng Chăn Nuôi')).toBeInTheDocument();
     expect(screen.getByText('Tên Ô Chuồng / Dãy Chuồng')).toBeInTheDocument();
     expect(screen.getByText('Mô Tả Quy Cách Ô Chuồng')).toBeInTheDocument();
+    expect(screen.getByText('Sức Chứa (đơn vị con)')).toBeInTheDocument();
+    expect(screen.queryByText('Sức Chứa / Diện Tích (mét vuông)')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Tạo Ô Chuồng Mới' })).toBeInTheDocument();
 
     // 3.2. Khi chọn phân khu GREENHOUSE (Nhà màng)
@@ -208,6 +210,8 @@ describe('Workspace A Geography UX/UI & Contextual Flow Standards', () => {
     expect(screen.getByText('Thêm Luống / Lô Đất Canh Tác')).toBeInTheDocument();
     expect(screen.getByText('Tên Luống / Lô Đất Canh Tác')).toBeInTheDocument();
     expect(screen.getByText('Mô Tả Luống / Lô Đất')).toBeInTheDocument();
+    expect(screen.getByText('Sức Chứa / Diện Tích (mét vuông)')).toBeInTheDocument();
+    expect(screen.queryByText('Sức Chứa (đơn vị con)')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Tạo Luống / Lô Đất Mới' })).toBeInTheDocument();
   });
 

@@ -260,6 +260,32 @@ public class PlatformTenantServiceImpl implements PlatformTenantService {
                 .totalUsers(totalUsers != null ? totalUsers : 0L)
                 .build();
 
+        TenantDetailResponse.OwnerSummaryDto ownerDto = null;
+        try {
+            List<java.util.Map<String, Object>> owners = jdbcTemplate.queryForList(
+                    "SELECT u.id, u.username, u.full_name, u.email, u.phone, u.status " +
+                    "FROM users u " +
+                    "JOIN user_roles ur ON u.id = ur.user_id " +
+                    "JOIN roles r ON ur.role_id = r.id " +
+                    "WHERE u.tenant_id = ? AND r.code = 'ROLE_FARM_OWNER' " +
+                    "ORDER BY u.id ASC LIMIT 1",
+                    tenant.getId()
+            );
+            if (!owners.isEmpty()) {
+                java.util.Map<String, Object> row = owners.get(0);
+                ownerDto = TenantDetailResponse.OwnerSummaryDto.builder()
+                        .id(((Number) row.get("id")).longValue())
+                        .username((String) row.get("username"))
+                        .fullName((String) row.get("full_name"))
+                        .email((String) row.get("email"))
+                        .phone((String) row.get("phone"))
+                        .status((String) row.get("status"))
+                        .build();
+            }
+        } catch (Exception ex) {
+            log.warn("Could not load owner for tenant {}: {}", tenant.getId(), ex.getMessage());
+        }
+
         return TenantDetailResponse.builder()
                 .id(tenant.getId())
                 .code(tenant.getCode())
@@ -269,6 +295,10 @@ public class PlatformTenantServiceImpl implements PlatformTenantService {
                 .subscriptionPlan(tenant.getSubscriptionPlan())
                 .activeSubscription(subDto)
                 .currentUsage(usageDto)
+                .owner(ownerDto)
+                .ownerFullName(ownerDto != null ? ownerDto.getFullName() : null)
+                .ownerEmail(ownerDto != null ? ownerDto.getEmail() : null)
+                .ownerPhone(ownerDto != null ? ownerDto.getPhone() : null)
                 .createdAt(tenant.getCreatedAt())
                 .updatedAt(tenant.getUpdatedAt())
                 .build();

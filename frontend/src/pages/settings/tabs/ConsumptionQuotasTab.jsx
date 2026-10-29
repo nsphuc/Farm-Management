@@ -7,6 +7,7 @@ import {
   Trash2,
   AlertTriangle,
   ArrowRight,
+  MapPin,
 } from 'lucide-react';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { DataTable } from '@/components/common/DataTable';
@@ -17,6 +18,8 @@ import { SmartEmptyState } from '@/components/common/SmartEmptyState';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 const UNIT_OF_MEASURE_OPTIONS = [
   { value: 'PER_HECTARE', label: 'PER_HECTARE - Cho 1 Hecta (ha)' },
@@ -24,10 +27,22 @@ const UNIT_OF_MEASURE_OPTIONS = [
   { value: 'PER_DAY', label: 'PER_DAY - Cho 1 Ngày canh tác' },
 ];
 
-import { useActiveFarmStore } from '@/store/useActiveFarmStore';
-
 export function ConsumptionQuotasTab({ onNavigateTab }) {
-  const { supportsCrop, supportsLivestock } = useActiveFarmStore();
+  const { activeFarmId, farms, supportsCrop, supportsLivestock } = useActiveFarmStore();
+  const accessibleFarms = useAuthStore((s) => s.userInfo?.accessibleFarms) || [];
+  const farmList = farms && farms.length > 0 ? farms : accessibleFarms;
+  const [selectedFarmId, setSelectedFarmId] = useState(null);
+
+  const effectiveFarmId = (activeFarmId && activeFarmId !== 'ALL')
+    ? activeFarmId
+    : (selectedFarmId || farmList[0]?.id || farmList[0]?.farmId);
+
+  useEffect(() => {
+    if ((!selectedFarmId || selectedFarmId === 'ALL') && farmList.length > 0) {
+      setSelectedFarmId(String(farmList[0].id || farmList[0].farmId));
+    }
+  }, [farmList, selectedFarmId]);
+
   const defaultTargetType = supportsLivestock && !supportsCrop ? 'LIVESTOCK' : 'CROP';
 
   const [quotas, setQuotas] = useState([]);
@@ -77,10 +92,14 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
   const fetchQuotas = async () => {
     try {
       setLoading(true);
-      const res = await masterDataService.getQuotas({
+      const params = {
         page,
         size: 15,
-      });
+      };
+      if (effectiveFarmId && effectiveFarmId !== 'ALL') {
+        params.farmId = effectiveFarmId;
+      }
+      const res = await masterDataService.getQuotas(params);
       if (res) {
         setQuotas(res.content || res || []);
         setTotalPages(res.totalPages || 1);
@@ -99,7 +118,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
 
   useEffect(() => {
     fetchQuotas();
-  }, [page]);
+  }, [page, effectiveFarmId]);
 
   const handleOpenModal = (item = null) => {
     setEditingItem(item);
@@ -192,6 +211,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
       setGeneralError('');
 
       const payload = {
+        farmId: effectiveFarmId && effectiveFarmId !== 'ALL' ? Number(effectiveFarmId) : (editingItem?.farmId || null),
         cropTypeId: targetType === 'CROP' && formData.cropTypeId ? Number(formData.cropTypeId) : null,
         livestockBreedId:
           targetType === 'LIVESTOCK' && formData.livestockBreedId
@@ -212,6 +232,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
 
       setModalOpen(false);
       fetchQuotas();
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
       applyServerFieldErrors(err, setFieldErrors);
       const errInfo = extractApiErrors(err);
@@ -226,6 +247,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
     try {
       await masterDataService.deleteQuota(id);
       fetchQuotas();
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
       const errInfo = extractApiErrors(err);
       alert(errInfo.message || 'Không thể xóa định mức BOM!');
@@ -320,7 +342,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
       className: 'text-right',
       render: (item) => (
         <div className="flex items-center justify-end gap-1">
-          <Can permission="PERM_FARM_UPDATE">
+          <Can anyPermissions={['PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE']}>
             <button
               type="button"
               onClick={() => handleOpenModal(item)}
@@ -345,6 +367,26 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
+      {/* Selector nội bộ khi thanh TopBar đang chọn Tất cả trang trại ('ALL') */}
+      {activeFarmId === 'ALL' && farmList.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl shadow-xs">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-emerald-700 shrink-0" />
+            <span className="text-xs font-bold text-emerald-950">Chọn trang trại cấu hình định mức BOM:</span>
+          </div>
+          <div className="w-full sm:w-72">
+            <Select
+              value={String(effectiveFarmId || '')}
+              onChange={(e) => setSelectedFarmId(e.target.value)}
+              options={farmList.map((f) => ({
+                value: String(f.id || f.farmId),
+                label: f.name || f.farmName || `Trang trại #${f.id || f.farmId}`,
+              }))}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h3 className="text-sm font-bold text-slate-900">
@@ -355,7 +397,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
           </p>
         </div>
 
-        <Can permission="PERM_FARM_UPDATE">
+        <Can anyPermissions={['PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE']}>
           <Button
             type="button"
             variant="primary"

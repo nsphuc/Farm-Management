@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bell, CheckCheck, ExternalLink, Info, AlertTriangle, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useNotificationStore } from '@/store/useNotificationStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { formatDateTime, cn } from '@/utils/formatters';
 import { renderIcon } from '@/utils/iconHelper';
 
@@ -23,13 +24,26 @@ export function NotificationBell() {
   const navigate = useNavigate();
   const { notifications, unreadCount, fetchNotifications, markAsRead, markAllAsRead, isLoading } =
     useNotificationStore();
+  const syncTrigger = useActiveFarmStore((state) => state.syncTrigger);
 
   const [isOpen, setIsOpen] = useState(false);
   const [filterTab, setFilterTab] = useState('ALL'); // 'ALL' | 'UNREAD'
   const dropdownRef = useRef(null);
 
+  // Lần đầu mount hoặc khi syncTrigger.all thay đổi -> fetch ngầm
   useEffect(() => {
-    fetchNotifications();
+    fetchNotifications(true);
+  }, [fetchNotifications, syncTrigger?.all]);
+
+  // GAP-SYNC-03: Smart Polling 12s khi tab visible
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchNotifications(true);
+      }
+    }, 12000);
+
+    return () => clearInterval(timer);
   }, [fetchNotifications]);
 
   useEffect(() => {

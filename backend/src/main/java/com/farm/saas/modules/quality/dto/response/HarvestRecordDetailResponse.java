@@ -29,6 +29,13 @@ public class HarvestRecordDetailResponse {
     private Long harvestedByUserId;
     private String harvestedByName;
     private String notes;
+    private Long productBatchId;
+    private String productBatchCode;
+    private BigDecimal lossPercentage;
     private Instant createdAt;
     private Instant updatedAt;
+
+    public BigDecimal getActualYieldKg() {
+        return quantity;
+    }
 }

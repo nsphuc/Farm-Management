@@ -16,6 +16,8 @@ import java.time.LocalDate;
 @AllArgsConstructor
 public class UpdateCropSeasonRequest {
 
+    private Long locationId;
+
     private LocalDate expectedHarvestDate;
 
     private LocalDate actualHarvestDate;

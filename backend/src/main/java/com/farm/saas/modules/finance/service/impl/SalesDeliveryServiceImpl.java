@@ -19,6 +19,7 @@ import com.farm.saas.modules.quality.entity.ProductBatch;
 import com.farm.saas.modules.quality.entity.ProductBatchTransaction;
 import com.farm.saas.modules.quality.repository.ProductBatchRepository;
 import com.farm.saas.modules.quality.repository.ProductBatchTransactionRepository;
+import com.farm.saas.modules.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -30,9 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -50,6 +49,7 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
     private final PartnerRepository partnerRepository;
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -110,6 +110,18 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
             totalShippedAmount = totalShippedAmount.add(itemReq.getQuantity().multiply(orderItem.getUnitPrice()));
         }
 
+        String deliveryStatus = "DELIVERED";
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            String s = request.getStatus().trim().toUpperCase();
+            if ("DRAFT".equals(s) || "PENDING".equals(s)) {
+                deliveryStatus = "DRAFT";
+            } else if ("DISPATCHED".equals(s)) {
+                deliveryStatus = "DISPATCHED";
+            } else {
+                deliveryStatus = "DELIVERED";
+            }
+        }
+
         SalesDelivery delivery = SalesDelivery.builder()
                 .tenantId(tenantId)
                 .farmId(farmId)
@@ -121,7 +133,8 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
                 .vehiclePlate(request.getVehiclePlate())
                 .receiverName(request.getReceiverName())
                 .shippingAddress(request.getShippingAddress())
-                .status("DELIVERED")
+                .proofOfDeliveryUrl(request.getProofOfDeliveryUrl())
+                .status(deliveryStatus)
                 .deliveredByUserId(currentUserId)
                 .totalShippedAmount(totalShippedAmount)
                 .notes(request.getNotes())
@@ -232,6 +245,7 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
             debtRecordRepository.save(debt);
         }
 
+        sendDeliveryNotification(delivery, "CREATED");
         return toDetailResponse(delivery);
     }
 
@@ -239,8 +253,18 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
     @Transactional
     public SalesDeliveryDetailResponse dispatchDelivery(Long farmId, Long id) {
         validateFarm(farmId);
+        Long currentUserId = SecurityUtils.getCurrentUserId();
         SalesDelivery delivery = salesDeliveryRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Delivery not found: " + id));
+        if (!delivery.getFarmId().equals(farmId)) {
+            throw new BusinessException("BAD_REQUEST", "Delivery does not belong to specified farm");
+        }
+        delivery.setStatus("DISPATCHED");
+        delivery.setUpdatedAt(Instant.now());
+        delivery.setUpdatedBy(currentUserId);
+        delivery = salesDeliveryRepository.save(delivery);
+
+        sendDeliveryNotification(delivery, "DISPATCHED");
         return toDetailResponse(delivery);
     }
 
@@ -268,7 +292,170 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
         delivery.setUpdatedBy(currentUserId);
         delivery = salesDeliveryRepository.save(delivery);
 
+        sendDeliveryNotification(delivery, "DELIVERED");
         return toDetailResponse(delivery);
+    }
+
+    @Override
+    @Transactional
+    public SalesDeliveryDetailResponse cancelDelivery(Long farmId, Long id, String reason) {
+        validateFarm(farmId);
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+
+        SalesDelivery delivery = salesDeliveryRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Delivery not found: " + id));
+        if (!delivery.getFarmId().equals(farmId)) {
+            throw new BusinessException("BAD_REQUEST", "Delivery does not belong to specified farm");
+        }
+
+        if ("CANCELLED".equalsIgnoreCase(delivery.getStatus())) {
+            return toDetailResponse(delivery);
+        }
+
+        delivery.setStatus("CANCELLED");
+        if (reason != null && !reason.trim().isEmpty()) {
+            String updatedNotes = (delivery.getNotes() != null && !delivery.getNotes().isEmpty())
+                    ? delivery.getNotes() + " | Lý do hủy: " + reason.trim()
+                    : "Lý do hủy: " + reason.trim();
+            delivery.setNotes(updatedNotes);
+        }
+        delivery.setUpdatedAt(Instant.now());
+        delivery.setUpdatedBy(currentUserId);
+        delivery = salesDeliveryRepository.save(delivery);
+
+        SalesOrder order = salesOrderRepository.findById(delivery.getSalesOrderId()).orElse(null);
+
+        // 1. Revert product batch remainingQuantity and reservedQuantity, and sales order item shippedQuantity
+        List<SalesDeliveryItem> deliveryItems = salesDeliveryItemRepository.findByDeliveryId(delivery.getId());
+        for (SalesDeliveryItem item : deliveryItems) {
+            ProductBatch batch = productBatchRepository.findByIdForUpdate(item.getProductBatchId())
+                    .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Product batch not found: " + item.getProductBatchId()));
+
+            BigDecimal balanceBefore = batch.getRemainingQuantity();
+            BigDecimal balanceAfter = balanceBefore.add(item.getQuantity());
+            batch.setRemainingQuantity(balanceAfter);
+
+            // If order was confirmed/active, restore reservedQuantity
+            if (order != null && !"CANCELLED".equalsIgnoreCase(order.getStatus())) {
+                batch.setReservedQuantity(batch.getReservedQuantity().add(item.getQuantity()));
+            }
+            batch.setUpdatedAt(Instant.now());
+            productBatchRepository.save(batch);
+
+            // Update sales order item shipped quantity
+            salesOrderItemRepository.findById(item.getSalesOrderItemId()).ifPresent(orderItem -> {
+                BigDecimal newShipped = orderItem.getShippedQuantity().subtract(item.getQuantity());
+                if (newShipped.compareTo(BigDecimal.ZERO) < 0) {
+                    newShipped = BigDecimal.ZERO;
+                }
+                orderItem.setShippedQuantity(newShipped);
+                orderItem.setUpdatedAt(Instant.now());
+                salesOrderItemRepository.save(orderItem);
+            });
+
+            // Ledger entry: ProductBatchTransaction
+            ProductBatchTransaction pbt = ProductBatchTransaction.builder()
+                    .tenantId(tenantId)
+                    .farmId(farmId)
+                    .productBatchId(batch.getId())
+                    .transactionType("DELIVERY_CANCEL")
+                    .referenceType("SALES_DELIVERY")
+                    .referenceId(delivery.getId())
+                    .referenceItemId(item.getId())
+                    .direction("IN")
+                    .quantity(item.getQuantity())
+                    .balanceBefore(balanceBefore)
+                    .balanceAfter(balanceAfter)
+                    .transactionDate(LocalDate.now())
+                    .notes("Hoàn nhập tồn kho do hủy chuyến giao hàng " + delivery.getDeliveryCode())
+                    .createdAt(Instant.now())
+                    .createdBy(currentUserId)
+                    .build();
+            productBatchTransactionRepository.save(pbt);
+        }
+
+        // 2. Adjust SalesOrder status
+        if (order != null && !"CANCELLED".equalsIgnoreCase(order.getStatus())) {
+            List<SalesOrderItem> allItems = salesOrderItemRepository.findBySalesOrderId(order.getId());
+            BigDecimal totalShipped = allItems.stream()
+                    .map(SalesOrderItem::getShippedQuantity)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (totalShipped.compareTo(BigDecimal.ZERO) <= 0) {
+                order.setStatus("CONFIRMED");
+            } else {
+                boolean allFulfilled = allItems.stream()
+                        .allMatch(it -> it.getShippedQuantity().compareTo(it.getQuantity()) >= 0);
+                order.setStatus(allFulfilled ? "COMPLETED" : "DELIVERED");
+            }
+            order.setUpdatedAt(Instant.now());
+            order.setUpdatedBy(currentUserId);
+            salesOrderRepository.save(order);
+        }
+
+        // 3. Send warning notification (GAP-SYNC-08)
+        sendDeliveryNotification(delivery, "CANCELLED");
+
+        return toDetailResponse(delivery);
+    }
+
+    private void sendDeliveryNotification(SalesDelivery delivery, String eventType) {
+        try {
+            if (notificationService == null) return;
+            Long tenantId = delivery.getTenantId();
+            Long farmId = delivery.getFarmId();
+            SalesOrder order = salesOrderRepository.findById(delivery.getSalesOrderId()).orElse(null);
+            String orderCode = order != null ? order.getOrderCode() : "N/A";
+
+            String title;
+            String message;
+            String notifType = "SYSTEM";
+            if ("CREATED".equalsIgnoreCase(eventType)) {
+                title = "Phiếu xuất giao hàng B2B mới: " + delivery.getDeliveryCode();
+                message = String.format("Đợt giao hàng %s cho đơn hàng %s đã được tạo và xuất kho thành công.",
+                        delivery.getDeliveryCode(), orderCode);
+            } else if ("DISPATCHED".equalsIgnoreCase(eventType)) {
+                title = "Chuyến hàng xuất bến: " + delivery.getDeliveryCode();
+                message = String.format("Chuyến hàng %s (Xe %s - Tài xế %s) đã xuất bến và đang trên đường giao.",
+                        delivery.getDeliveryCode(),
+                        delivery.getVehiclePlate() != null ? delivery.getVehiclePlate() : "N/A",
+                        delivery.getDriverName() != null ? delivery.getDriverName() : "N/A");
+            } else if ("CANCELLED".equalsIgnoreCase(eventType)) {
+                title = "Hủy chuyến xuất giao hàng: " + delivery.getDeliveryCode();
+                message = String.format("Chuyến hàng %s cho đơn hàng %s đã bị hủy. Tồn kho thành phẩm đã được hoàn nhập tự động.",
+                        delivery.getDeliveryCode(), orderCode);
+                notifType = "WARNING";
+            } else {
+                title = "Biên bản POD giao hàng hoàn tất: " + delivery.getDeliveryCode();
+                message = String.format("Chuyến hàng %s đã được người nhận %s xác nhận và cập nhật ảnh chứng từ POD.",
+                        delivery.getDeliveryCode(),
+                        delivery.getReceiverName() != null ? delivery.getReceiverName() : "Khách hàng");
+            }
+
+            Set<Long> recipients = new HashSet<>();
+            farmRepository.findById(farmId).ifPresent(f -> {
+                if (f.getManagerUserId() != null) {
+                    recipients.add(f.getManagerUserId());
+                }
+            });
+
+            userRepository.findByUsername("accountant").ifPresent(acc -> recipients.add(acc.getId()));
+
+            for (Long recipientId : recipients) {
+                notificationService.sendNotification(
+                        tenantId,
+                        recipientId,
+                        title,
+                        message,
+                        notifType,
+                        "SALES_DELIVERY",
+                        delivery.getId(),
+                        "/app/cashflow"
+                );
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to send sales delivery notification for delivery id={}: {}", delivery.getId(), ex.getMessage());
+        }
     }
 
     private Farm validateFarm(Long farmId) {

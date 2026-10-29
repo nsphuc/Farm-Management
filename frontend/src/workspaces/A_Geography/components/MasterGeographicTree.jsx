@@ -230,7 +230,7 @@ export function MasterGeographicTree({
                           <span className="hidden sm:inline">Khu</span>
                         </button>
                       </Can>
-                      <Can permission="PERM_FARM_UPDATE" role="ROLE_FARM_OWNER">
+                      <Can permission="PERM_FARM_UPDATE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
                         <button
                           type="button"
                           title="Sửa thông số trang trại"
@@ -351,6 +351,16 @@ export function MasterGeographicTree({
                                     <div className="flex items-center gap-1.5 truncate">
                                       <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
                                       <span className="truncate">{loc.name}</span>
+                                      {loc.areaM2 != null && (
+                                        <span className="text-[9px] font-mono text-emerald-600 bg-emerald-50 px-1 rounded shrink-0">
+                                          {loc.areaM2}m²
+                                        </span>
+                                      )}
+                                      {loc.capacity != null && (
+                                        <span className="text-[9px] font-mono text-amber-700 bg-amber-50 px-1 rounded shrink-0">
+                                          {loc.capacity} con
+                                        </span>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
                                       <StatusBadge status={loc.status} size="xs" />

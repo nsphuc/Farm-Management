@@ -17,4 +17,6 @@ public interface SalesDeliveryService {
     SalesDeliveryDetailResponse dispatchDelivery(Long farmId, Long id);
 
     SalesDeliveryDetailResponse updatePod(Long farmId, Long id, UpdateDeliveryPodRequest request);
+
+    SalesDeliveryDetailResponse cancelDelivery(Long farmId, Long id, String reason);
 }

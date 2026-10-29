@@ -44,8 +44,9 @@ public class FarmOperationsController {
     @PreAuthorize("hasAuthority('PERM_ZONE_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Void> deleteAssignment(
             @PathVariable Long farmId,
-            @PathVariable Long assignmentId) {
-        farmOperationsService.deleteAssignment(farmId, assignmentId);
+            @PathVariable Long assignmentId,
+            @RequestParam(required = false) Long employeeId) {
+        farmOperationsService.deleteAssignment(farmId, assignmentId, employeeId);
         return ResponseEntity.noContent().build();
     }
 
@@ -65,13 +66,22 @@ public class FarmOperationsController {
         return ResponseEntity.status(HttpStatus.CREATED).body(farmOperationsService.createCycle(farmId, request));
     }
 
-    @PutMapping("/cycles/{cycleId}")
+    @PutMapping({"/cycles/{cycleId}", "/operations/cycles/{cycleId}"})
     @PreAuthorize("hasAuthority('PERM_FARM_UPDATE') and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<OperationalCycleResponse> updateCycle(
             @PathVariable Long farmId,
             @PathVariable Long cycleId,
             @Valid @RequestBody UpdateOperationalCycleRequest request) {
         return ResponseEntity.ok(farmOperationsService.updateCycle(farmId, cycleId, request));
+    }
+
+    @DeleteMapping({"/cycles/{cycleId}", "/operations/cycles/{cycleId}"})
+    @PreAuthorize("hasAuthority('PERM_FARM_UPDATE') and @farmSecurity.canAccessFarm(#farmId)")
+    public ResponseEntity<Void> deleteCycle(
+            @PathVariable Long farmId,
+            @PathVariable Long cycleId) {
+        farmOperationsService.deleteCycle(farmId, cycleId);
+        return ResponseEntity.noContent().build();
     }
 
     // --- Cài đặt vận hành trang trại (Settings) ---

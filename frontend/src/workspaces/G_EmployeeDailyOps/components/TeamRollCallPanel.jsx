@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
   Camera,
@@ -18,7 +18,9 @@ import { Select } from '@/components/ui/FormControls';
 import { SelfieCameraModal } from '@/components/common/SelfieCameraModal';
 import { hrService } from '@/services/modules/hrService';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { formatTime } from '@/utils/formatters';
+import { toast } from '@/store/useToastStore';
 
 /**
  * Khối 2: Bảng Điểm Danh & Chấm Công Tổ Hộ Nhân Viên Không Có Tài Khoản (Batch Roll-Call)
@@ -31,10 +33,19 @@ export function TeamRollCallPanel({
   todayAttendances = [],
   onRefresh,
 }) {
-  const { isFarmManager, isTechnicalLead, isWarehouseKeeper } = useAuthStore();
+  const { isFarmManager, isTechnicalLead, isWarehouseKeeper, isZoneManager } = useAuthStore();
+  const { syncTrigger } = useActiveFarmStore();
   const farmManager = isFarmManager();
   const technicalLead = isTechnicalLead();
   const warehouseKeeper = isWarehouseKeeper();
+  const zoneManager = isZoneManager ? isZoneManager(activeFarm?.id) : false;
+
+  // Tự động re-fetch khi có tín hiệu đồng bộ nhân sự / chấm công liên Workspace
+  useEffect(() => {
+    if (syncTrigger?.all || syncTrigger?.employees || syncTrigger?.attendance || syncTrigger?.zones) {
+      onRefresh?.();
+    }
+  }, [syncTrigger?.all, syncTrigger?.employees, syncTrigger?.attendance, syncTrigger?.zones]);
 
   const [selectedShiftId, setSelectedShiftId] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
@@ -56,7 +67,7 @@ export function TeamRollCallPanel({
 
     // 2. Lọc theo chuyên môn:
     // - Role 4 (Thủ kho): Lọc nhân sự kho vận + lao động không tài khoản
-    // - Role 3 (Trưởng kỹ thuật): Lọc nhân sự kỹ thuật / đồng ruộng + lao động không tài khoản
+    // - Role 3 / Trưởng phân khu (Zone Manager / Trưởng kỹ thuật): Lọc nhân sự kỹ thuật / đồng ruộng / phân khu + lao động không tài khoản
     // - Role 2 (Farm Manager): Xem toàn bộ nhân sự trang trại
     let scoped = inFarm;
     if (warehouseKeeper && !farmManager) {
@@ -70,7 +81,7 @@ export function TeamRollCallPanel({
           dept.includes('kho')
         );
       });
-    } else if (technicalLead && !farmManager) {
+    } else if ((technicalLead || zoneManager) && !farmManager) {
       scoped = inFarm.filter((e) => {
         const pos = (e.position || '').toUpperCase();
         const dept = (e.department || '').toLowerCase();
@@ -95,7 +106,7 @@ export function TeamRollCallPanel({
       const bNoAcc = b.userId == null || b.position === 'SEASONAL_NO_ACCOUNT' ? 0 : 1;
       return aNoAcc - bNoAcc;
     });
-  }, [employees, activeFarm, warehouseKeeper, technicalLead, farmManager]);
+  }, [employees, activeFarm, warehouseKeeper, technicalLead, zoneManager, farmManager]);
 
   // Trạng thái điểm danh hôm nay của từng nhân viên
   const getEmployeeAttendanceStatus = (empId) => {
@@ -137,11 +148,11 @@ export function TeamRollCallPanel({
 
   const handleStartRollCall = (action) => {
     if (selectedIds.length === 0) {
-      alert('Vui lòng tích chọn ít nhất 1 công nhân có mặt trong danh sách!');
+      toast.error('Vui lòng tích chọn ít nhất 1 công nhân có mặt trong danh sách!');
       return;
     }
     if (!currentShiftId) {
-      alert('Vui lòng chọn Ca làm việc để tiến hành điểm danh!');
+      toast.error('Vui lòng chọn Ca làm việc để tiến hành điểm danh!');
       return;
     }
     setPendingAction(action);
@@ -150,7 +161,7 @@ export function TeamRollCallPanel({
 
   const handleCaptureConfirm = async (captureResult) => {
     if (!activeFarm?.id) {
-      alert('Không tìm thấy thông tin trang trại tác nghiệp!');
+      toast.error('Không tìm thấy thông tin trang trại tác nghiệp!');
       return;
     }
 
@@ -183,8 +194,12 @@ export function TeamRollCallPanel({
         } thành công cho ${res?.successCount || selectedIds.length} nhân sự!`,
       });
 
-      // Tải lại dữ liệu chấm công
+      // Tải lại dữ liệu chấm công & kích hoạt bus đồng bộ liên Workspace
       onRefresh?.();
+      const store = useActiveFarmStore.getState();
+      store.notifyDataChanged?.('all');
+      store.notifyDataChanged?.('employees');
+      store.notifyDataChanged?.('attendance');
       setIsCameraOpen(false);
     } catch (err) {
       console.error('Batch roll-call error:', err);
@@ -211,7 +226,7 @@ export function TeamRollCallPanel({
                 Khối 2: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động Không Có Tài Khoản
               </h2>
               <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-300">
-                {technicalLead ? 'Trưởng Kỹ Thuật' : warehouseKeeper ? 'Thủ Kho' : 'Quản Lý Trại'}
+                {zoneManager ? 'Trưởng Phân Khu / Tổ Trưởng' : technicalLead ? 'Trưởng Kỹ Thuật' : warehouseKeeper ? 'Thủ Kho' : 'Quản Lý Trại'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">

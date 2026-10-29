@@ -21,6 +21,8 @@ public class EmployeeDetailResponse {
     private Long userId;
     private String username;
     private String userStatus;
+    private String userRole;
+    private java.util.List<String> userRoles;
     private String employeeCode;
     private String fullName;
     private String phone;

@@ -4,6 +4,7 @@ import {
   Sliders,
   Plus,
   Edit2,
+  Trash2,
   Save,
   Droplets,
   Clock,
@@ -13,6 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { geographyService } from '@/services/modules/geographyService';
 import { FormField, Input, Select, Switch } from '@/components/ui/FormControls';
 import { Button } from '@/components/ui/Button';
@@ -25,7 +27,20 @@ import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { formatDate } from '@/utils/formatters';
 
 export function CyclesAndFarmSettingsTab() {
-  const { activeFarmId, activeFarm } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, farms } = useActiveFarmStore();
+  const accessibleFarms = useAuthStore((s) => s.userInfo?.accessibleFarms) || [];
+  const farmList = farms && farms.length > 0 ? farms : accessibleFarms;
+  const [selectedFarmId, setSelectedFarmId] = useState(null);
+
+  const effectiveFarmId = (activeFarmId && activeFarmId !== 'ALL')
+    ? activeFarmId
+    : (selectedFarmId || farmList[0]?.id || farmList[0]?.farmId);
+
+  useEffect(() => {
+    if ((!selectedFarmId || selectedFarmId === 'ALL') && farmList.length > 0) {
+      setSelectedFarmId(String(farmList[0].id || farmList[0].farmId));
+    }
+  }, [farmList, selectedFarmId]);
 
   // Cycles state
   const [cycles, setCycles] = useState([]);
@@ -66,10 +81,10 @@ export function CyclesAndFarmSettingsTab() {
 
   // Load Cycles
   const fetchCycles = async () => {
-    if (!activeFarmId) return;
+    if (!effectiveFarmId || effectiveFarmId === 'ALL') return;
     try {
       setCyclesLoading(true);
-      const data = await geographyService.getCycles(activeFarmId);
+      const data = await geographyService.getCycles(effectiveFarmId);
       setCycles(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to load cycles', err);
@@ -80,10 +95,10 @@ export function CyclesAndFarmSettingsTab() {
 
   // Load Settings
   const fetchSettings = async () => {
-    if (!activeFarmId) return;
+    if (!effectiveFarmId || effectiveFarmId === 'ALL') return;
     try {
       setSettingsLoading(true);
-      const data = await geographyService.getSettings(activeFarmId);
+      const data = await geographyService.getSettings(effectiveFarmId);
       if (data) {
         if (data.irrigationThresholdJson) {
           try {
@@ -114,11 +129,11 @@ export function CyclesAndFarmSettingsTab() {
   };
 
   useEffect(() => {
-    if (activeFarmId) {
+    if (effectiveFarmId && effectiveFarmId !== 'ALL') {
       fetchCycles();
       fetchSettings();
     }
-  }, [activeFarmId]);
+  }, [effectiveFarmId]);
 
   // Open modal create/edit cycle
   const handleOpenCycleModal = (cycle = null) => {
@@ -160,9 +175,9 @@ export function CyclesAndFarmSettingsTab() {
       setCycleSaving(true);
       setCycleErrors({});
       if (editingCycle) {
-        await geographyService.updateCycle(activeFarmId, editingCycle.id, cycleForm);
+        await geographyService.updateCycle(effectiveFarmId, editingCycle.id, cycleForm);
       } else {
-        await geographyService.createCycle(activeFarmId, cycleForm);
+        await geographyService.createCycle(effectiveFarmId, cycleForm);
       }
       setCycleModalOpen(false);
       fetchCycles();
@@ -170,6 +185,18 @@ export function CyclesAndFarmSettingsTab() {
       applyServerFieldErrors(err, setCycleErrors);
     } finally {
       setCycleSaving(false);
+    }
+  };
+
+  // Delete Cycle
+  const handleDeleteCycle = async (cycle) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa hoặc đóng chu kỳ "${cycle.name}"?`)) return;
+    try {
+      await geographyService.deleteCycle(effectiveFarmId, cycle.id);
+      fetchCycles();
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      alert(errInfo.message || 'Không thể xóa chu kỳ vận hành!');
     }
   };
 
@@ -186,7 +213,7 @@ export function CyclesAndFarmSettingsTab() {
         workShiftConfigJson: JSON.stringify(shiftConfig),
       };
 
-      await geographyService.updateSettings(activeFarmId, payload);
+      await geographyService.updateSettings(effectiveFarmId, payload);
       setSettingsSuccess('Đã lưu cấu hình ngưỡng vận hành trang trại thành công!');
       setTimeout(() => setSettingsSuccess(''), 4000);
     } catch (err) {
@@ -196,7 +223,7 @@ export function CyclesAndFarmSettingsTab() {
     }
   };
 
-  if (!activeFarmId) {
+  if (!effectiveFarmId) {
     return (
       <SmartEmptyState
         title="Chưa Chọn Trang Trại Tác Nghiệp"
@@ -205,8 +232,30 @@ export function CyclesAndFarmSettingsTab() {
     );
   }
 
+  const currentFarmObj = farmList.find((f) => String(f.id || f.farmId) === String(effectiveFarmId)) || activeFarm;
+
   return (
     <div className="space-y-8 animate-in fade-in duration-200">
+      {/* Selector nội bộ khi thanh TopBar đang chọn Tất cả trang trại ('ALL') */}
+      {activeFarmId === 'ALL' && farmList.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl shadow-xs">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-emerald-700 shrink-0" />
+            <span className="text-xs font-bold text-emerald-950">Chọn trang trại cấu hình chu kỳ &amp; cài đặt:</span>
+          </div>
+          <div className="w-full sm:w-72">
+            <Select
+              value={String(effectiveFarmId || '')}
+              onChange={(e) => setSelectedFarmId(e.target.value)}
+              options={farmList.map((f) => ({
+                value: String(f.id || f.farmId),
+                label: f.name || f.farmName || `Trang trại #${f.id || f.farmId}`,
+              }))}
+            />
+          </div>
+        </div>
+      )}
+
       {/* 1. Chu kỳ vận hành (operational_cycles #16) */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4 mb-5">
@@ -216,7 +265,7 @@ export function CyclesAndFarmSettingsTab() {
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                Chu Kỳ Vận Hành / Niên Vụ ({activeFarm?.name || `Trang trại #${activeFarmId}`})
+                Chu Kỳ Vận Hành / Niên Vụ ({currentFarmObj?.name || currentFarmObj?.farmName || `Trang trại #${effectiveFarmId}`})
               </h3>
               <p className="text-xs text-slate-500">
                 Quản lý các chu kỳ canh tác, niên vụ tài chính và ranh giới ghi nhận chi phí
@@ -278,6 +327,14 @@ export function CyclesAndFarmSettingsTab() {
                         >
                           <Edit2 className="h-4 w-4" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCycle(c)}
+                          className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors ml-1"
+                          title="Xóa chu kỳ"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </Can>
                     </td>
                   </tr>
@@ -301,7 +358,7 @@ export function CyclesAndFarmSettingsTab() {
                   Cấu Hình Ngưỡng Vận Hành Trang Trại (IoT & Chấm Công)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Khớp JSON Schema Mục 3.4 & 3.5 File 15 cho trang trại {activeFarm?.name}
+                  Khớp JSON Schema Mục 3.4 &amp; 3.5 File 15 cho {currentFarmObj?.name || currentFarmObj?.farmName || `trang trại #${effectiveFarmId}`}
                 </p>
               </div>
             </div>

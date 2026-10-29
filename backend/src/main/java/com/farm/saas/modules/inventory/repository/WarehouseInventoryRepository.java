@@ -35,4 +35,9 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
 
     java.util.List<WarehouseInventory> findByFarmId(Long farmId);
     java.util.List<WarehouseInventory> findByTenantId(Long tenantId);
+    boolean existsByMaterialId(Long materialId);
+    boolean existsByWarehouseId(Long warehouseId);
+
+    @Query("SELECT COALESCE(SUM(wi.quantityOnHand), 0) FROM WarehouseInventory wi WHERE wi.warehouseId = :warehouseId")
+    java.math.BigDecimal sumQuantityOnHandByWarehouseId(@Param("warehouseId") Long warehouseId);
 }

@@ -14,6 +14,7 @@ import com.farm.saas.modules.livestock.entity.LivestockGroup;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.masterdata.entity.Warehouse;
 import com.farm.saas.modules.masterdata.repository.WarehouseRepository;
+import com.farm.saas.modules.notification.service.NotificationService;
 import com.farm.saas.modules.platform.entity.Enterprise;
 import com.farm.saas.modules.platform.entity.Tenant;
 import com.farm.saas.modules.platform.repository.EnterpriseRepository;
@@ -63,6 +64,7 @@ public class ProductBatchServiceImpl implements ProductBatchService {
     private final UserRepository userRepository;
     private final EnterpriseRepository enterpriseRepository;
     private final TenantRepository tenantRepository;
+    private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -134,8 +136,8 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 sourcesToSave.add(ProductBatchSource.builder()
                         .sourceType("HARVEST_RECORD")
                         .harvestRecordId(harId)
-                        .contributedQuantity(request.getInitialQuantity())
-                        .unit(request.getUnit())
+                        .contributedQuantity(har.getQuantity() != null && har.getQuantity().compareTo(BigDecimal.ZERO) > 0 ? har.getQuantity() : request.getInitialQuantity())
+                        .unit(request.getUnit() != null ? request.getUnit() : (har.getUnit() != null ? har.getUnit() : "KG"))
                         .harvestDate(har.getHarvestDate())
                         .notes("Thu hoạch từ hồ sơ: " + har.getHarvestCode())
                         .createdAt(Instant.now())
@@ -221,6 +223,39 @@ public class ProductBatchServiceImpl implements ProductBatchService {
 
         productBatchTransactionRepository.save(trans);
         log.info("Created product batch id={}, code={}, qty={} on farmId={}", batch.getId(), batch.getBatchCode(), batch.getInitialQuantity(), farmId);
+
+        // 6. Send Notification to QC Technical Staff and Farm Manager (GAP-WH-11)
+        try {
+            if (notificationService != null) {
+                String notifTitle = "Lô thành phẩm mới chờ kiểm định KCS";
+                String notifMsg = String.format("Thủ kho vừa đóng gói Lô thành phẩm mới [%s - %s] với số lượng [%s %s] và đang chờ Kỹ sư KCS kiểm định chất lượng.",
+                        batch.getBatchCode(), batch.getProductName(), batch.getInitialQuantity(), batch.getUnit());
+
+                Set<Long> recipients = new HashSet<>();
+                farmRepository.findById(farmId).ifPresent(farm -> {
+                    if (farm.getManagerUserId() != null) {
+                        recipients.add(farm.getManagerUserId());
+                    }
+                });
+
+                userRepository.findByUsername("tech").ifPresent(techUser -> recipients.add(techUser.getId()));
+
+                for (Long recipientId : recipients) {
+                    notificationService.sendNotification(
+                            tenantId,
+                            recipientId,
+                            notifTitle,
+                            notifMsg,
+                            "QC",
+                            "PRODUCT_BATCH",
+                            batch.getId(),
+                            "/app/traceability"
+                    );
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to send product batch creation notification: {}", ex.getMessage());
+        }
 
         return mapToDetailResponse(batch);
     }
@@ -575,12 +610,14 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         String inspectorName = null;
         String inspectionCode = null;
         String qcOverallResult = null;
+        Instant inspectedAt = null;
         Optional<QcInspection> qcOpt = qcInspectionRepository.findTopByProductBatchIdOrderByCreatedAtDesc(batch.getId());
         if (qcOpt.isPresent()) {
             QcInspection qc = qcOpt.get();
             inspectorId = qc.getInspectorUserId();
             inspectionCode = qc.getInspectionCode();
             qcOverallResult = qc.getOverallResult();
+            inspectedAt = qc.getCreatedAt();
             if (inspectorId != null) {
                 inspectorName = userRepository.findById(inspectorId)
                         .map(u -> u.getFullName() != null ? u.getFullName() : u.getUsername()).orElse(null);
@@ -614,18 +651,34 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 qcMap.put("inspectionCode", qc.getInspectionCode());
                 qcMap.put("inspectionDate", qc.getInspectionDate() != null ? qc.getInspectionDate().toString() : null);
                 qcMap.put("overallVerdict", qc.getOverallResult());
+                qcMap.put("overallResult", qc.getOverallResult());
                 qcMap.put("inspectorTitle", "Kỹ thuật viên KCS");
+                qcMap.put("inspectorName", inspectorName);
+                qcMap.put("inspectorUserId", inspectorId);
+                qcMap.put("sampleSize", qc.getSampleSize());
+                qcMap.put("sampleUnit", qc.getSampleUnit());
+                qcMap.put("notes", qc.getNotes());
+                qcMap.put("inspectedAt", qc.getCreatedAt() != null ? qc.getCreatedAt().toString() : null);
                 List<QcInspectionItem> items = qcInspectionItemRepository.findByInspectionId(qc.getId());
                 List<Map<String, Object>> metricsList = new ArrayList<>();
                 for (QcInspectionItem it : items) {
                     Map<String, Object> metric = new LinkedHashMap<>();
+                    metric.put("criterionName", it.getParameterName());
+                    metric.put("parameterName", it.getParameterName());
                     metric.put("metricName", it.getParameterName());
+                    metric.put("standardValue", it.getStandardThreshold());
+                    metric.put("standardThreshold", it.getStandardThreshold());
                     metric.put("standardLimit", it.getStandardThreshold());
+                    metric.put("measuredValue", it.getMeasuredValue());
+                    metric.put("actualValue", it.getMeasuredValue());
                     metric.put("testResult", it.getMeasuredValue());
                     metric.put("isPassed", it.getIsPassed());
+                    metric.put("passed", it.getIsPassed());
+                    metric.put("notes", it.getNotes());
                     metricsList.add(metric);
                 }
                 qcMap.put("testMetrics", metricsList);
+                qcMap.put("items", metricsList);
                 qcJson = objectMapper.writeValueAsString(qcMap);
             } catch (Exception ex) {
                 log.warn("Failed to serialize QC inspection for batch id={}: {}", batch.getId(), ex.getMessage());
@@ -697,6 +750,8 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 .status(batch.getStatus())
                 .inspectorUserId(inspectorId)
                 .inspectorFullName(inspectorName)
+                .inspectorName(inspectorName)
+                .inspectedAt(inspectedAt)
                 .qcInspectionCode(inspectionCode)
                 .qcOverallResult(qcOverallResult)
                 .approvedByUserId(batch.getApprovedByUserId())
@@ -717,6 +772,7 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 .farmingTimelineJson(timelineJson)
                 .harvestInfoJson(harvestJson)
                 .qcInspectionJson(qcJson)
+                .qcJson(qcJson)
                 .sources(sourceResponses)
                 .createdAt(batch.getCreatedAt())
                 .updatedAt(batch.getUpdatedAt())

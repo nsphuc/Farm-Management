@@ -40,10 +40,17 @@ public class LivestockBreedController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<LivestockBreedResponse> updateLivestockBreed(
             @PathVariable Long id,
             @Valid @RequestBody UpdateLivestockBreedRequest request) {
         return ResponseEntity.ok(masterCatalogService.updateLivestockBreed(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    public ResponseEntity<Void> deleteLivestockBreed(@PathVariable Long id) {
+        masterCatalogService.deleteLivestockBreed(id);
+        return ResponseEntity.noContent().build();
     }
 }

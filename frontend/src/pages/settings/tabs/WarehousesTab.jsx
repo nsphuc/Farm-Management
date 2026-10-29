@@ -8,10 +8,12 @@ import {
   AlertTriangle,
   Thermometer,
   Boxes,
+  MapPin,
 } from 'lucide-react';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { employeeService } from '@/services/modules/employeeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -40,7 +42,20 @@ const WAREHOUSE_STATUSES = [
 ];
 
 export function WarehousesTab() {
-  const { activeFarmId, activeFarm } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, farms, notifyDataChanged } = useActiveFarmStore();
+  const accessibleFarms = useAuthStore((s) => s.userInfo?.accessibleFarms) || [];
+  const farmList = farms && farms.length > 0 ? farms : accessibleFarms;
+  const [selectedFarmId, setSelectedFarmId] = useState(null);
+
+  const effectiveFarmId = (activeFarmId && activeFarmId !== 'ALL')
+    ? activeFarmId
+    : (selectedFarmId || farmList[0]?.id || farmList[0]?.farmId);
+
+  useEffect(() => {
+    if ((!selectedFarmId || selectedFarmId === 'ALL') && farmList.length > 0) {
+      setSelectedFarmId(String(farmList[0].id || farmList[0].farmId));
+    }
+  }, [farmList, selectedFarmId]);
 
   const [warehouses, setWarehouses] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -67,10 +82,10 @@ export function WarehousesTab() {
   const [saving, setSaving] = useState(false);
 
   const fetchWarehouses = async () => {
-    if (!activeFarmId) return;
+    if (!effectiveFarmId || effectiveFarmId === 'ALL') return;
     try {
       setLoading(true);
-      const res = await masterDataService.getWarehouses(activeFarmId);
+      const res = await masterDataService.getWarehouses(effectiveFarmId);
       setWarehouses(Array.isArray(res) ? res : res?.content || []);
     } catch (err) {
       console.error('Failed to load warehouses', err);
@@ -80,8 +95,9 @@ export function WarehousesTab() {
   };
 
   const fetchEmployees = async () => {
+    if (!effectiveFarmId || effectiveFarmId === 'ALL') return;
     try {
-      const res = await employeeService.getEmployees({ farmId: activeFarmId || undefined, size: 100 });
+      const res = await employeeService.getEmployees({ farmId: effectiveFarmId, size: 100 });
       setEmployees(res?.content || (Array.isArray(res) ? res : []));
     } catch (err) {
       console.error('Failed to load employees for warehouse manager', err);
@@ -89,11 +105,11 @@ export function WarehousesTab() {
   };
 
   useEffect(() => {
-    if (activeFarmId) {
+    if (effectiveFarmId && effectiveFarmId !== 'ALL') {
       fetchWarehouses();
       fetchEmployees();
     }
-  }, [activeFarmId]);
+  }, [effectiveFarmId]);
 
   const handleOpenModal = (item = null) => {
     setEditingItem(item);
@@ -165,11 +181,13 @@ export function WarehousesTab() {
       };
 
       if (editingItem) {
-        await masterDataService.updateWarehouse(activeFarmId, editingItem.id, payload);
+        await masterDataService.updateWarehouse(effectiveFarmId, editingItem.id, payload);
       } else {
-        await masterDataService.createWarehouse(activeFarmId, payload);
+        await masterDataService.createWarehouse(effectiveFarmId, payload);
       }
       setModalOpen(false);
+      notifyDataChanged?.('inventory');
+      notifyDataChanged?.('all');
       fetchWarehouses();
     } catch (err) {
       const errMsg = applyServerFieldErrors(err, setFieldErrors);
@@ -182,7 +200,9 @@ export function WarehousesTab() {
   const handleDelete = async (id) => {
     if (!window.confirm('Bạn có chắc chắn muốn xóa kho bãi này?')) return;
     try {
-      await masterDataService.deleteWarehouse(activeFarmId, id);
+      await masterDataService.deleteWarehouse(effectiveFarmId, id);
+      notifyDataChanged?.('inventory');
+      notifyDataChanged?.('all');
       fetchWarehouses();
     } catch (err) {
       const errInfo = extractApiErrors(err);
@@ -190,7 +210,7 @@ export function WarehousesTab() {
     }
   };
 
-  if (!activeFarmId) {
+  if (!effectiveFarmId) {
     return (
       <SmartEmptyState
         title="Chưa Chọn Trang Trại Tác Nghiệp"
@@ -280,7 +300,7 @@ export function WarehousesTab() {
       className: 'text-right',
       render: (item) => (
         <div className="flex items-center justify-end gap-1">
-          <Can permission="PERM_INVENTORY_RECEIPT">
+          <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
             <button
               type="button"
               onClick={() => handleOpenModal(item)}
@@ -305,6 +325,26 @@ export function WarehousesTab() {
 
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
+      {/* Selector nội bộ khi thanh TopBar đang chọn Tất cả trang trại ('ALL') */}
+      {activeFarmId === 'ALL' && farmList.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl shadow-xs">
+          <div className="flex items-center gap-2">
+            <MapPin className="h-4 w-4 text-emerald-700 shrink-0" />
+            <span className="text-xs font-bold text-emerald-950">Chọn trang trại cấu hình kho bãi:</span>
+          </div>
+          <div className="w-full sm:w-72">
+            <Select
+              value={String(effectiveFarmId || '')}
+              onChange={(e) => setSelectedFarmId(e.target.value)}
+              options={farmList.map((f) => ({
+                value: String(f.id || f.farmId),
+                label: f.name || f.farmName || `Trang trại #${f.id || f.farmId}`,
+              }))}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -316,7 +356,7 @@ export function WarehousesTab() {
           />
         </div>
 
-        <Can permission="PERM_INVENTORY_RECEIPT">
+        <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
           <Button
             type="button"
             variant="primary"

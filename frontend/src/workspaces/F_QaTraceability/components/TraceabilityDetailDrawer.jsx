@@ -22,11 +22,42 @@ import {
   Ban,
   Printer,
   Plus,
+  Trash2,
+  Sparkles,
+  FlaskConical,
+  Camera,
 } from 'lucide-react';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
+
+const DEFAULT_VIETGAP_CRITERIA = [
+  {
+    criterionName: 'Dư lượng thuốc BVTV / Kháng sinh',
+    standardValue: 'Âm tính (< MRL)',
+    measuredValue: '0.00',
+    unit: 'ppm',
+    isPassed: true,
+    notes: 'Test nhanh kit quang phổ đạt chuẩn xuất xưởng',
+  },
+  {
+    criterionName: 'Vi sinh vật (E.Coli / Salmonella)',
+    standardValue: 'Không phát hiện',
+    measuredValue: '0',
+    unit: 'CFU/g',
+    isPassed: true,
+    notes: 'Mẫu cấy khuẩn 24h âm tính',
+  },
+  {
+    criterionName: 'Độ tươi / Ngoại quan & Quy cách',
+    standardValue: 'Đạt chuẩn Loại A',
+    measuredValue: '98',
+    unit: '%',
+    isPassed: true,
+    notes: 'Đồng đều về kích cỡ, vỏ sáng bóng, không dập nát',
+  },
+];
 import { FormField, Input, Select } from '@/components/ui/FormControls';
 import { Can } from '@/components/common/Can';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -49,20 +80,47 @@ function safeParse(json) {
 export function TraceabilityDetailDrawer({
   isOpen,
   onClose,
-  batch,
+  batch: initialBatch,
   onOpenRecall,
   onOpenReject,
   onApproveSuccess,
   isOwner = false,
 }) {
   const { isFarmManager, userInfo } = useAuthStore();
-  const { notifyDataChanged } = useActiveFarmStore();
+  const { notifyDataChanged, syncTrigger } = useActiveFarmStore();
   const manager = isFarmManager();
+
+  const [currentBatch, setCurrentBatch] = useState(initialBatch);
+
+  React.useEffect(() => {
+    setCurrentBatch(initialBatch);
+  }, [initialBatch]);
+
+  const batch = currentBatch || initialBatch;
+  const targetFarmId = batch?.farmId;
+
+  // GAP-SYNC-05: Lắng nghe syncTrigger để tự động làm mới lô thành phẩm đang mở
+  React.useEffect(() => {
+    if (isOpen && batch?.id && targetFarmId) {
+      qaService
+        .getProductBatchById(targetFarmId, batch.id)
+        .then((res) => {
+          if (res) setCurrentBatch(res);
+        })
+        .catch(() => { });
+    }
+  }, [isOpen, batch?.id, targetFarmId, syncTrigger?.batches, syncTrigger?.all]);
 
   const [activeTab, setActiveTab] = useState('SNAPSHOT'); // SNAPSHOT | BASIC | LAB
   const [isApproving, setIsApproving] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [isInspectModalOpen, setIsInspectModalOpen] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printConfig, setPrintConfig] = useState({
+    labelSize: '50x50',
+    printQuantity: 10,
+    printerModel: 'Xprinter XP-365B ESC/POS',
+  });
   const [inspectForm, setInspectForm] = useState({
     inspectionCode: `QC-${Date.now().toString().slice(-6)}`,
     inspectionDate: new Date().toISOString().split('T')[0],
@@ -70,10 +128,68 @@ export function TraceabilityDetailDrawer({
     sampleUnit: 'KG',
     overallResult: 'PASSED',
     notes: 'Kiểm tra cảm quan và chỉ tiêu an toàn đạt chuẩn VietGAP',
-    parameterName: 'Dư lượng thuốc BVTV / Kháng sinh',
-    standardThreshold: '< 0.01 mg/kg',
-    actualValue: '0.001 mg/kg',
+    photoUrl: '',
+    items: JSON.parse(JSON.stringify(DEFAULT_VIETGAP_CRITERIA)),
   });
+
+  const handleLoadVietGapTemplate = () => {
+    setInspectForm((prev) => ({
+      ...prev,
+      items: JSON.parse(JSON.stringify(DEFAULT_VIETGAP_CRITERIA)),
+      overallResult: 'PASSED',
+    }));
+    toast.info('Đã nạp bộ 3 chỉ tiêu mẫu VietGAP!');
+  };
+
+  const handleAddCriterion = () => {
+    setInspectForm((prev) => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        {
+          criterionName: '',
+          standardValue: '',
+          measuredValue: '',
+          unit: '',
+          isPassed: true,
+          notes: '',
+        },
+      ],
+    }));
+  };
+
+  const handleRemoveCriterion = (index) => {
+    setInspectForm((prev) => {
+      if (prev.items.length <= 1) {
+        toast.warning('Biên bản KCS phải có ít nhất 1 chỉ tiêu kiểm nghiệm!');
+        return prev;
+      }
+      const updated = prev.items.filter((_, idx) => idx !== index);
+      const allPassed = updated.every((it) => it.isPassed);
+      return {
+        ...prev,
+        items: updated,
+        overallResult: allPassed ? 'PASSED' : 'FAILED',
+      };
+    });
+  };
+
+  const handleCriterionChange = (index, field, value) => {
+    setInspectForm((prev) => {
+      const updated = [...prev.items];
+      updated[index] = { ...updated[index], [field]: value };
+      let newOverall = prev.overallResult;
+      if (field === 'isPassed') {
+        const allPassed = updated.every((it) => it.isPassed);
+        newOverall = allPassed ? 'PASSED' : 'FAILED';
+      }
+      return {
+        ...prev,
+        items: updated,
+        overallResult: newOverall,
+      };
+    });
+  };
 
   if (!batch) return null;
 
@@ -93,7 +209,7 @@ export function TraceabilityDetailDrawer({
   const inspectorId = batch.inspectorUserId;
   const currentUserId = userInfo?.id;
   const isInspectorSelf = Boolean(inspectorId && currentUserId && Number(inspectorId) === Number(currentUserId));
-  
+
   const overallVerdict = batch.qcOverallResult || qc?.overallVerdict;
   const hasQcInspection = Boolean(batch.qcInspectionCode || qc?.inspectionCode || overallVerdict);
   const isQcPassed = overallVerdict === 'PASSED' || overallVerdict === 'CONDITIONAL';
@@ -124,16 +240,38 @@ export function TraceabilityDetailDrawer({
     }
   };
 
-  // Handle Print Label
-  const handlePrintLabel = async () => {
+  // Handle Print Label Modal Open
+  const handleOpenPrintModal = () => {
+    const defaultQty = batch.remainingQuantity ? Math.max(1, Math.min(10, Math.floor(batch.remainingQuantity))) : 10;
+    setPrintConfig({
+      labelSize: '50x50',
+      printQuantity: defaultQty,
+      printerModel: 'Xprinter XP-365B ESC/POS',
+    });
+    setIsPrintModalOpen(true);
+  };
+
+  // Handle Confirm Print Label
+  const handleConfirmPrintLabel = async (e) => {
+    e?.preventDefault();
+    if (!printConfig.printQuantity || printConfig.printQuantity < 1) {
+      toast.error('Số lượng bản in bắt buộc lớn hơn hoặc bằng 1');
+      return;
+    }
     try {
       setIsPrinting(true);
-      await qaService.printLabel(batch.farmId, batch.id);
-      toast.success(`Đã phát lệnh in tem nhiệt QR cho lô ${batch.batchCode}!`);
+      await qaService.printLabel(batch.farmId, batch.id, {
+        labelSize: printConfig.labelSize,
+        printQuantity: Number(printConfig.printQuantity),
+        printerModel: printConfig.printerModel?.trim() || 'Xprinter XP-365B ESC/POS',
+      });
+      toast.success(`Đã phát lệnh in ${printConfig.printQuantity} tem nhiệt (${printConfig.labelSize}) cho lô ${batch.batchCode}!`);
+      setIsPrintModalOpen(false);
       notifyDataChanged?.('batches');
       onApproveSuccess?.();
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Lỗi in tem nhãn nhiệt');
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || err.response?.data?.message || err.message || 'Lỗi in tem nhãn nhiệt');
     } finally {
       setIsPrinting(false);
     }
@@ -142,6 +280,13 @@ export function TraceabilityDetailDrawer({
   // Handle Create QC Inspection (ROLE_TECHNICAL_STAFF)
   const handleCreateInspection = async (e) => {
     e.preventDefault();
+    const emptyRow = inspectForm.items.find(
+      (it) => !it.criterionName?.trim() || it.measuredValue === undefined || it.measuredValue === ''
+    );
+    if (emptyRow) {
+      toast.error('Vui lòng điền đầy đủ Tên chỉ tiêu và Giá trị đo thực tế cho tất cả các dòng!');
+      return;
+    }
     try {
       setIsApproving(true);
       await qaService.createQcInspection(batch.farmId, {
@@ -152,18 +297,13 @@ export function TraceabilityDetailDrawer({
         sampleUnit: inspectForm.sampleUnit,
         overallResult: inspectForm.overallResult,
         notes: inspectForm.notes,
-        items: [
-          {
-            parameterName: inspectForm.parameterName,
-            standardThreshold: inspectForm.standardThreshold,
-            actualValue: inspectForm.actualValue,
-            passed: inspectForm.overallResult !== 'REJECTED',
-          },
-        ],
+        photoUrl: inspectForm.photoUrl,
+        items: inspectForm.items,
       });
       toast.success(`Đã lập biên bản kiểm định KCS thành công: ${inspectForm.inspectionCode}!`);
       setIsInspectModalOpen(false);
       notifyDataChanged?.('batches');
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
       onApproveSuccess?.();
     } catch (err) {
       toast.error(err.response?.data?.message || err.message || 'Lỗi lập biên bản KCS');
@@ -222,6 +362,43 @@ export function TraceabilityDetailDrawer({
           </div>
         )}
 
+        {/* 3A. Khối thao tác lập biên bản KCS dành cho Kỹ Sư KCS (ROLE_TECHNICAL_STAFF) nếu lô chưa có KCS */}
+        {isPending && !hasQcInspection && !hasApprovalAuthority && (
+          <Can permission="PERM_QC_INSPECT" role="ROLE_TECHNICAL_STAFF">
+            <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/70 p-4 space-y-3 shadow-sm">
+              <div className="flex items-center justify-between border-b border-emerald-200/80 pb-2">
+                <span className="font-bold text-emerald-950 flex items-center gap-1.5 text-xs uppercase tracking-wide">
+                  <FlaskConical className="h-4 w-4 text-emerald-600" />
+                  <span>Nhiệm Vụ KCS: Lập Biên Bản Kiểm Định Chất Lượng Lô</span>
+                </span>
+                <span className="rounded bg-emerald-200 px-2 py-0.5 font-bold text-emerald-900 text-[10px]">
+                  Kỹ Sư KCS (Maker)
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white p-3 rounded-xl border border-emerald-200 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <Clock className="h-4 w-4 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+                  <div>
+                    <span className="font-bold block text-slate-900">Lô thành phẩm đang chờ KCS lấy mẫu kiểm nghiệm</span>
+                    <span className="text-[11px] text-slate-600">
+                      Lập biên bản kiểm định đa chỉ tiêu (dư lượng, vi sinh, cảm quan) theo chuẩn VietGAP trước khi chuyển Giám đốc trại phê duyệt.
+                    </span>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  icon={<FlaskConical className="h-3.5 w-3.5" />}
+                  onClick={() => setIsInspectModalOpen(true)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shrink-0"
+                >
+                  🔬 Lập Biên Bản KCS Ngay
+                </Button>
+              </div>
+            </div>
+          </Can>
+        )}
+
         {/* 3. KHỐI THAO TÁC CỦA FARM_MANAGER / OWNER KHI ĐANG Ở PENDING_APPROVAL */}
         {isPending && hasApprovalAuthority && (
           <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/80 p-4 space-y-3.5 shadow-sm">
@@ -239,11 +416,11 @@ export function TraceabilityDetailDrawer({
             {!hasQcInspection && (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 rounded-xl border border-amber-300 bg-white p-3 text-xs text-amber-900">
                 <div className="flex items-start gap-2.5">
-                  <Clock className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <Clock className="h-4 w-4 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
                   <div>
-                    <span className="font-bold block">Đang chờ Kỹ thuật viên KCS cập nhật kết quả kiểm nghiệm mẫu</span>
+                    <span className="font-bold block text-amber-950">⏳ Chờ Kỹ Sư KCS Kiểm Định Mẫu</span>
                     <span className="text-[11px] text-slate-600">
-                      Kỹ thuật viên KCS (ROLE_TECHNICAL_STAFF) cần lập biên bản kiểm định trước khi Giám đốc trại có thể phê duyệt xuất xưởng.
+                      Đang chờ Kỹ sư KCS lập biên bản kiểm nghiệm mẫu trước khi phê duyệt.
                     </span>
                   </div>
                 </div>
@@ -251,10 +428,11 @@ export function TraceabilityDetailDrawer({
                   <Button
                     size="sm"
                     variant="primary"
-                    icon={<Plus className="h-3.5 w-3.5" />}
+                    icon={<FlaskConical className="h-3.5 w-3.5" />}
                     onClick={() => setIsInspectModalOpen(true)}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shrink-0"
                   >
-                    + Lập Biên Bản KCS
+                    🔬 Lập Biên Bản KCS Ngay
                   </Button>
                 </Can>
               </div>
@@ -312,10 +490,10 @@ export function TraceabilityDetailDrawer({
                     !hasQcInspection
                       ? 'Đang chờ Kỹ thuật viên KCS cập nhật kết quả kiểm nghiệm mẫu'
                       : isInspectorSelf
-                      ? 'Luật Maker-Checker: Bạn là người kiểm định mẫu nên không được duyệt lô này'
-                      : !isQcPassed
-                      ? 'Biên bản kiểm định chưa đạt tiêu chuẩn'
-                      : 'Phê duyệt KCS & đóng băng mã QR xuất xưởng'
+                        ? 'Luật Maker-Checker: Bạn là người kiểm định mẫu nên không được duyệt lô này'
+                        : !isQcPassed
+                          ? 'Biên bản kiểm định chưa đạt tiêu chuẩn'
+                          : 'Phê duyệt KCS & đóng băng mã QR xuất xưởng'
                   }
                   className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-600/20 disabled:opacity-50"
                 >
@@ -369,17 +547,18 @@ export function TraceabilityDetailDrawer({
                 </span>
               )}
 
-              {/* Nút In Tem Nhãn Nhiệt QR dành riêng cho Thủ Kho */}
-              <Can permission="PERM_LABEL_PRINT" role="ROLE_WAREHOUSE_STAFF">
+              {/* Nút In Tem Nhãn Nhiệt QR dành cho Thủ Kho & Quản Lý Trại */}
+              <Can anyPermissions={['PERM_LABEL_PRINT', 'PERM_QC_APPROVE']} role={['ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER']}>
                 <Button
                   variant="outline"
                   size="sm"
-                  icon={<Printer className="h-4 w-4" />}
-                  onClick={handlePrintLabel}
+                  icon={<Printer className="h-4 w-4 text-slate-700" />}
+                  onClick={handleOpenPrintModal}
                   disabled={isPrinting}
                   isLoading={isPrinting}
+                  className="font-bold border-slate-300 hover:bg-slate-100"
                 >
-                  In Tem Nhãn Nhiệt QR
+                  🖨️ In Tem Nhãn Nhiệt QR
                 </Button>
               </Can>
 
@@ -404,33 +583,30 @@ export function TraceabilityDetailDrawer({
           <button
             type="button"
             onClick={() => setActiveTab('SNAPSHOT')}
-            className={`rounded-lg px-3 py-1.5 font-bold transition-all ${
-              activeTab === 'SNAPSHOT'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
+            className={`rounded-lg px-3 py-1.5 font-bold transition-all ${activeTab === 'SNAPSHOT'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+              }`}
           >
             5 Khối Đóng Băng & SHA-256
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('BASIC')}
-            className={`rounded-lg px-3 py-1.5 font-bold transition-all ${
-              activeTab === 'BASIC'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
+            className={`rounded-lg px-3 py-1.5 font-bold transition-all ${activeTab === 'BASIC'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+              }`}
           >
             Thông Tin Lô & Phân Bổ
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('LAB')}
-            className={`rounded-lg px-3 py-1.5 font-bold transition-all ${
-              activeTab === 'LAB'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
+            className={`rounded-lg px-3 py-1.5 font-bold transition-all ${activeTab === 'LAB'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100'
+              }`}
           >
             Biên Bản KCS & Chỉ Tiêu Lab
           </button>
@@ -585,9 +761,8 @@ export function TraceabilityDetailDrawer({
                 <div><span className="text-slate-400">Mã kiểm định:</span> <strong className="text-slate-800 block font-mono">{qc?.inspectionCode || batch.qcInspectionCode || 'KCS-QC-001'}</strong></div>
                 <div>
                   <span className="text-slate-400">Kết quả tổng:</span>
-                  <span className={`inline-flex items-center gap-1 font-bold ${
-                    overallVerdict === 'PASSED' ? 'text-emerald-700' : overallVerdict === 'CONDITIONAL' ? 'text-amber-700' : 'text-rose-700'
-                  }`}>
+                  <span className={`inline-flex items-center gap-1 font-bold ${overallVerdict === 'PASSED' ? 'text-emerald-700' : overallVerdict === 'CONDITIONAL' ? 'text-amber-700' : 'text-rose-700'
+                    }`}>
                     {overallVerdict || 'PASSED'}
                   </span>
                 </div>
@@ -667,13 +842,12 @@ export function TraceabilityDetailDrawer({
                 </div>
                 <div className="text-right">
                   <span className="text-[10px] text-slate-400 block uppercase">Kết luận chung:</span>
-                  <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-bold ${
-                    overallVerdict === 'PASSED'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : overallVerdict === 'CONDITIONAL'
+                  <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-bold ${overallVerdict === 'PASSED'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : overallVerdict === 'CONDITIONAL'
                       ? 'bg-amber-100 text-amber-800'
                       : 'bg-rose-100 text-rose-800'
-                  }`}>
+                    }`}>
                     {overallVerdict === 'PASSED' && <CheckCircle2 className="h-3.5 w-3.5" />}
                     {overallVerdict === 'CONDITIONAL' && <AlertTriangle className="h-3.5 w-3.5" />}
                     {overallVerdict !== 'PASSED' && overallVerdict !== 'CONDITIONAL' && <XCircle className="h-3.5 w-3.5" />}
@@ -733,15 +907,15 @@ export function TraceabilityDetailDrawer({
         )}
       </div>
 
-      {/* Modal Lập Biên Bản KCS Dành Cho ROLE_TECHNICAL_STAFF */}
+      {/* Modal Lập Biên Bản KCS Dành Cho ROLE_TECHNICAL_STAFF (GAP-TECH-07) */}
       <Modal
         isOpen={isInspectModalOpen}
         onClose={() => setIsInspectModalOpen(false)}
-        title="Lập Biên Bản Kiểm Định Chất Lượng KCS (Maker)"
-        size="md"
+        title="Lập Biên Bản Kiểm Định Chất Lượng KCS Đa Chỉ Tiêu (Maker)"
+        size="lg"
       >
         <form onSubmit={handleCreateInspection} className="space-y-4 text-xs">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <FormField label="Mã Biên Bản KCS" required>
               <Input
                 value={inspectForm.inspectionCode}
@@ -758,9 +932,7 @@ export function TraceabilityDetailDrawer({
                 required
               />
             </FormField>
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
             <FormField label="Cỡ Mẫu Kiểm Tra" required>
               <Input
                 type="number"
@@ -780,51 +952,188 @@ export function TraceabilityDetailDrawer({
                 <option value="KG">Kilogram (KG)</option>
                 <option value="BOX">Thùng (BOX)</option>
                 <option value="SAMPLE">Mẫu thử (SAMPLE)</option>
+                <option value="BUNCH">Bó (BUNCH)</option>
               </Select>
             </FormField>
           </div>
 
-          <FormField label="Kết Luận Kiểm Nghiệm (KCS Verdict)" required>
+          {/* Bảng Chỉ Tiêu Kiểm Định Động (Multi-Criteria QC Table) */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                <FlaskConical className="h-4 w-4 text-emerald-600" />
+                <span>Bảng Chỉ Tiêu Kiểm Nghiệm Mẫu ({inspectForm.items.length})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  icon={<Sparkles className="h-3.5 w-3.5 text-amber-500" />}
+                  onClick={handleLoadVietGapTemplate}
+                  className="bg-white border-amber-300 text-amber-900 hover:bg-amber-50 text-[11px]"
+                >
+                  Nạp Bộ Chỉ Tiêu Mẫu VietGAP
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  icon={<Plus className="h-3.5 w-3.5 text-emerald-600" />}
+                  onClick={handleAddCriterion}
+                  className="bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-[11px]"
+                >
+                  Thêm Chỉ Tiêu
+                </Button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                    <th className="py-2 px-2.5 w-8">#</th>
+                    <th className="py-2 px-2.5">Tên Chỉ Tiêu Kiểm Nghiệm *</th>
+                    <th className="py-2 px-2.5">Ngưỡng Tiêu Chuẩn</th>
+                    <th className="py-2 px-2.5">Giá Trị Đo Thực Tế *</th>
+                    <th className="py-2 px-2.5 w-20">Đơn Vị</th>
+                    <th className="py-2 px-2.5 w-28 text-center">Đánh Giá</th>
+                    <th className="py-2 px-2.5 w-10 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {inspectForm.items.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-2 px-2.5 font-mono text-slate-400 font-bold">{idx + 1}</td>
+                      <td className="py-1.5 px-2.5">
+                        <Input
+                          value={item.criterionName}
+                          placeholder="VD: Dư lượng thuốc BVTV"
+                          onChange={(e) => handleCriterionChange(idx, 'criterionName', e.target.value)}
+                          className="h-8 text-xs"
+                          required
+                        />
+                      </td>
+                      <td className="py-1.5 px-2.5">
+                        <Input
+                          value={item.standardValue}
+                          placeholder="VD: <= 0.01 ppm"
+                          onChange={(e) => handleCriterionChange(idx, 'standardValue', e.target.value)}
+                          className="h-8 text-xs"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2.5">
+                        <Input
+                          value={item.measuredValue}
+                          placeholder="VD: 0.00 ppm"
+                          onChange={(e) => handleCriterionChange(idx, 'measuredValue', e.target.value)}
+                          className="h-8 text-xs font-semibold"
+                          required
+                        />
+                      </td>
+                      <td className="py-1.5 px-2.5">
+                        <Input
+                          value={item.unit}
+                          placeholder="ppm, %"
+                          onChange={(e) => handleCriterionChange(idx, 'unit', e.target.value)}
+                          className="h-8 text-xs w-20"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleCriterionChange(idx, 'isPassed', !item.isPassed)}
+                          className={`w-full py-1 px-2 rounded-lg font-bold text-[10px] inline-flex items-center justify-center gap-1 transition-all ${item.isPassed
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                            : 'bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200'
+                            }`}
+                        >
+                          {item.isPassed ? (
+                            <>
+                              <Check className="h-3 w-3 text-emerald-600" />
+                              <span>ĐẠT</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="h-3 w-3 text-rose-600" />
+                              <span>HỎNG</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-1.5 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCriterion(idx)}
+                          className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          title="Xóa chỉ tiêu này"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Banner gợi ý tự động kết luận tổng thể */}
+          {inspectForm.items.every((it) => it.isPassed) ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 flex items-center gap-2.5 text-emerald-900 text-xs">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <div>
+                <strong>Tất cả {inspectForm.items.length} chỉ tiêu đều ĐẠT CHUẨN!</strong>
+                <p className="text-[11px] text-emerald-800">
+                  Hệ thống tự động đề xuất kết luận <strong>ĐẠT (PASSED)</strong> để Giám đốc trại phê duyệt xuất xưởng.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 flex items-center gap-2.5 text-rose-900 text-xs">
+              <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+              <div>
+                <strong>Cảnh báo: Có chỉ tiêu KHÔNG ĐẠT TIÊU CHUẨN!</strong>
+                <p className="text-[11px] text-rose-800">
+                  Hệ thống tự động chuyển đề xuất kết luận sang <strong>KHÔNG ĐẠT (FAILED)</strong>. Giám đốc trại sẽ nhận khuyến nghị từ chối lô hàng.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <FormField label="Kết Luận Kiểm Nghiệm Tổng Thể (Overall Verdict)" required>
             <Select
               value={inspectForm.overallResult}
               onChange={(e) => setInspectForm({ ...inspectForm, overallResult: e.target.value })}
             >
               <option value="PASSED">ĐẠT CHUẨN (PASSED - Cho phép phê duyệt)</option>
-              <option value="CONDITIONAL">CÓ ĐIỀU KIỆN (CONDITIONAL)</option>
-              <option value="REJECTED">TRƯỢT KCS (REJECTED - Bắt buộc từ chối)</option>
+              <option value="FAILED">KHÔNG ĐẠT (FAILED - Đề xuất từ chối lô hàng)</option>
+              <option value="CONDITIONAL">CÓ ĐIỀU KIỆN (CONDITIONAL - Chờ xử lý)</option>
             </Select>
           </FormField>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-            <span className="font-bold text-slate-800 block text-[11px]">Chỉ Tiêu Kiểm Nghiệm Chính</span>
-            <div className="grid grid-cols-3 gap-2">
+          <FormField label="Ảnh Minh Chứng / Phiếu Xét Nghiệm Phòng Lab (photosJson)">
+            <div className="relative">
+              <Camera className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <Input
-                value={inspectForm.parameterName}
-                placeholder="Tên chỉ tiêu"
-                onChange={(e) => setInspectForm({ ...inspectForm, parameterName: e.target.value })}
-              />
-              <Input
-                value={inspectForm.standardThreshold}
-                placeholder="Ngưỡng chuẩn"
-                onChange={(e) => setInspectForm({ ...inspectForm, standardThreshold: e.target.value })}
-              />
-              <Input
-                value={inspectForm.actualValue}
-                placeholder="Giá trị đo"
-                onChange={(e) => setInspectForm({ ...inspectForm, actualValue: e.target.value })}
+                value={inspectForm.photoUrl}
+                placeholder="https://... hoặc URL ảnh chụp kết quả kiểm nghiệm"
+                onChange={(e) => setInspectForm({ ...inspectForm, photoUrl: e.target.value })}
+                className="pl-9"
               />
             </div>
-          </div>
+          </FormField>
 
           <FormField label="Ghi Chú Đánh Giá Kỹ Thuật">
             <Input
               value={inspectForm.notes}
+              placeholder="VD: Kiểm tra cảm quan và chỉ tiêu an toàn đạt chuẩn VietGAP"
               onChange={(e) => setInspectForm({ ...inspectForm, notes: e.target.value })}
             />
           </FormField>
 
           <div className="p-2.5 bg-blue-50 rounded-xl border border-blue-200 text-blue-900 text-[11px]">
-            ℹ️ Sau khi lập biên bản, Giám đốc trang trại (ROLE_FARM_MANAGER) hoặc Chủ đầu tư (ROLE_FARM_OWNER) sẽ là người độc quyền phê duyệt cấp mã QR truy xuất.
+            ℹ️ Sau khi Kỹ sư KCS lập biên bản, Giám đốc trang trại (ROLE_FARM_MANAGER) hoặc Chủ đầu tư (ROLE_FARM_OWNER) sẽ là người độc quyền phê duyệt cấp mã QR truy xuất.
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
@@ -833,6 +1142,99 @@ export function TraceabilityDetailDrawer({
             </Button>
             <Button variant="primary" type="submit" disabled={isApproving}>
               {isApproving ? 'Đang gửi...' : 'Lưu Biên Bản KCS'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal Cấu Hình In Tem Nhiệt ESC/POS */}
+      <Modal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        title="Cấu Hình Lệnh In Tem Nhãn Nhiệt QR ESC/POS"
+        subtitle={`Lô hàng: ${batch.batchCode} • ${batch.productName || 'Nông sản'} (Tồn khả dụng: ${batch.remainingQuantity || batch.initialQuantity || 0} ${batch.unit || 'KG'})`}
+        size="md"
+      >
+        <form onSubmit={handleConfirmPrintLabel} className="space-y-4 text-xs">
+          <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3 space-y-1.5 text-blue-900">
+            <span className="font-bold flex items-center gap-1.5">
+              <Printer className="h-4 w-4 text-blue-700" />
+              <span>Máy In Nhiệt & Định Dạng Mã QR Bất Biến</span>
+            </span>
+            <p className="text-[11px] text-blue-800 leading-relaxed">
+              Tem nhãn in trực tiếp lệnh ESC/POS tới máy in nhiệt bóc dán. Mã QR chứa URL tra cứu nguồn gốc nông sản theo tiêu chuẩn VietGAP.
+            </p>
+            <div className="font-mono text-[11px] text-blue-950 pt-1 border-t border-blue-200/80">
+              <strong>Mã truy xuất:</strong> {batch.traceabilityCode || 'Chưa khởi tạo'}
+            </div>
+          </div>
+
+          <FormField label="Khổ Tem Nhãn Nhiệt (ESC/POS)" required>
+            <div className="space-y-2 pt-1">
+              <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="labelSize"
+                  value="50x50"
+                  checked={printConfig.labelSize === '50x50'}
+                  onChange={(e) => setPrintConfig({ ...printConfig, labelSize: e.target.value })}
+                  className="text-blue-600 focus:ring-blue-500 h-4 w-4"
+                />
+                <div>
+                  <span className="font-bold text-slate-900 block text-xs">Tem vuông 50x50mm</span>
+                  <span className="text-[11px] text-slate-500">Dán thùng/bao lớn, pallet xuất kho</span>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                <input
+                  type="radio"
+                  name="labelSize"
+                  value="35x22"
+                  checked={printConfig.labelSize === '35x22'}
+                  onChange={(e) => setPrintConfig({ ...printConfig, labelSize: e.target.value })}
+                  className="text-blue-600 focus:ring-blue-500 h-4 w-4"
+                />
+                <div>
+                  <span className="font-bold text-slate-900 block text-xs">Tem nhỏ 35x22mm</span>
+                  <span className="text-[11px] text-slate-500">Dán quả/hộp lẻ, khay siêu thị</span>
+                </div>
+              </label>
+            </div>
+          </FormField>
+
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Số Lượng Bản In" required>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={printConfig.printQuantity}
+                onChange={(e) => setPrintConfig({ ...printConfig, printQuantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                required
+              />
+            </FormField>
+
+            <FormField label="Model Máy In Nhiệt">
+              <Input
+                value={printConfig.printerModel}
+                onChange={(e) => setPrintConfig({ ...printConfig, printerModel: e.target.value })}
+                placeholder="Xprinter XP-365B ESC/POS"
+              />
+            </FormField>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button variant="ghost" type="button" onClick={() => setIsPrintModalOpen(false)}>
+              Hủy
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={isPrinting}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
+            >
+              {isPrinting ? 'Đang phát lệnh...' : 'Xác Nhận In Tem'}
             </Button>
           </div>
         </form>

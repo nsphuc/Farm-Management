@@ -42,7 +42,7 @@ public class LeaveOvertimeController {
     }
 
     @GetMapping("/leaves")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated() and (hasAnyAuthority('PERM_HR_EMPLOYEE_MANAGE', 'PERM_FINANCE_EXPENSE', 'PERM_HR_ATTENDANCE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT'))")
     public ResponseEntity<Page<LeaveRequestDetailResponse>> getLeaveRequests(
             @RequestParam(required = false) Long farmId,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -50,7 +50,7 @@ public class LeaveOvertimeController {
     }
 
     @GetMapping("/leaves/{id}")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated() and (hasAnyAuthority('PERM_HR_EMPLOYEE_MANAGE', 'PERM_FINANCE_EXPENSE', 'PERM_HR_ATTENDANCE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT'))")
     public ResponseEntity<LeaveRequestDetailResponse> getLeaveRequestById(@PathVariable Long id) {
         return ResponseEntity.ok(leaveOvertimeService.getLeaveRequestById(id));
     }
@@ -73,7 +73,7 @@ public class LeaveOvertimeController {
     }
 
     @GetMapping("/overtime")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated() and (hasAnyAuthority('PERM_HR_EMPLOYEE_MANAGE', 'PERM_FINANCE_EXPENSE', 'PERM_HR_ATTENDANCE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT'))")
     public ResponseEntity<Page<OvertimeRequestDetailResponse>> getOvertimeRequests(
             @RequestParam(required = false) Long farmId,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -81,7 +81,7 @@ public class LeaveOvertimeController {
     }
 
     @GetMapping("/overtime/{id}")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("isAuthenticated() and (hasAnyAuthority('PERM_HR_EMPLOYEE_MANAGE', 'PERM_FINANCE_EXPENSE', 'PERM_HR_ATTENDANCE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT'))")
     public ResponseEntity<OvertimeRequestDetailResponse> getOvertimeRequestById(@PathVariable Long id) {
         return ResponseEntity.ok(leaveOvertimeService.getOvertimeRequestById(id));
     }

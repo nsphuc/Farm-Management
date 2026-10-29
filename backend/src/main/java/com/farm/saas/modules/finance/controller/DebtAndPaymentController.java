@@ -29,7 +29,7 @@ public class DebtAndPaymentController {
     private final DebtAndPaymentService debtAndPaymentService;
 
     @GetMapping("/debts")
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách công nợ", description = "Truy vấn sổ công nợ có lọc theo đối tác, loại nợ (RECEIVABLE/PAYABLE) và trạng thái")
     public ResponseEntity<Page<DebtRecordDetailResponse>> getDebts(
             @PathVariable(required = false) Long farmId,
@@ -43,7 +43,7 @@ public class DebtAndPaymentController {
     }
 
     @GetMapping("/debts/{id}")
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết khoản nợ", description = "Xem chi tiết một khoản công nợ phải thu hoặc phải trả")
     public ResponseEntity<DebtRecordDetailResponse> getDebtById(
             @PathVariable(required = false) Long farmId,
@@ -69,6 +69,17 @@ public class DebtAndPaymentController {
             @PathVariable Long farmId,
             @PathVariable Long id) {
         return ResponseEntity.ok(debtAndPaymentService.confirmPayment(farmId, id));
+    }
+
+    @PostMapping({"/payments/{id}/cancel", "/payments/{id}/reject"})
+    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and @farmSecurity.canAccessFarm(#farmId)")
+    @Operation(summary = "Hủy giao dịch thanh toán", description = "Hủy giao dịch thanh toán đang ở trạng thái PENDING")
+    public ResponseEntity<PaymentTransactionDetailResponse> cancelPayment(
+            @PathVariable Long farmId,
+            @PathVariable Long id,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(debtAndPaymentService.cancelPayment(farmId, id, reason));
     }
 
     @PostMapping("/payments/{id}/allocate")

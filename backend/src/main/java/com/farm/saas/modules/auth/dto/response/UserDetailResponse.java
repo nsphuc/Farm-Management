@@ -16,6 +16,8 @@ public class UserDetailResponse {
 
     private Long id;
     private Long tenantId;
+    private String tenantName;
+    private String tenantCode;
     private String username;
     private String fullName;
     private String email;

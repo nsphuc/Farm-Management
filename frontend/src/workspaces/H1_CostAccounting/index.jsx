@@ -21,6 +21,8 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { MultiFarmExpenseSummary } from './components/MultiFarmExpenseSummary';
 import { BudgetManagementTab } from './components/BudgetManagementTab';
 import { UnitCostAnalysisTab } from './components/UnitCostAnalysisTab';
+import { CreateExpenseModal } from './components/CreateExpenseModal';
+import { AllocateCostModal } from './components/AllocateCostModal';
 
 /**
  * Workspace H1: Quản Trị Giá Thành & Bảng Thống Kê Chi Phí (Điều 2.8 File 08)
@@ -35,12 +37,16 @@ import { UnitCostAnalysisTab } from './components/UnitCostAnalysisTab';
  */
 export function CostAccountingWorkspace() {
   const { isOwner, isFarmManager } = useAuthStore();
-  const { activeFarmId, activeFarm } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, notifyDataChanged } = useActiveFarmStore();
   const owner = isOwner();
   const manager = isFarmManager();
 
   // Tab điều hướng
   const [activeTab, setActiveTab] = useState('EXPENSES');
+
+  // Modals state
+  const [isCreateExpenseOpen, setIsCreateExpenseOpen] = useState(false);
+  const [isAllocateCostOpen, setIsAllocateCostOpen] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -78,14 +84,14 @@ export function CostAccountingWorkspace() {
           </div>
         </div>
 
-        {/* NÚT TÁC VỤ DÀNH RIÊNG CHO MAKER (ROLE_ACCOUNTANT) */}
+        {/* NÚT TÁC VỤ DÀNH CHO MAKER (ROLE_ACCOUNTANT) VÀ ROLE_FARM_MANAGER */}
         <div className="flex items-center gap-2">
-          <Can permission="PERM_FINANCE_EXPENSE" role="ROLE_ACCOUNTANT">
+          <Can permission="PERM_FINANCE_EXPENSE" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
             <Button
               variant="primary"
               size="sm"
               icon={<Plus className="h-4 w-4" />}
-              onClick={() => alert('Kế toán lập chứng từ chi phí mới (DRAFT)')}
+              onClick={() => setIsCreateExpenseOpen(true)}
             >
               + Khai Báo Chi Phí
             </Button>
@@ -93,7 +99,7 @@ export function CostAccountingWorkspace() {
               variant="outline"
               size="sm"
               icon={<Layers className="h-4 w-4" />}
-              onClick={() => alert('Kế toán phân bổ chi phí')}
+              onClick={() => setIsAllocateCostOpen(true)}
             >
               Phân Bổ Chi Phí
             </Button>
@@ -178,7 +184,7 @@ export function CostAccountingWorkspace() {
         >
           <DollarSign className="h-4 w-4" />
           <span>
-            {manager ? 'Tab 3. Theo Dõi Hạn Mức Ngân Sách Trại (#69)' : 'Tab 3. Quản Trị & Phê Duyệt Ngân Sách'}
+            {manager ? 'Tab 3. Theo Dõi Hạn Mức Ngân Sách Trại' : 'Tab 3. Quản Trị & Phê Duyệt Ngân Sách'}
           </span>
         </button>
       </div>
@@ -189,6 +195,21 @@ export function CostAccountingWorkspace() {
       {activeTab === 'EXPENSES' && <MultiFarmExpenseSummary />}
       {activeTab === 'UNIT_COST' && <UnitCostAnalysisTab />}
       {activeTab === 'BUDGETS' && <BudgetManagementTab />}
+
+      {/* 6. MODAL KHAI BÁO CHI PHÍ & PHÂN BỔ CHI PHÍ */}
+      <CreateExpenseModal
+        isOpen={isCreateExpenseOpen}
+        onClose={() => setIsCreateExpenseOpen(false)}
+        initialFarmId={activeFarmId}
+        onSuccess={() => notifyDataChanged?.('finance')}
+      />
+
+      <AllocateCostModal
+        isOpen={isAllocateCostOpen}
+        onClose={() => setIsAllocateCostOpen(false)}
+        initialFarmId={activeFarmId}
+        onSuccess={() => notifyDataChanged?.('finance')}
+      />
     </div>
   );
 }

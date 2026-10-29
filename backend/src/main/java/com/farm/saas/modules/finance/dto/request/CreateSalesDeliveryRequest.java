@@ -30,6 +30,8 @@ public class CreateSalesDeliveryRequest {
     private String vehiclePlate;
     private String receiverName;
     private String shippingAddress;
+    private String proofOfDeliveryUrl;
+    private String status;
     private String notes;
 
     @NotEmpty(message = "Danh sách xuất giao không được để trống")

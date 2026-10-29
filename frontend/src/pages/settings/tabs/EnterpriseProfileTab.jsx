@@ -10,11 +10,13 @@ import {
   AlertTriangle,
   RefreshCw,
   ExternalLink,
+  Info,
 } from 'lucide-react';
 import { enterpriseService } from '@/services/modules/enterpriseService';
 import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
 import { Button } from '@/components/ui/Button';
 import { Can } from '@/components/common/Can';
+import { useAuthStore } from '@/store/useAuthStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
 import { extractApiErrors, VIETNAM_BANKS } from '@/utils/apiHelpers';
 
@@ -28,6 +30,11 @@ const CERTIFICATION_TEMPLATES = [
 ];
 
 export function EnterpriseProfileTab() {
+  const isOwner = useAuthStore((state) => state.isOwner);
+  const isFarmOwner = useAuthStore((state) => state.isFarmOwner);
+  const isSuperAdmin = useAuthStore((state) => state.isSuperAdmin);
+  const canEdit = Boolean(isFarmOwner?.() || isOwner?.() || isSuperAdmin?.());
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
@@ -190,6 +197,15 @@ export function EnterpriseProfileTab() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8 animate-in fade-in duration-200">
+      {!canEdit && (
+        <div className="flex items-center gap-3 rounded-2xl bg-amber-50/90 border border-amber-200 p-4 text-xs font-medium text-amber-900 shadow-xs">
+          <Info className="h-5 w-5 shrink-0 text-amber-600" />
+          <p>
+            <strong>Lưu ý:</strong> Thông tin pháp nhân doanh nghiệp và tài khoản VietQR tổng do Chủ đầu tư (Farm Owner) quản lý. Giám đốc trang trại có quyền xem để đối chiếu chứng từ &amp; truy xuất nguồn gốc.
+          </p>
+        </div>
+      )}
+
       {generalError && (
         <div className="flex items-center gap-2 rounded-xl bg-rose-50 border border-rose-200 p-4 text-xs font-semibold text-rose-800">
           <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
@@ -225,6 +241,7 @@ export function EnterpriseProfileTab() {
               value={formData.taxNumber}
               onChange={handleChange}
               placeholder="VD: 0102030405"
+              disabled={!canEdit}
             />
           </FormField>
 
@@ -234,6 +251,7 @@ export function EnterpriseProfileTab() {
               value={formData.legalRepresentative}
               onChange={handleChange}
               placeholder="VD: Nguyễn Văn An"
+              disabled={!canEdit}
             />
           </FormField>
 
@@ -243,6 +261,7 @@ export function EnterpriseProfileTab() {
               name="establishedDate"
               value={formData.establishedDate}
               onChange={handleChange}
+              disabled={!canEdit}
             />
           </FormField>
 
@@ -252,6 +271,7 @@ export function EnterpriseProfileTab() {
               value={formData.contactPhone}
               onChange={handleChange}
               placeholder="VD: 0912345678"
+              disabled={!canEdit}
             />
           </FormField>
 
@@ -262,6 +282,7 @@ export function EnterpriseProfileTab() {
               value={formData.contactEmail}
               onChange={handleChange}
               placeholder="VD: contact@vinagreen.vn"
+              disabled={!canEdit}
             />
           </FormField>
 
@@ -271,6 +292,7 @@ export function EnterpriseProfileTab() {
               value={formData.logoUrl}
               onChange={handleChange}
               placeholder="https://..."
+              disabled={!canEdit}
             />
           </FormField>
 
@@ -281,6 +303,7 @@ export function EnterpriseProfileTab() {
                 value={formData.headquarterAddress}
                 onChange={handleChange}
                 placeholder="VD: Tòa nhà Green Farm, Xã Tân An, TP. Buôn Ma Thuột, Đắk Lắk"
+                disabled={!canEdit}
               />
             </FormField>
           </div>
@@ -308,6 +331,7 @@ export function EnterpriseProfileTab() {
                 name="bankBin"
                 value={formData.bankBin}
                 onChange={handleBankChange}
+                disabled={!canEdit}
                 options={VIETNAM_BANKS.map((b) => ({
                   value: b.bin,
                   label: `${b.code} - ${b.name}`,
@@ -322,6 +346,7 @@ export function EnterpriseProfileTab() {
                 onChange={handleChange}
                 placeholder="VD: 0987654321"
                 className="font-mono text-base tracking-wider"
+                disabled={!canEdit}
               />
             </FormField>
 
@@ -337,6 +362,7 @@ export function EnterpriseProfileTab() {
                 onChange={handleChange}
                 placeholder="VD: CONG TY CP NONG NGHIEP XANH"
                 className="font-mono font-bold tracking-wide"
+                disabled={!canEdit}
               />
             </FormField>
           </div>
@@ -383,18 +409,20 @@ export function EnterpriseProfileTab() {
               <p className="text-xs text-slate-500">VietGAP, GlobalGAP, Organic (được tự động nhúng vào mã QR truy xuất nguồn gốc)</p>
             </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAddCert(!showAddCert)}
-            icon={<Plus className="h-4 w-4" />}
-          >
-            {showAddCert ? 'Đóng form thêm' : '+ Thêm chứng chỉ'}
-          </Button>
+          {canEdit && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAddCert(!showAddCert)}
+              icon={<Plus className="h-4 w-4" />}
+            >
+              {showAddCert ? 'Đóng form thêm' : '+ Thêm chứng chỉ'}
+            </Button>
+          )}
         </div>
 
-        {showAddCert && (
+        {canEdit && showAddCert && (
           <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 mb-5 space-y-4">
             <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider">Thêm Chứng Chỉ Mới</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -477,7 +505,7 @@ export function EnterpriseProfileTab() {
                   <th className="px-4 py-2.5">Số Chứng Nhận</th>
                   <th className="px-4 py-2.5">Đơn Vị Cấp</th>
                   <th className="px-4 py-2.5">Hiệu Lực</th>
-                  <th className="px-4 py-2.5 text-right">Thao tác</th>
+                  {canEdit && <th className="px-4 py-2.5 text-right">Thao tác</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -492,16 +520,18 @@ export function EnterpriseProfileTab() {
                     <td className="px-4 py-3 text-slate-600">
                       {c.validFrom || '—'} &rarr; {c.validTo || '—'}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCert(idx)}
-                        className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
-                        title="Xóa chứng chỉ"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
+                    {canEdit && (
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCert(idx)}
+                          className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                          title="Xóa chứng chỉ"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -510,9 +540,9 @@ export function EnterpriseProfileTab() {
         )}
       </div>
 
-      {/* Action Bar */}
-      <div className="flex justify-end gap-3 sticky bottom-4 bg-white/90 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-lg">
-        <Can permission="PERM_FARM_UPDATE">
+      {/* Action Bar - Only visible for Farm Owner / Super Admin */}
+      {canEdit && (
+        <div className="flex justify-end gap-3 sticky bottom-4 bg-white/90 backdrop-blur-md p-4 rounded-2xl border border-slate-200 shadow-lg">
           <Button
             type="submit"
             variant="primary"
@@ -522,8 +552,8 @@ export function EnterpriseProfileTab() {
           >
             Lưu Toàn Bộ Hồ Sơ Doanh Nghiệp
           </Button>
-        </Can>
-      </div>
+        </div>
+      )}
     </form>
   );
 }

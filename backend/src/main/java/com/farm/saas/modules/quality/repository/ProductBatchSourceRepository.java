@@ -8,4 +8,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface ProductBatchSourceRepository extends JpaRepository<ProductBatchSource, Long>, JpaSpecificationExecutor<ProductBatchSource> {
     java.util.List<ProductBatchSource> findByProductBatchId(Long productBatchId);
+    java.util.List<ProductBatchSource> findByHarvestRecordId(Long harvestRecordId);
 }
+

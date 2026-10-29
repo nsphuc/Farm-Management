@@ -242,6 +242,21 @@ export const useAuthStore = create((set, get) => ({
   },
 
   /**
+   * Helper: Kiểm tra chức danh hiện trường (hỗ trợ cả farmAssignments và accessibleFarms)
+   */
+  hasFarmRole: (roleName, farmId = null) => {
+    const { userInfo, hasFarmAssignmentRole } = get();
+    if (!userInfo) return false;
+    if (hasFarmAssignmentRole(roleName, farmId)) return true;
+    const accessibleFarms = userInfo.accessibleFarms || [];
+    const rolesToCheck = Array.isArray(roleName) ? roleName : [roleName];
+    return accessibleFarms.some((f) => {
+      if (farmId != null && Number(f.farmId || f.id) !== Number(farmId)) return false;
+      return rolesToCheck.includes(f.assignedRole);
+    });
+  },
+
+  /**
    * Role 1 - Chủ đầu tư / Chủ doanh nghiệp (isOwner)
    * Tài khoản có ROLE_FARM_OWNER ở cấp toàn doanh nghiệp (scope_level = 'TENANT' hoặc quản lý chuỗi trang trại,
    * không bị khóa cố định vào vị trí làm thuê tại 1 trại).
@@ -386,20 +401,35 @@ export const useAuthStore = create((set, get) => ({
   },
 
   /**
-   * Role 3 - Trưởng bộ phận kỹ thuật / Trưởng phân khu (isTechnicalLead)
-   * Tài khoản có ROLE_TECHNICAL_STAFF (kiêm ZONE_MANAGER / TECHNICAL_LEAD / AGRONOMIST / VETERINARIAN tại phân khu).
+   * Role 3B - Trưởng phân khu / Tổ trưởng sản xuất hiện trường (isZoneManager)
+   * Tài khoản có vai trò ZONE_MANAGER tại phân khu (farm_assignments.role_in_farm == 'ZONE_MANAGER' hoặc operationalRole == 'ZONE_MANAGER').
+   * Phụ trách trực tiếp phân khu sản xuất, chấm công tổ và điều phối việc tại phân khu.
+   */
+  isZoneManager: (farmId = null) => {
+    const { userInfo, isOwner, isFarmManager, hasFarmRole } = get();
+    if (!userInfo) return false;
+    if (isOwner() || isFarmManager(farmId)) return false;
+
+    if (userInfo.operationalRole === 'ZONE_MANAGER') return true;
+    return hasFarmRole('ZONE_MANAGER', farmId);
+  },
+
+  /**
+   * Role 3 - Trưởng bộ phận kỹ thuật (isTechnicalLead)
+   * Tài khoản có ROLE_TECHNICAL_STAFF (kiêm TECHNICAL_LEAD / AGRONOMIST / VETERINARIAN tại phân khu).
    * Phụ trách các phân khu trồng trọt/chăn nuôi, quản lý đội công nhân khu mình,
    * chấm công cá nhân và điểm danh hộ công nhân không có tài khoản trong khu.
    */
   isTechnicalLead: () => {
-    const { userInfo, hasRole, isOwner, isFarmManager } = get();
+    const { userInfo, hasRole, isOwner, isFarmManager, isZoneManager } = get();
     if (!userInfo) return false;
     if (isOwner() || isFarmManager()) return false;
+    if (isZoneManager()) return false;
 
     if (userInfo.operationalRole === 'TECHNICAL_LEAD') return true;
     if (hasRole('ROLE_TECHNICAL_STAFF')) return true;
 
-    const techRoles = ['ZONE_MANAGER', 'TECHNICAL_LEAD', 'AGRONOMIST', 'VETERINARIAN'];
+    const techRoles = ['TECHNICAL_LEAD', 'AGRONOMIST', 'VETERINARIAN'];
     const assignments = userInfo.farmAssignments || [];
     const hasTechAssignment = assignments.some(
       (a) => techRoles.includes(a.roleInFarm || a.role_in_farm) && a.isActive !== false
@@ -460,6 +490,7 @@ export const useAuthStore = create((set, get) => ({
       hasRole,
       isOwner,
       isFarmManager,
+      isZoneManager,
       isTechnicalLead,
       isWarehouseKeeper,
       isFarmAccountant,
@@ -468,6 +499,7 @@ export const useAuthStore = create((set, get) => ({
     if (
       isOwner() ||
       isFarmManager() ||
+      isZoneManager() ||
       isTechnicalLead() ||
       isWarehouseKeeper() ||
       isFarmAccountant()
@@ -488,22 +520,24 @@ export const useAuthStore = create((set, get) => ({
 
   /**
    * Getter: Lấy vai trò vận hành phân cấp chính xác nhất của người dùng
-   * Trả về 1 trong 7 mã:
-   * 'SUPER_ADMIN' | 'OWNER' | 'FARM_MANAGER' | 'TECHNICAL_LEAD' | 'WAREHOUSE_KEEPER' | 'FARM_ACCOUNTANT' | 'FIELD_WORKER' | 'STAFF'
+   * Trả về 1 trong 8 mã:
+   * 'SUPER_ADMIN' | 'OWNER' | 'FARM_MANAGER' | 'ZONE_MANAGER' | 'TECHNICAL_LEAD' | 'WAREHOUSE_KEEPER' | 'FARM_ACCOUNTANT' | 'FIELD_WORKER' | 'STAFF'
    */
-  getOperationalRole: () => {
+  getOperationalRole: (farmId = null) => {
     const {
       isSuperAdmin,
       isOwner,
       isFarmManager,
+      isZoneManager,
       isFarmAccountant,
       isTechnicalLead,
       isWarehouseKeeper,
       isFieldWorker,
     } = get();
     if (isSuperAdmin()) return 'SUPER_ADMIN';
-    if (isFarmManager()) return 'FARM_MANAGER';
+    if (isFarmManager(farmId)) return 'FARM_MANAGER';
     if (isOwner()) return 'OWNER';
+    if (isZoneManager(farmId)) return 'ZONE_MANAGER';
     if (isFarmAccountant()) return 'FARM_ACCOUNTANT';
     if (isTechnicalLead()) return 'TECHNICAL_LEAD';
     if (isWarehouseKeeper()) return 'WAREHOUSE_KEEPER';
@@ -514,8 +548,8 @@ export const useAuthStore = create((set, get) => ({
   /**
    * Getter: Lấy siêu dữ liệu chi tiết của vai trò vận hành
    */
-  getOperationalRoleInfo: () => {
-    const role = get().getOperationalRole();
+  getOperationalRoleInfo: (farmId = null) => {
+    const role = get().getOperationalRole(farmId);
     switch (role) {
       case 'SUPER_ADMIN':
         return {
@@ -551,6 +585,18 @@ export const useAuthStore = create((set, get) => ({
           canSkipAttendance: false, // Bắt buộc chấm công GPS + Selfie hàng ngày
           isFarmLocked: true,       // Khóa chặt vào trang trại phụ trách
           canProxyAttendance: true,
+          isMobileFirst: false,
+        };
+      case 'ZONE_MANAGER':
+        return {
+          code: 'ZONE_MANAGER',
+          roleNumber: 3.5,
+          title: 'Trưởng Phân Khu / Tổ Trưởng Hiện Trường',
+          shortTitle: 'Trưởng Phân Khu',
+          badgeColor: 'bg-sky-100 text-sky-900 border-sky-300 font-bold',
+          canSkipAttendance: false,
+          isFarmLocked: true,
+          canProxyAttendance: true, // Điểm danh hộ tổ công nhân trong phân khu
           isMobileFirst: false,
         };
       case 'TECHNICAL_LEAD':

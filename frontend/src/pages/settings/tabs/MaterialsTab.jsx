@@ -22,8 +22,10 @@ import { extractApiErrors } from '@/utils/apiHelpers';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { CODE_PREFIXES, generateEntityCode } from '@/utils/codeGenerator';
 import { formatCurrency } from '@/utils/formatters';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 export function MaterialsTab() {
+  const { notifyDataChanged } = useActiveFarmStore();
   // Categories state
   const [categories, setCategories] = useState([]);
   const [selectedCatId, setSelectedCatId] = useState(null);
@@ -107,6 +109,8 @@ export function MaterialsTab() {
         await masterDataService.createMaterialCategory(catForm);
       }
       setCatModalOpen(false);
+      notifyDataChanged?.('inventory');
+      notifyDataChanged?.('all');
       fetchCategories();
     } catch (err) {
       applyServerFieldErrors(err, setCatErrors);
@@ -121,6 +125,8 @@ export function MaterialsTab() {
     try {
       await masterDataService.deleteMaterialCategory(id);
       if (selectedCatId === id) setSelectedCatId(null);
+      notifyDataChanged?.('inventory');
+      notifyDataChanged?.('all');
       fetchCategories();
     } catch (err) {
       const errInfo = extractApiErrors(err);
@@ -133,6 +139,8 @@ export function MaterialsTab() {
     if (!window.confirm('Bạn có chắc chắn muốn xóa mặt hàng vật tư này?')) return;
     try {
       await masterDataService.deleteMaterial(id);
+      notifyDataChanged?.('inventory');
+      notifyDataChanged?.('all');
       fetchMaterials();
     } catch (err) {
       const errInfo = extractApiErrors(err);
@@ -210,7 +218,7 @@ export function MaterialsTab() {
       className: 'text-right',
       render: (item) => (
         <div className="flex items-center justify-end gap-1">
-          <Can permission="PERM_INVENTORY_RECEIPT">
+          <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
             <button
               type="button"
               onClick={() => {
@@ -247,7 +255,7 @@ export function MaterialsTab() {
               Nhóm Vật Tư ({categories.length})
             </span>
           </div>
-          <Can permission="PERM_INVENTORY_RECEIPT">
+          <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
             <button
               type="button"
               onClick={() => {
@@ -299,7 +307,7 @@ export function MaterialsTab() {
                 <div className="text-[10px] text-slate-400 font-mono font-normal">{cat.code}</div>
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Can permission="PERM_INVENTORY_RECEIPT">
+                <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -344,7 +352,7 @@ export function MaterialsTab() {
             />
           </div>
 
-          <Can permission="PERM_INVENTORY_RECEIPT">
+          <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
             <Button
               type="button"
               variant="primary"
@@ -447,7 +455,11 @@ export function MaterialsTab() {
         onClose={() => setMaterialModalOpen(false)}
         editingItem={editingMaterial}
         categories={categories}
-        onSuccess={() => fetchMaterials()}
+        onSuccess={() => {
+          notifyDataChanged?.('inventory');
+          notifyDataChanged?.('all');
+          fetchMaterials();
+        }}
       />
     </div>
   );

@@ -313,6 +313,8 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                 .name(request.getName().trim())
                 .description(request.getDescription())
                 .status(status)
+                .areaM2(request.getAreaM2())
+                .capacity(request.getCapacity())
                 .createdAt(Instant.now())
                 .createdBy(SecurityUtils.getCurrentUserId())
                 .build();
@@ -344,6 +346,8 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
 
         location.setName(request.getName().trim());
         location.setDescription(request.getDescription());
+        location.setAreaM2(request.getAreaM2());
+        location.setCapacity(request.getCapacity());
         if (request.getStatus() != null) {
             String status = request.getStatus().toUpperCase();
             if (!VALID_LOCATION_STATUSES.contains(status)) {
@@ -436,6 +440,8 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                 .name(loc.getName())
                 .description(loc.getDescription())
                 .status(loc.getStatus())
+                .areaM2(loc.getAreaM2())
+                .capacity(loc.getCapacity())
                 .createdAt(loc.getCreatedAt())
                 .build();
     }

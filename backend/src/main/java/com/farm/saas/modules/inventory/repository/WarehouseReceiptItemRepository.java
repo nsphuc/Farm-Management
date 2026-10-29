@@ -8,4 +8,5 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface WarehouseReceiptItemRepository extends JpaRepository<WarehouseReceiptItem, Long>, JpaSpecificationExecutor<WarehouseReceiptItem> {
     java.util.List<WarehouseReceiptItem> findByReceiptId(Long receiptId);
+    boolean existsByMaterialId(Long materialId);
 }

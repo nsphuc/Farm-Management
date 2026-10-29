@@ -14,22 +14,33 @@ import {
   Sparkles,
   RotateCcw,
   ShieldCheck,
+  Pencil,
+  Ban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { Modal } from '@/components/ui/Modal';
 import { Can } from '@/components/common/Can';
 import { CompleteTaskModal } from './CompleteTaskModal';
 import { CreateTaskModal } from './CreateTaskModal';
 import { ReviewTaskModal } from './ReviewTaskModal';
 import { hrService } from '@/services/modules/hrService';
 import { formatDateTime } from '@/utils/formatters';
+import { toast } from '@/store/useToastStore';
 
-const KANBAN_COLUMNS = [
+const BASE_KANBAN_COLUMNS = [
   { id: 'TODO', label: 'Cần Làm (TODO)', color: 'border-slate-300 bg-slate-50/70', headerColor: 'text-slate-700' },
   { id: 'IN_PROGRESS', label: 'Đang Thực Hiện (IN_PROGRESS)', color: 'border-blue-300 bg-blue-50/40', headerColor: 'text-blue-700' },
   { id: 'PENDING_REVIEW', label: 'Chờ Nghiệm Thu (PENDING_REVIEW)', color: 'border-amber-300 bg-amber-50/40', headerColor: 'text-amber-700' },
   { id: 'DONE', label: 'Hoàn Thành (DONE)', color: 'border-emerald-300 bg-emerald-50/40', headerColor: 'text-emerald-700' },
 ];
+
+const CANCELLED_COLUMN = {
+  id: 'CANCELLED',
+  label: 'Đã Hủy (CANCELLED)',
+  color: 'border-rose-300 bg-rose-50/40',
+  headerColor: 'text-rose-700',
+};
 
 const TASK_TYPE_LABELS = {
   PLANTING: { label: 'Gieo Trồng / Tưới', color: 'bg-emerald-100 text-emerald-800' },
@@ -54,6 +65,7 @@ export function PersonalTaskKanban({
   employees = [],
   isTechnicalLead = false,
   isWarehouseKeeper = false,
+  isZoneManager = false,
   canManageTasks = true,
   onRefresh,
 }) {
@@ -63,8 +75,55 @@ export function PersonalTaskKanban({
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [initialTaskData, setInitialTaskData] = useState(null);
+  const [editingTask, setEditingTask] = useState(null);
+  const [cancellingTask, setCancellingTask] = useState(null);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [isCancelling, setIsCancelling] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
   const [typeFilter, setTypeFilter] = useState('ALL'); // ALL, ROUTINE, AD_HOC
+
+  const kanbanColumns = React.useMemo(() => {
+    return showCancelled ? [...BASE_KANBAN_COLUMNS, CANCELLED_COLUMN] : BASE_KANBAN_COLUMNS;
+  }, [showCancelled]);
+
+  const cancelledCount = React.useMemo(() => {
+    return tasks.filter((t) => t.status === 'CANCELLED').length;
+  }, [tasks]);
+
+  const handleEditTask = (task) => {
+    setInitialTaskData(null);
+    setEditingTask(task);
+    setIsCreateModalOpen(true);
+  };
+
+  const handleOpenCancelTask = (task) => {
+    setCancellingTask(task);
+    setCancelReason('');
+    setIsCancelModalOpen(true);
+  };
+
+  const handleConfirmCancelTask = async (e) => {
+    e?.preventDefault();
+    if (!cancelReason || cancelReason.trim().length < 3) {
+      toast.error('Vui lòng nhập lý do hủy nhiệm vụ (tối thiểu 3 ký tự)');
+      return;
+    }
+    try {
+      setIsCancelling(true);
+      await hrService.cancelTask(cancellingTask.id, cancelReason.trim());
+      toast.success(`Đã hủy nhiệm vụ "${cancellingTask.taskTitle}" thành công!`);
+      setIsCancelModalOpen(false);
+      setCancellingTask(null);
+      setCancelReason('');
+      onRefresh?.();
+    } catch (err) {
+      console.error('Cancel task error:', err);
+      toast.error('Lỗi khi hủy nhiệm vụ: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   // 1. Chuyển task sang IN_PROGRESS (Dành cho công nhân bắt đầu làm việc)
   const handleStartTask = async (taskId) => {
@@ -77,7 +136,7 @@ export function PersonalTaskKanban({
       onRefresh?.();
     } catch (err) {
       console.error('Start task error:', err);
-      alert('Không thể nhận việc: ' + (err.response?.data?.message || err.message));
+      toast.error('Không thể nhận việc: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -100,10 +159,11 @@ export function PersonalTaskKanban({
           : 'Xác nhận hoàn thành thực địa bởi Quản lý/Thủ kho sau kiểm tra trực tiếp',
         photosJson: task.photosJson,
       });
+      toast.success('Đã xác nhận hoàn thành công việc thành công!');
       onRefresh?.();
     } catch (err) {
       console.error('Confirm done error:', err);
-      alert('Lỗi xác nhận hoàn thành: ' + (err.response?.data?.message || err.message));
+      toast.error('Lỗi xác nhận hoàn thành: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -191,7 +251,22 @@ export function PersonalTaskKanban({
               </button>
             </div>
 
-            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+            {/* Toggle hiển thị việc đã hủy */}
+            <button
+              type="button"
+              onClick={() => setShowCancelled((prev) => !prev)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                showCancelled
+                  ? 'bg-rose-50 border-rose-300 text-rose-700 shadow-2xs'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              title="Bật/tắt hiển thị cột các công việc đã bị hủy"
+            >
+              <Ban className="h-3.5 w-3.5 text-rose-500" />
+              <span>Hiển thị việc đã hủy ({cancelledCount})</span>
+            </button>
+
+            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
               <Button
                 variant="primary"
                 size="sm"
@@ -199,6 +274,7 @@ export function PersonalTaskKanban({
                 icon={<Plus className="h-4 w-4" />}
                 onClick={() => {
                   setInitialTaskData(null);
+                  setEditingTask(null);
                   setIsCreateModalOpen(true);
                 }}
               >
@@ -208,16 +284,21 @@ export function PersonalTaskKanban({
           </div>
         </div>
 
-        {/* Nút Giao Việc Phát Sinh Nhanh Theo Vai Trò (Role 3 vs Role 4) */}
-        <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+        {/* Nút Giao Việc Phát Sinh Nhanh Theo Vai Trò (Role 3 vs Role 4 vs Trưởng phân khu) */}
+        <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
           <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-slate-500 font-medium flex items-center gap-1 text-[11px]">
               <Sparkles className="h-3.5 w-3.5 text-amber-500" />
               Giao nhanh việc phát sinh:
             </span>
+            {isZoneManager && (
+              <span className="rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 border border-emerald-300">
+                Trưởng Phân Khu / Tổ Trưởng
+              </span>
+            )}
 
             {/* Role 4: Thủ Kho */}
-            {(isWarehouseKeeper || (!isWarehouseKeeper && !isTechnicalLead)) && (
+            {(isWarehouseKeeper || (!isWarehouseKeeper && !isTechnicalLead && !isZoneManager)) && (
               <>
                 <button
                   type="button"
@@ -250,8 +331,8 @@ export function PersonalTaskKanban({
               </>
             )}
 
-            {/* Role 3: Kỹ Thuật */}
-            {(isTechnicalLead || (!isWarehouseKeeper && !isTechnicalLead)) && (
+            {/* Role 3 & Trưởng phân khu: Kỹ Thuật / Đồng ruộng */}
+            {(isTechnicalLead || isZoneManager || (!isWarehouseKeeper && !isTechnicalLead && !isZoneManager)) && (
               <>
                 <button
                   type="button"
@@ -301,9 +382,9 @@ export function PersonalTaskKanban({
         </Can>
       </div>
 
-      {/* Lưới 4 Cột Kanban */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {KANBAN_COLUMNS.map((col) => {
+      {/* Lưới 4 hoặc 5 Cột Kanban */}
+      <div className={`grid grid-cols-1 md:grid-cols-2 ${showCancelled ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
+        {kanbanColumns.map((col) => {
           const colTasks = visibleTasks.filter((t) => t.status === col.id);
 
           return (
@@ -444,9 +525,9 @@ export function PersonalTaskKanban({
                                 Bắt Đầu Nhiệm Vụ
                               </Button>
 
-                              {/* Nếu là Quản lý / Kỹ thuật và việc giao cho người Không có TK (Role 6B): Có thể bấm thẳng Hoàn thành */}
+                              {/* Nếu là Quản lý / Kỹ thuật / Trưởng phân khu và việc giao cho người Không có TK (Role 6B): Có thể bấm thẳng Hoàn thành */}
                               {canManageTasks && hasNoAccountWorker && (
-                                <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+                                <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
                                   <button
                                     type="button"
                                     onClick={() => handleDirectConfirmDoneNoAccount(task)}
@@ -476,9 +557,9 @@ export function PersonalTaskKanban({
                                 📸 Báo Cáo & Gửi Nghiệm Thu
                               </Button>
 
-                              {/* Quản lý / Kỹ thuật xác nhận làm xong trực tiếp tại thực địa cho Role 6B */}
+                              {/* Quản lý / Kỹ thuật / Trưởng phân khu xác nhận làm xong trực tiếp tại thực địa cho Role 6B */}
                               {canManageTasks && hasNoAccountWorker && (
-                                <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+                                <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
                                   <button
                                     type="button"
                                     onClick={() => handleDirectConfirmDoneNoAccount(task)}
@@ -492,10 +573,10 @@ export function PersonalTaskKanban({
                             </>
                           )}
 
-                          {/* Cột 3: PENDING_REVIEW (Chờ nghiệm thu - Quản lý / Kỹ thuật xem ảnh và duyệt) */}
+                          {/* Cột 3: PENDING_REVIEW (Chờ nghiệm thu - Quản lý / Kỹ thuật / Trưởng phân khu xem ảnh và duyệt) */}
                           {col.id === 'PENDING_REVIEW' && (
                             <div className="space-y-1">
-                              <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+                              <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
                                 <Button
                                   variant="success"
                                   size="sm"
@@ -518,6 +599,44 @@ export function PersonalTaskKanban({
                               ✓ ĐÃ HOÀN THÀNH
                             </div>
                           )}
+
+                          {/* Cột 5: CANCELLED */}
+                          {col.id === 'CANCELLED' && (
+                            <div className="text-center text-[10px] font-bold text-rose-800 bg-rose-50 py-1.5 px-2 rounded-lg border border-rose-200 space-y-0.5">
+                              <div>🚫 ĐÃ HỦY NHIỆM VỤ</div>
+                              {task.completionNotes && (
+                                <div className="font-normal text-[10px] text-rose-700 leading-tight">
+                                  <strong>Lý do:</strong> {task.completionNotes}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Các nút Sửa & Hủy việc dành cho Farm Manager, Technical Staff & Zone Manager (Chỉ khi task chưa DONE và chưa CANCELLED) */}
+                          {task.status !== 'DONE' && task.status !== 'CANCELLED' && (
+                            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
+                              <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-100">
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditTask(task)}
+                                  className="flex-1 py-1 px-2 rounded-lg text-[10px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors flex items-center justify-center gap-1"
+                                  title="Chỉnh sửa nhiệm vụ hiện trường"
+                                >
+                                  <Pencil className="h-3 w-3 text-slate-600" />
+                                  <span>Sửa</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenCancelTask(task)}
+                                  className="flex-1 py-1 px-2 rounded-lg text-[10px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors flex items-center justify-center gap-1"
+                                  title="Hủy nhiệm vụ"
+                                >
+                                  <Ban className="h-3 w-3 text-rose-600" />
+                                  <span>Hủy việc</span>
+                                </button>
+                              </div>
+                            </Can>
+                          )}
                         </div>
                       </div>
                     );
@@ -528,6 +647,68 @@ export function PersonalTaskKanban({
           );
         })}
       </div>
+
+      {/* Modal xác nhận lý do hủy việc */}
+      <Modal
+        isOpen={isCancelModalOpen}
+        onClose={() => {
+          setIsCancelModalOpen(false);
+          setCancellingTask(null);
+          setCancelReason('');
+        }}
+        title="Xác Nhận Hủy Nhiệm Vụ Hiện Trường"
+        subtitle={cancellingTask ? `Nhiệm vụ: ${cancellingTask.taskTitle}` : ''}
+        size="md"
+      >
+        <form onSubmit={handleConfirmCancelTask} className="space-y-4 text-xs">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 space-y-1 text-rose-900">
+            <span className="font-bold flex items-center gap-1.5 text-rose-800">
+              <AlertCircle className="h-4 w-4 text-rose-600" />
+              <span>Bạn có chắc chắn muốn hủy nhiệm vụ này?</span>
+            </span>
+            <p className="text-[11px] text-rose-700 leading-relaxed">
+              Nhiệm vụ sau khi hủy sẽ chuyển sang trạng thái CANCELLED và được lưu trữ lại trên hệ thống kèm lý do hủy để phục vụ đối soát, thống kê.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-800 mb-1">
+              Lý do hủy nhiệm vụ <span className="text-rose-500">*</span>
+            </label>
+            <textarea
+              className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500 bg-white"
+              rows={3}
+              placeholder="VD: Mưa bão hoãn bón phân / Điều động nhân sự sang dập dịch khẩn cấp..."
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => {
+                setIsCancelModalOpen(false);
+                setCancellingTask(null);
+                setCancelReason('');
+              }}
+              disabled={isCancelling}
+            >
+              Bỏ Qua
+            </Button>
+            <Button
+              variant="danger"
+              type="submit"
+              disabled={isCancelling}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-bold"
+            >
+              {isCancelling ? 'Đang hủy...' : 'Xác Nhận Hủy Việc'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Modal báo cáo hoàn thành gửi nghiệm thu (Chụp ảnh + Ghi chú) */}
       <CompleteTaskModal
@@ -548,18 +729,20 @@ export function PersonalTaskKanban({
         task={reviewTarget}
       />
 
-      {/* Modal giao việc mới / việc phát sinh */}
+      {/* Modal giao việc mới / Chỉnh sửa việc */}
       <CreateTaskModal
         isOpen={isCreateModalOpen}
         onClose={() => {
           setIsCreateModalOpen(false);
           setInitialTaskData(null);
+          setEditingTask(null);
         }}
         onSuccess={onRefresh}
         farmId={farmId}
         zones={zones}
         employees={employees}
         initialData={initialTaskData}
+        editingTask={editingTask}
       />
     </div>
   );

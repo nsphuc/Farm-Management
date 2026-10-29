@@ -14,4 +14,5 @@ public interface BudgetLineItemRepository extends JpaRepository<BudgetLineItem, 
     List<BudgetLineItem> findByBudgetId(Long budgetId);
 
     Optional<BudgetLineItem> findByBudgetIdAndCostCategoryId(Long budgetId, Long costCategoryId);
+    boolean existsByCostCategoryId(Long costCategoryId);
 }

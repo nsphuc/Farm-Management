@@ -33,6 +33,12 @@ export const financeService = {
     return res.data;
   },
 
+  cancelExpense: async (farmId, id, data = {}) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/expenses/${id}/cancel` : `/expenses/${id}/cancel`;
+    const res = await apiClient.post(url, data);
+    return res.data;
+  },
+
   allocateCost: async (farmId, expenseId, data) => {
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/expenses/${expenseId}/allocate` : `/expenses/${expenseId}/allocate`;
     const res = await apiClient.post(url, data);
@@ -69,6 +75,12 @@ export const financeService = {
   updateBudgetStatus: async (id, status, farmId) => {
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/budgets/${id}/status` : `/budgets/${id}/status`;
     const res = await apiClient.patch(url, null, { params: { status } });
+    return res.data;
+  },
+
+  rejectBudget: async (farmId, id, status = 'REVISED') => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/budgets/${id}/reject` : `/budgets/${id}/reject`;
+    const res = await apiClient.post(url, null, { params: { status } });
     return res.data;
   },
 
@@ -154,6 +166,11 @@ export const financeService = {
     return res.data;
   },
 
+  getSalesDeliveries: async (farmId, params = {}) => {
+    const res = await apiClient.get(`/farms/${farmId}/sales-deliveries`, { params });
+    return res.data;
+  },
+
   getDeliveryById: async (farmId, id) => {
     const res = await apiClient.get(`/farms/${farmId}/sales-deliveries/${id}`);
     return res.data;
@@ -164,13 +181,33 @@ export const financeService = {
     return res.data;
   },
 
-  dispatchDelivery: async (farmId, id) => {
-    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries/${id}/dispatch`);
+  createSalesDelivery: async (farmId, data) => {
+    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries`, data);
+    return res.data;
+  },
+
+  dispatchDelivery: async (farmId, id, data = {}) => {
+    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries/${id}/dispatch`, data);
+    return res.data;
+  },
+
+  dispatchSalesDelivery: async (farmId, id, data = {}) => {
+    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries/${id}/dispatch`, data);
     return res.data;
   },
 
   updateDeliveryPod: async (farmId, id, data) => {
     const res = await apiClient.post(`/farms/${farmId}/sales-deliveries/${id}/pod`, data);
+    return res.data;
+  },
+
+  cancelDelivery: async (farmId, id, data = {}) => {
+    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries/${id}/cancel`, data);
+    return res.data;
+  },
+
+  cancelSalesDelivery: async (farmId, id, data = {}) => {
+    const res = await apiClient.post(`/farms/${farmId}/sales-deliveries/${id}/cancel`, data);
     return res.data;
   },
 
@@ -197,6 +234,12 @@ export const financeService = {
   confirmPayment: async (farmId, id) => {
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/payments/${id}/confirm` : `/finance/payments/${id}/confirm`;
     const res = await apiClient.post(url);
+    return res.data;
+  },
+
+  cancelPayment: async (farmId, id, data = {}) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/payments/${id}/cancel` : `/finance/payments/${id}/cancel`;
+    const res = await apiClient.post(url, data);
     return res.data;
   },
 

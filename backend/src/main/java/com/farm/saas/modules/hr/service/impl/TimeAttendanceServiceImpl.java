@@ -4,6 +4,7 @@ import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.common.util.GeoDistanceUtils;
+import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
@@ -53,6 +54,9 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
     private final UserRepository userRepository;
     private final FarmAssignmentRepository farmAssignmentRepository;
     private final FarmSecurityEvaluator farmSecurity;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.notification.service.NotificationService notificationService;
 
     public TimeAttendanceServiceImpl(TimeAttendanceRepository timeAttendanceRepository,
                                     EmployeeRepository employeeRepository,
@@ -542,6 +546,44 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
         log.info("Completed batchRollCall: action={}, farmId={}, total={}, distance={}m",
                 action, farm.getId(), resultList.size(), distanceM);
 
+        // Bắn Notification SYSTEM cho Giám đốc trại và Kế toán trang trại
+        if (notificationService != null) {
+            try {
+                String notifTitle = "Hoàn tất điểm danh tổ hiện trường ngày " + targetWorkDate;
+                String notifMsg = "Trưởng phân khu / Tổ trưởng vừa hoàn tất điểm danh hàng loạt cho " + resultList.size() + " nhân sự tại trang trại.";
+                Set<Long> recipientUserIds = new HashSet<>();
+                if (farm.getManagerUserId() != null && !farm.getManagerUserId().equals(currentUserId)) {
+                    recipientUserIds.add(farm.getManagerUserId());
+                }
+                if (farmAssignmentRepository != null) {
+                    farmAssignmentRepository.findByFarmIdAndIsActiveTrue(farm.getId()).stream()
+                            .filter(a -> "ACCOUNTANT".equalsIgnoreCase(a.getRoleInFarm()))
+                            .map(FarmAssignment::getUserId)
+                            .filter(uid -> uid != null && !uid.equals(currentUserId))
+                            .forEach(recipientUserIds::add);
+                }
+                userRepository.findByUsername("accountant")
+                        .map(User::getId)
+                        .filter(uid -> !uid.equals(currentUserId))
+                        .ifPresent(recipientUserIds::add);
+
+                for (Long rId : recipientUserIds) {
+                    notificationService.sendNotification(
+                            tenantId,
+                            rId,
+                            notifTitle,
+                            notifMsg,
+                            "SYSTEM",
+                            "BATCH_ROLL_CALL",
+                            farm.getId(),
+                            "/app/my-dashboard"
+                    );
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to send batch roll-call notification: {}", ex.getMessage());
+            }
+        }
+
         return BatchRollCallResponse.builder()
                 .totalEmployees(request.getEmployeeIds().size())
                 .successCount(resultList.size())
@@ -564,7 +606,54 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
                     .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", requestedEmployeeId));
         }
         return employeeRepository.findByTenantIdAndUserId(tenantId, currentUserId)
+                .orElseGet(() -> autoProvisionEmployeeProfile(tenantId, currentUserId, null));
+    }
+
+    private Employee autoProvisionEmployeeProfile(Long tenantId, Long userId, Long farmIdHint) {
+        log.info("Tự phục hồi: Khởi tạo nhanh hồ sơ Employee cho tenantId={}, userId={}", tenantId, userId);
+        User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException("EMPLOYEE_PROFILE_REQUIRED", "Tài khoản hiện tại chưa được liên kết với hồ sơ nhân sự"));
+
+        Long farmId = farmIdHint;
+        if (farmId == null) {
+            if (farmAssignmentRepository != null) {
+                var assignments = farmAssignmentRepository.findByUserId(userId);
+                if (assignments != null && !assignments.isEmpty()) {
+                    farmId = assignments.get(0).getFarmId();
+                }
+            }
+            if (farmId == null) {
+                var farms = farmRepository.findByTenantId(tenantId);
+                if (farms != null && !farms.isEmpty()) {
+                    farmId = farms.get(0).getId();
+                }
+            }
+        }
+
+        String employeeCode = "EMP-SEED-" + userId;
+        if (employeeRepository.findByTenantIdAndEmployeeCode(tenantId, employeeCode).isPresent()) {
+            employeeCode = "EMP-SEED-" + userId + "-" + (System.currentTimeMillis() % 10000);
+        }
+
+        Employee employee = Employee.builder()
+                .tenantId(tenantId)
+                .farmId(farmId)
+                .userId(userId)
+                .employeeCode(employeeCode)
+                .fullName(user.getFullName() != null && !user.getFullName().isBlank() ? user.getFullName() : user.getUsername())
+                .phone(user.getPhone())
+                .email(user.getEmail())
+                .joinedDate(LocalDate.now())
+                .baseSalary(BigDecimal.ZERO)
+                .hourlyRate(BigDecimal.ZERO)
+                .contractType("FULL_TIME")
+                .annualLeaveQuota(new BigDecimal("12.0"))
+                .status("ACTIVE")
+                .createdAt(Instant.now())
+                .createdBy(userId)
+                .build();
+
+        return employeeRepository.save(employee);
     }
 
     private TimeAttendanceDetailResponse enrichDetailResponse(TimeAttendance a) {

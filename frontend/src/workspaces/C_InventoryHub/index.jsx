@@ -33,18 +33,25 @@ import { ReceiptDetailDrawer } from './components/ReceiptDetailDrawer';
 import { IssueDetailDrawer } from './components/IssueDetailDrawer';
 import { TransferDetailDrawer } from './components/TransferDetailDrawer';
 import { StocktakeDetailDrawer } from './components/StocktakeDetailDrawer';
+import { CreateReceiptModal } from './components/CreateReceiptModal';
+import { CreateIssueModal } from './components/CreateIssueModal';
+import { CreateTransferModal } from './components/CreateTransferModal';
+import { CreateStocktakeModal } from './components/CreateStocktakeModal';
 
 /**
  * Workspace C: Giám Sát Kho Vận & Quản Trị Tồn Kho Thời Gian Thực
  * Phân quyền phân cấp:
- * - isOwner === true / isFarmManager === true: 100% READ-ONLY, ẩn toàn bộ nút lập/sửa/hủy phiếu, hiển thị 4 KPI & 5 Tab tra cứu
- * - WAREHOUSE_STAFF (Thủ kho - Role 4): Có quyền tạo phiếu, quét mã, hoàn tất nhập/xuất/kiểm kê
+ * - isOwner === true: 100% READ-ONLY, ẩn toàn bộ nút lập/sửa/hủy phiếu, hiển thị 4 KPI & 5 Tab tra cứu
+ * - FARM_MANAGER (Giám đốc trại - Role 2): Quyền lập phiếu & quyền độc quyền phê duyệt (Checker)
+ * - WAREHOUSE_STAFF (Thủ kho - Role 4): Quyền lập phiếu (Maker), quét mã, kiểm đếm thực tế
  */
 export function InventoryHubWorkspace() {
-  const { isOwner, isFarmManager } = useAuthStore();
+  const { isOwner, isFarmManager, isTechnicalLead, hasPermission } = useAuthStore();
   const owner = isOwner();
   const farmManager = isFarmManager();
-  const isReadOnly = Boolean(owner || farmManager);
+  const technicalLead = isTechnicalLead();
+  const hasReceiptPerm = hasPermission('PERM_INVENTORY_RECEIPT');
+  const isReadOnly = Boolean(owner || technicalLead || !hasReceiptPerm);
 
   const { activeFarmId, syncTrigger } = useActiveFarmStore();
 
@@ -58,7 +65,7 @@ export function InventoryHubWorkspace() {
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Tab điều hướng: Đối với Giám đốc trại / Owner mặc định là 'STOCK' (Tồn kho thời gian thực)
+  // Tab điều hướng: Đối với Giám đốc trại / Owner / Kỹ thuật viên mặc định là 'STOCK' (Tồn kho thời gian thực)
   const [activeTab, setActiveTab] = useState(isReadOnly ? 'STOCK' : 'RECEIPTS');
 
   // Dữ liệu bảng & KPI
@@ -90,6 +97,12 @@ export function InventoryHubWorkspace() {
 
   const [selectedStocktake, setSelectedStocktake] = useState(null);
   const [isStocktakeDrawerOpen, setIsStocktakeDrawerOpen] = useState(false);
+
+  // Transaction Creation Modals state
+  const [isCreateReceiptOpen, setIsCreateReceiptOpen] = useState(false);
+  const [isCreateIssueOpen, setIsCreateIssueOpen] = useState(false);
+  const [isCreateTransferOpen, setIsCreateTransferOpen] = useState(false);
+  const [isCreateStocktakeOpen, setIsCreateStocktakeOpen] = useState(false);
 
   // 1. Nạp danh sách kho bãi khi đổi trang trại trên TopBar
   useEffect(() => {
@@ -192,7 +205,7 @@ export function InventoryHubWorkspace() {
 
   useEffect(() => {
     fetchInventoryHubData();
-  }, [activeFarmId, selectedWarehouseId, syncTrigger?.inventory]);
+  }, [activeFarmId, selectedWarehouseId, syncTrigger?.inventory, syncTrigger?.all]);
 
   // Lọc client-side bổ trợ theo ô tìm kiếm
   const filteredStock = stockItems.filter((i) => {
@@ -682,7 +695,7 @@ export function InventoryHubWorkspace() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-black text-slate-900 tracking-tight">
-                WS-C: Giám Sát Kho Vận & Quản Trị Tồn Kho
+                WS-C: {technicalLead ? 'Tra Cứu Tồn Kho Vật Tư' : 'Giám Sát Kho Vận & Quản Trị Tồn Kho'}
               </h1>
               {farmManager && (
                 <span className="rounded-full bg-blue-100 text-blue-900 px-2.5 py-0.5 text-[10px] font-bold border border-blue-200">
@@ -694,58 +707,65 @@ export function InventoryHubWorkspace() {
                   Chế Độ Giám Sát (Chủ Đầu Tư)
                 </span>
               )}
+              {technicalLead && (
+                <span className="rounded-full bg-emerald-100 text-emerald-900 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-300">
+                  🔬 Chế Độ Tra Cứu Kỹ Thuật
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Theo dõi biến động tồn kho thời gian thực, chi phí vật tư nhập mua và sổ thẻ kho bất biến
+              {technicalLead
+                ? 'Tra cứu tồn kho vật tư, số lô và hạn sử dụng theo thời gian thực để phục vụ lập kế hoạch canh tác và kê đơn thú y'
+                : 'Theo dõi biến động tồn kho thời gian thực, chi phí vật tư nhập mua và sổ thẻ kho bất biến'}
             </p>
           </div>
         </div>
 
-        {/* NÚT TẠO PHIẾU DÀNH RIÊNG CHO MAKER (ROLE_WAREHOUSE_STAFF) */}
+        {/* NÚT TẠO PHIẾU DÀNH CHO MAKER (ROLE_WAREHOUSE_STAFF) VÀ ROLE_FARM_MANAGER */}
         <div className="flex items-center gap-2">
           {activeTab === 'RECEIPTS' && (
-            <Can permission="PERM_INVENTORY_RECEIPT" role="ROLE_WAREHOUSE_STAFF">
+            <Can permission="PERM_INVENTORY_RECEIPT" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
               <Button
                 variant="primary"
                 size="sm"
                 icon={<Plus className="h-4 w-4" />}
-                onClick={() => alert('Thủ kho tạo phiếu nhập mua mới (DRAFT)')}
+                onClick={() => setIsCreateReceiptOpen(true)}
               >
                 + Lập Phiếu Kho
               </Button>
             </Can>
           )}
           {activeTab === 'ISSUES' && (
-            <Can permission="PERM_INVENTORY_ISSUE" role="ROLE_WAREHOUSE_STAFF">
+            <Can permission="PERM_INVENTORY_ISSUE" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
               <Button
                 variant="primary"
                 size="sm"
                 icon={<Plus className="h-4 w-4" />}
-                onClick={() => alert('Thủ kho tạo phiếu xuất kho mới (DRAFT)')}
+                onClick={() => setIsCreateIssueOpen(true)}
               >
                 + Lập Phiếu Xuất Kho
               </Button>
             </Can>
           )}
           {activeTab === 'TRANSFERS' && (
-            <Can permission="PERM_INVENTORY_TRANSFER" role="ROLE_WAREHOUSE_STAFF">
+            <Can permission="PERM_INVENTORY_TRANSFER" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
               <Button
                 variant="primary"
                 size="sm"
                 icon={<Plus className="h-4 w-4" />}
-                onClick={() => alert('Thủ kho tạo lệnh điều chuyển mới (DRAFT)')}
+                onClick={() => setIsCreateTransferOpen(true)}
               >
                 + Lập Lệnh Điều Chuyển
               </Button>
             </Can>
           )}
           {activeTab === 'STOCKTAKES' && (
-            <Can permission="PERM_INVENTORY_STOCKTAKE" role="ROLE_WAREHOUSE_STAFF">
+            <Can permission="PERM_INVENTORY_STOCKTAKE" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
               <Button
                 variant="primary"
                 size="sm"
                 icon={<Plus className="h-4 w-4" />}
-                onClick={() => alert('Thủ kho mở đợt kiểm kê kho mới (DRAFT)')}
+                onClick={() => setIsCreateStocktakeOpen(true)}
               >
                 + Mở Đợt Kiểm Kê
               </Button>
@@ -762,10 +782,10 @@ export function InventoryHubWorkspace() {
           <Info className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
           <div className="space-y-0.5 leading-relaxed">
             <strong className="block font-bold text-blue-950">
-              Chế độ Giám sát của Giám đốc trại:
+              Quyền Quản Trị Kho Vận của Giám Đốc Trại:
             </strong>
             <p className="text-blue-800">
-              Bạn đang theo dõi dữ liệu tồn kho và lịch sử giao dịch do Thủ kho trang trại cập nhật.
+              Bạn có quyền lập các phiếu kho khi cần, giám sát tiến độ của Thủ kho, và độc quyền phê duyệt hoàn tất các giao dịch kho vận (Nhập kho, Xuất kho, Xuất điều chuyển, Cân chỉnh kiểm kê).
             </p>
           </div>
         </div>
@@ -783,6 +803,23 @@ export function InventoryHubWorkspace() {
             </strong>
             <p className="text-blue-800">
               Mọi thao tác lập phiếu Nhập/Xuất/Kiểm kê vật tư được thực hiện bởi Thủ kho tại từng trang trại. Chủ đầu tư kiểm soát chi phí mua bán, giá trị hàng hóa và tính minh bạch của sổ thẻ kho bất biến.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 4. BANNER THÔNG TIN MÀU XANH LÁ DÀNH CHO KỸ SƯ KỸ THUẬT */}
+      {/* ======================================================== */}
+      {technicalLead && (
+        <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs text-emerald-900 shadow-2xs animate-in fade-in">
+          <Info className="h-4 w-4 shrink-0 text-emerald-700 mt-0.5" />
+          <div className="space-y-0.5 leading-relaxed">
+            <strong className="block font-bold text-emerald-950">
+              Chế độ Tra cứu Kỹ thuật:
+            </strong>
+            <p className="text-emerald-800">
+              Bạn đang xem tồn kho vật tư, số lô và hạn sử dụng theo thời gian thực để phục vụ lập kế hoạch canh tác và kê đơn thú y.
             </p>
           </div>
         </div>
@@ -1149,6 +1186,49 @@ export function InventoryHubWorkspace() {
         stocktake={selectedStocktake}
         farmId={queryFarmId}
         onSuccess={fetchInventoryHubData}
+      />
+
+      {/* 4 Modals tạo chứng từ giao dịch kho */}
+      <CreateReceiptModal
+        isOpen={isCreateReceiptOpen}
+        onClose={() => setIsCreateReceiptOpen(false)}
+        farmId={queryFarmId}
+        warehouses={warehouses}
+        defaultWarehouseId={selectedWarehouseId}
+        onSuccess={fetchInventoryHubData}
+      />
+
+      <CreateIssueModal
+        isOpen={isCreateIssueOpen}
+        onClose={() => setIsCreateIssueOpen(false)}
+        farmId={queryFarmId}
+        warehouses={warehouses}
+        defaultWarehouseId={selectedWarehouseId}
+        onSuccess={fetchInventoryHubData}
+      />
+
+      <CreateTransferModal
+        isOpen={isCreateTransferOpen}
+        onClose={() => setIsCreateTransferOpen(false)}
+        farmId={queryFarmId}
+        warehouses={warehouses}
+        defaultWarehouseId={selectedWarehouseId}
+        onSuccess={fetchInventoryHubData}
+      />
+
+      <CreateStocktakeModal
+        isOpen={isCreateStocktakeOpen}
+        onClose={() => setIsCreateStocktakeOpen(false)}
+        farmId={queryFarmId}
+        warehouses={warehouses}
+        defaultWarehouseId={selectedWarehouseId}
+        onSuccess={(created) => {
+          fetchInventoryHubData();
+          if (created && created.id) {
+            setSelectedStocktake(created);
+            setIsStocktakeDrawerOpen(true);
+          }
+        }}
       />
     </div>
   );

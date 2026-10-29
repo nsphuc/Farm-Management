@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 @Data
@@ -22,5 +23,7 @@ public class ZoneLocationResponse {
     private String name;
     private String description;
     private String status;
+    private BigDecimal areaM2;
+    private Integer capacity;
     private Instant createdAt;
 }

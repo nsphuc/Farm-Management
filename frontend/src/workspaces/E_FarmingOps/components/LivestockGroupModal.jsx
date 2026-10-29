@@ -23,6 +23,7 @@ export function LivestockGroupModal({
     groupCode: '',
     breedId: '',
     zoneId: '',
+    locationId: '',
     operationalCycleId: '',
     entryDate: new Date().toISOString().split('T')[0],
     initialQuantity: '',
@@ -31,6 +32,8 @@ export function LivestockGroupModal({
   });
 
   const [zones, setZones] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [isLoadingLocations, setIsLoadingLocations] = useState(false);
   const [cycles, setCycles] = useState([]);
   const [breeds, setBreeds] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -79,6 +82,25 @@ export function LivestockGroupModal({
     loadMetadata();
   }, [isOpen, farmId]);
 
+  // Tải danh sách Ô / Chuồng cụ thể thuộc phân khu
+  const loadLocationsForZone = async (zId) => {
+    if (!zId || !farmId) {
+      setLocations([]);
+      return;
+    }
+    try {
+      setIsLoadingLocations(true);
+      const res = await geographyService.getLocations(farmId, zId);
+      const list = Array.isArray(res) ? res : (res?.content || []);
+      setLocations(list);
+    } catch (err) {
+      console.error('Lỗi khi nạp vị trí ô chuồng:', err);
+      setLocations([]);
+    } finally {
+      setIsLoadingLocations(false);
+    }
+  };
+
   // Thiết lập form khi mở hoặc chuyển chế độ Thêm / Sửa
   useEffect(() => {
     if (!isOpen) return;
@@ -88,26 +110,32 @@ export function LivestockGroupModal({
         groupCode: editingGroup.groupCode || '',
         breedId: editingGroup.breedId ? String(editingGroup.breedId) : '',
         zoneId: editingGroup.zoneId ? String(editingGroup.zoneId) : '',
+        locationId: editingGroup.locationId ? String(editingGroup.locationId) : '',
         operationalCycleId: editingGroup.operationalCycleId ? String(editingGroup.operationalCycleId) : '',
         entryDate: editingGroup.entryDate ? String(editingGroup.entryDate).split('T')[0] : '',
         initialQuantity: editingGroup.initialQuantity ? String(editingGroup.initialQuantity) : '',
         currentQuantity: editingGroup.currentQuantity ? String(editingGroup.currentQuantity) : '',
         avgInitialWeightKg: editingGroup.avgInitialWeightKg ? String(editingGroup.avgInitialWeightKg) : '',
       });
+      if (editingGroup.zoneId) {
+        loadLocationsForZone(editingGroup.zoneId);
+      }
     } else {
       setFormData({
         groupCode: generateEntityCode(CODE_PREFIXES.LIVESTOCK_GROUP),
         breedId: '',
         zoneId: '',
+        locationId: '',
         operationalCycleId: '',
         entryDate: new Date().toISOString().split('T')[0],
         initialQuantity: '',
         currentQuantity: '',
         avgInitialWeightKg: '',
       });
+      setLocations([]);
     }
     setErrors({});
-  }, [isOpen, editingGroup]);
+  }, [isOpen, editingGroup, farmId]);
 
   // Tìm Trưởng phân khu phụ trách cho từng zone
   const getZoneManagerName = (zoneId) => {
@@ -152,6 +180,7 @@ export function LivestockGroupModal({
       if (editingGroup) {
         await farmingService.updateLivestockGroup(farmId, editingGroup.id, {
           zoneId: Number(formData.zoneId),
+          locationId: formData.locationId ? Number(formData.locationId) : null,
           currentQuantity: formData.currentQuantity ? Number(formData.currentQuantity) : Number(formData.initialQuantity),
           status: editingGroup.status,
         });
@@ -159,6 +188,7 @@ export function LivestockGroupModal({
       } else {
         const payload = {
           zoneId: Number(formData.zoneId),
+          locationId: formData.locationId ? Number(formData.locationId) : null,
           operationalCycleId: formData.operationalCycleId ? Number(formData.operationalCycleId) : null,
           groupCode: formData.groupCode.trim(),
           breedId: Number(formData.breedId),
@@ -169,7 +199,10 @@ export function LivestockGroupModal({
         toast.success(`Khởi tạo đàn nuôi ${payload.groupCode} thành công! Dữ liệu đã chuyển sang bàn làm việc của Bác sĩ thú y / Trưởng khu.`);
       }
 
+      // Thông báo đồng bộ dữ liệu liên Workspace (WS-E <-> WS-A)
+      notifyDataChanged('all');
       notifyDataChanged('zones');
+      notifyDataChanged('locations');
       notifyDataChanged('groups');
 
       if (onSuccess) onSuccess();
@@ -268,7 +301,15 @@ export function LivestockGroupModal({
             <Select
               name="zoneId"
               value={formData.zoneId}
-              onChange={(e) => setFormData({ ...formData, zoneId: e.target.value })}
+              onChange={(e) => {
+                const zId = e.target.value;
+                setFormData((prev) => ({ ...prev, zoneId: zId, locationId: '' }));
+                if (zId) {
+                  loadLocationsForZone(zId);
+                } else {
+                  setLocations([]);
+                }
+              }}
             >
               <option value="">-- Chọn ô chuồng / phân khu --</option>
               {zones.map((zone) => {
@@ -279,6 +320,34 @@ export function LivestockGroupModal({
                   </option>
                 );
               })}
+            </Select>
+          </FormField>
+        </div>
+
+        {/* Ô chuồng / Vị trí cụ thể (locationId) */}
+        <div>
+          <FormField
+            label="Ô chuồng / Vị trí cụ thể (locationId - Tùy chọn)"
+            hint={
+              isLoadingLocations
+                ? 'Đang nạp danh sách ô chuồng...'
+                : locations.length > 0
+                ? 'Tự động đồng bộ trạng thái OCCUPIED sang Sơ đồ vị trí (WS-A)'
+                : 'Khu chuồng này chưa chia các ô cụ thể'
+            }
+          >
+            <Select
+              name="locationId"
+              value={formData.locationId}
+              onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
+              disabled={!formData.zoneId || isLoadingLocations}
+            >
+              <option value="">-- Toàn bộ khu chuồng (hoặc chưa chọn ô cụ thể) --</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name} ({loc.code}) - {loc.status === 'OCCUPIED' ? '⚠️ Đang nuôi (OCCUPIED)' : '✅ Còn trống (EMPTY)'}
+                </option>
+              ))}
             </Select>
           </FormField>
         </div>

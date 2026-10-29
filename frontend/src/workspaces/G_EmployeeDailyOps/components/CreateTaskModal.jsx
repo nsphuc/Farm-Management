@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Save, AlertCircle, CheckSquare, Users, ShieldAlert } from 'lucide-react';
+import { Plus, Save, AlertCircle, CheckSquare, Users, ShieldAlert, Pencil } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
 import { Can } from '@/components/common/Can';
 import { hrService } from '@/services/modules/hrService';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { toast } from '@/store/useToastStore';
 
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
@@ -33,7 +34,9 @@ export function CreateTaskModal({
   zones = [],
   employees = [],
   initialData = null,
+  editingTask = null,
 }) {
+  const isEditing = Boolean(editingTask);
   const { activeFarmType, farms } = useActiveFarmStore();
   const currentFarmType = (farmId ? farms.find((f) => Number(f.id || f.farmId) === Number(farmId))?.farmType : null) || activeFarmType || 'MIXED';
 
@@ -68,7 +71,36 @@ export function CreateTaskModal({
 
   useEffect(() => {
     if (isOpen) {
-      if (initialData) {
+      if (editingTask) {
+        const assignedIds = (editingTask.assignees && editingTask.assignees.length > 0)
+          ? editingTask.assignees.map((a) => a.employeeId)
+          : (editingTask.assignedToEmployeeId ? [editingTask.assignedToEmployeeId] : []);
+        const leaderId = editingTask.assignedToEmployeeId
+          ? String(editingTask.assignedToEmployeeId)
+          : (editingTask.assignees?.find((a) => a.roleInTask === 'LEADER')?.employeeId
+              ? String(editingTask.assignees.find((a) => a.roleInTask === 'LEADER').employeeId)
+              : (assignedIds[0] ? String(assignedIds[0]) : ''));
+
+        let deadlineFormatted = '';
+        if (editingTask.deadline) {
+          try {
+            deadlineFormatted = new Date(editingTask.deadline).toISOString().slice(0, 16);
+          } catch {
+            deadlineFormatted = '';
+          }
+        }
+
+        setFormData({
+          zoneId: editingTask.zoneId ? String(editingTask.zoneId) : (zones[0]?.id ? String(zones[0].id) : ''),
+          taskTitle: editingTask.taskTitle || '',
+          taskType: editingTask.taskType || defaultTaskType,
+          priority: editingTask.priority || 'MEDIUM',
+          deadline: deadlineFormatted || new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16),
+          completionNotes: editingTask.completionNotes || '',
+          selectedEmployeeIds: assignedIds,
+          leaderEmployeeId: leaderId,
+        });
+      } else if (initialData) {
         setFormData({
           zoneId: initialData.zoneId ? String(initialData.zoneId) : (zones[0]?.id ? String(zones[0].id) : ''),
           taskTitle: initialData.taskTitle || '',
@@ -94,7 +126,7 @@ export function CreateTaskModal({
       setErrors({});
       setGeneralError(null);
     }
-  }, [isOpen, initialData, zones, employees, defaultTaskType]);
+  }, [isOpen, editingTask, initialData, zones, employees, defaultTaskType]);
 
   const handleToggleEmployee = (empId) => {
     setFormData((prev) => {
@@ -140,8 +172,9 @@ export function CreateTaskModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
-    if (!farmId || farmId === 'ALL' || Number.isNaN(Number(farmId))) {
-      setGeneralError('Vui lòng chọn trang trại cụ thể để tạo công việc');
+    const targetFarmId = farmId || editingTask?.farmId;
+    if (!targetFarmId || targetFarmId === 'ALL' || Number.isNaN(Number(targetFarmId))) {
+      setGeneralError('Vui lòng chọn trang trại cụ thể để thực hiện giao việc');
       return;
     }
 
@@ -154,20 +187,29 @@ export function CreateTaskModal({
         roleInTask: String(empId) === String(formData.leaderEmployeeId) ? 'LEADER' : 'MEMBER',
       }));
 
-      await hrService.createTask(farmId, {
+      const payload = {
         zoneId: formData.zoneId ? Number(formData.zoneId) : null,
         taskTitle: formData.taskTitle.trim(),
         taskType: formData.taskType,
         priority: formData.priority,
         deadline: new Date(formData.deadline).toISOString(),
         assignedToEmployeeId: formData.leaderEmployeeId ? Number(formData.leaderEmployeeId) : null,
+        completionNotes: formData.completionNotes?.trim() || null,
         assignees: assigneesPayload,
-      });
+      };
+
+      if (isEditing) {
+        await hrService.updateTask(targetFarmId, editingTask.id, payload);
+        toast.success('Đã cập nhật nhiệm vụ hiện trường thành công!');
+      } else {
+        await hrService.createTask(targetFarmId, payload);
+        toast.success('Đã giao nhiệm vụ hiện trường thành công!');
+      }
 
       onSuccess?.();
       onClose();
     } catch (err) {
-      console.error('Create task error:', err);
+      console.error('Save task error:', err);
       const msg = applyServerFieldErrors(err, setErrors);
       setGeneralError(msg);
     } finally {
@@ -180,9 +222,9 @@ export function CreateTaskModal({
       isOpen={isOpen}
       onClose={onClose}
       size="lg"
-      title="Giao Nhiệm Vụ Hiện Trường Mới"
-      subtitle="Phân công công việc, chỉ tiêu kỹ thuật & hạn chót cho nhân sự"
-      icon={<CheckSquare className="h-5 w-5 text-emerald-600" />}
+      title={isEditing ? 'Chỉnh Sửa Nhiệm Vụ Hiện Trường' : 'Giao Nhiệm Vụ Hiện Trường Mới'}
+      subtitle={isEditing ? 'Cập nhật nội dung công việc, phân khu, ưu tiên hoặc nhân sự phụ trách' : 'Phân công công việc, chỉ tiêu kỹ thuật & hạn chót cho nhân sự'}
+      icon={isEditing ? <Pencil className="h-5 w-5 text-blue-600" /> : <CheckSquare className="h-5 w-5 text-emerald-600" />}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {generalError && (
@@ -237,6 +279,15 @@ export function CreateTaskModal({
             type="datetime-local"
             value={formData.deadline}
             onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
+          />
+        </FormField>
+
+        <FormField label="Chỉ Tiêu Kỹ Thuật / Hướng Dẫn Thực Hiện" error={errors.completionNotes}>
+          <Textarea
+            rows={2}
+            value={formData.completionNotes}
+            onChange={(e) => setFormData({ ...formData, completionNotes: e.target.value })}
+            placeholder="VD: Sử dụng 50kg phân vi sinh pha tỷ lệ 1:200, hoàn thành trước 11h trưa..."
           />
         </FormField>
 
@@ -307,16 +358,16 @@ export function CreateTaskModal({
           <Button variant="outline" size="md" onClick={onClose} disabled={isSubmitting}>
             Hủy Bỏ
           </Button>
-          <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+          <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
             <Button
               type="submit"
               variant="primary"
               size="md"
               icon={<Save className="h-4 w-4" />}
               isLoading={isSubmitting}
-              loadingText="Đang giao việc..."
+              loadingText={isEditing ? 'Đang lưu thay đổi...' : 'Đang giao việc...'}
             >
-              Xác Nhận Giao Nhiệm Vụ
+              {isEditing ? 'Lưu Thay Đổi Nhiệm Vụ' : 'Xác Nhận Giao Nhiệm Vụ'}
             </Button>
           </Can>
         </div>

@@ -1,5 +1,6 @@
 package com.farm.saas.modules.hr.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -15,10 +16,12 @@ import java.time.LocalDate;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class CreateEmployeeRequest {
 
     private Long farmId;
     private Long assignedZoneId;
+    private Long zoneId;
 
     @NotBlank(message = "Mã nhân viên không được để trống")
     private String employeeCode;
@@ -69,4 +72,15 @@ public class CreateEmployeeRequest {
     private String username;
     private String initialPassword;
     private String roleCode;
+
+    public Long getAssignedZoneId() {
+        return assignedZoneId != null ? assignedZoneId : zoneId;
+    }
+
+    public void setZoneId(Long zoneId) {
+        this.zoneId = zoneId;
+        if (this.assignedZoneId == null) {
+            this.assignedZoneId = zoneId;
+        }
+    }
 }

@@ -7,11 +7,15 @@ import com.farm.saas.common.exception.InsufficientStockException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.livestock.service.LivestockService;
+import com.farm.saas.modules.finance.service.BudgetService;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.finance.entity.FarmExpense;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
+import com.farm.saas.modules.geography.entity.ProductionZone;
 import com.farm.saas.modules.geography.repository.OperationalCycleRepository;
 import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
+import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
+import com.farm.saas.modules.crop.repository.CropSeasonRepository;
 import com.farm.saas.modules.inventory.entity.WarehouseInventory;
 import com.farm.saas.modules.inventory.entity.WarehouseInventoryTransaction;
 import com.farm.saas.modules.inventory.entity.WarehouseIssue;
@@ -60,6 +64,8 @@ public class LivestockServiceImpl implements LivestockService {
     private final LivestockBreedRepository livestockBreedRepository;
     private final ProductionZoneRepository productionZoneRepository;
     private final OperationalCycleRepository operationalCycleRepository;
+    private final ZoneLocationRepository zoneLocationRepository;
+    private final CropSeasonRepository cropSeasonRepository;
     private final MaterialRepository materialRepository;
     private final WarehouseRepository warehouseRepository;
     private final WarehouseInventoryRepository warehouseInventoryRepository;
@@ -68,6 +74,7 @@ public class LivestockServiceImpl implements LivestockService {
     private final WarehouseInventoryTransactionRepository warehouseInventoryTransactionRepository;
     private final CostCategoryRepository costCategoryRepository;
     private final FarmExpenseRepository farmExpenseRepository;
+    private final BudgetService budgetService;
     private final com.farm.saas.modules.hr.service.FarmTaskService farmTaskService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
@@ -104,7 +111,11 @@ public class LivestockServiceImpl implements LivestockService {
     @Override
     @Transactional
     public LivestockGroupDetailResponse createGroup(Long farmId, CreateLivestockGroupRequest request) {
-        Long tenantId = SecurityUtils.getCurrentTenantId();
+        final Long tenantId = (SecurityUtils.getCurrentTenantId() != null)
+                ? SecurityUtils.getCurrentTenantId()
+                : productionZoneRepository.findById(request.getZoneId())
+                        .map(ProductionZone::getTenantId)
+                        .orElse(1L);
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
         String groupCode = request.getGroupCode();
@@ -132,6 +143,26 @@ public class LivestockServiceImpl implements LivestockService {
                 .build();
 
         group = livestockGroupRepository.save(group);
+
+        // Đồng bộ zone_locations sang OCCUPIED
+        if (request.getLocationId() != null) {
+            zoneLocationRepository.findById(request.getLocationId()).ifPresent(loc -> {
+                if (Objects.equals(loc.getZoneId(), request.getZoneId()) && (tenantId == null || tenantId.equals(loc.getTenantId()))) {
+                    loc.setStatus("OCCUPIED");
+                    loc.setUpdatedAt(Instant.now());
+                    zoneLocationRepository.save(loc);
+                }
+            });
+        } else if (request.getZoneId() != null) {
+            var locs = zoneLocationRepository.findByZoneId(request.getZoneId());
+            if (locs.size() == 1 && "EMPTY".equalsIgnoreCase(locs.get(0).getStatus())) {
+                var singleLoc = locs.get(0);
+                singleLoc.setStatus("OCCUPIED");
+                singleLoc.setUpdatedAt(Instant.now());
+                zoneLocationRepository.save(singleLoc);
+            }
+        }
+
         log.info("Created livestock group id={}, code={} on farmId={}", group.getId(), group.getGroupCode(), farmId);
         return mapToGroupDetailResponse(group);
     }
@@ -139,8 +170,19 @@ public class LivestockServiceImpl implements LivestockService {
     @Override
     @Transactional
     public LivestockGroupDetailResponse updateGroup(Long farmId, Long id, UpdateLivestockGroupRequest request) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         LivestockGroup group = findGroupOrThrow(farmId, id);
 
+        final Long targetZoneId = group.getZoneId();
+        if (request.getLocationId() != null) {
+            zoneLocationRepository.findById(request.getLocationId()).ifPresent(loc -> {
+                if (Objects.equals(loc.getZoneId(), targetZoneId) && (tenantId == null || tenantId.equals(loc.getTenantId()))) {
+                    loc.setStatus("OCCUPIED");
+                    loc.setUpdatedAt(Instant.now());
+                    zoneLocationRepository.save(loc);
+                }
+            });
+        }
         if (request.getZoneId() != null) {
             group.setZoneId(request.getZoneId());
         }
@@ -156,9 +198,10 @@ public class LivestockServiceImpl implements LivestockService {
         group.setUpdatedBy(SecurityUtils.getCurrentUserId());
         group = livestockGroupRepository.save(group);
 
-        if (("SOLD".equalsIgnoreCase(group.getStatus()) || "CULLED".equalsIgnoreCase(group.getStatus()))
+        if (("SOLD".equalsIgnoreCase(group.getStatus()) || "CULLED".equalsIgnoreCase(group.getStatus()) || "CLOSED".equalsIgnoreCase(group.getStatus()))
                 && !group.getStatus().equalsIgnoreCase(oldStatus)) {
             farmTaskService.cancelPendingRoutineTasksForZone(farmId, group.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+            releaseZoneLocationsIfEmpty(tenantId, farmId, group.getZoneId());
         }
 
         return mapToGroupDetailResponse(group);
@@ -167,6 +210,7 @@ public class LivestockServiceImpl implements LivestockService {
     @Override
     @Transactional
     public LivestockGroupDetailResponse closeGroup(Long farmId, Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         LivestockGroup group = findGroupOrThrow(farmId, id);
         if ("SOLD".equalsIgnoreCase(group.getStatus()) || "CULLED".equalsIgnoreCase(group.getStatus())) {
             throw new BusinessException("GROUP_ALREADY_CLOSED", "Đàn nuôi đã ở trạng thái kết thúc: " + group.getStatus());
@@ -178,6 +222,8 @@ public class LivestockServiceImpl implements LivestockService {
         group = livestockGroupRepository.save(group);
 
         farmTaskService.cancelPendingRoutineTasksForZone(farmId, group.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+        releaseZoneLocationsIfEmpty(tenantId, farmId, group.getZoneId());
+
         log.info("Closed / sold livestock group id={} on farmId={}", group.getId(), farmId);
         return mapToGroupDetailResponse(group);
     }
@@ -260,6 +306,15 @@ public class LivestockServiceImpl implements LivestockService {
         }
         if (StringUtils.hasText(request.getGender())) {
             individual.setGender(request.getGender());
+        }
+        if (request.getBirthDate() != null) {
+            individual.setBirthDate(request.getBirthDate());
+        }
+        if (request.getMotherTagCode() != null) {
+            individual.setMotherTagCode(request.getMotherTagCode());
+        }
+        if (request.getFatherTagCode() != null) {
+            individual.setFatherTagCode(request.getFatherTagCode());
         }
         if (request.getCurrentWeightKg() != null) {
             individual.setCurrentWeightKg(request.getCurrentWeightKg());
@@ -451,7 +506,12 @@ public class LivestockServiceImpl implements LivestockService {
         }
 
         int withdrawalDays = request.getWithdrawalDays() != null ? request.getWithdrawalDays() : 0;
-        LocalDate withdrawalEndDate = withdrawalDays > 0 ? request.getEventDate().plusDays(withdrawalDays) : null;
+        LocalDate withdrawalEndDate = request.getWithdrawalEndDate();
+        if (withdrawalEndDate == null && withdrawalDays > 0) {
+            withdrawalEndDate = request.getEventDate().plusDays(withdrawalDays);
+        } else if (withdrawalEndDate != null && withdrawalDays == 0) {
+            withdrawalDays = Math.max(0, (int) ChronoUnit.DAYS.between(request.getEventDate(), withdrawalEndDate));
+        }
         boolean isQuarantined = Boolean.TRUE.equals(request.getIsQuarantined());
 
         // 2. Quarantine update
@@ -469,26 +529,75 @@ public class LivestockServiceImpl implements LivestockService {
             }
         }
 
-        // 3. Fluctuation in group quantity if BIRTH or SLAUGHTER
-        if (request.getLivestockGroupId() != null && StringUtils.hasText(request.getDetailsJson())) {
-            try {
-                Map<String, Object> details = objectMapper.readValue(request.getDetailsJson(), new TypeReference<>() {});
-                if ("BIRTH".equals(request.getEventType()) && details.containsKey("birth_count")) {
-                    int count = Integer.parseInt(details.get("birth_count").toString());
-                    livestockGroupRepository.findById(request.getLivestockGroupId()).ifPresent(g -> {
-                        g.setCurrentQuantity(g.getCurrentQuantity() + count);
-                        livestockGroupRepository.save(g);
-                    });
-                } else if ("SLAUGHTER".equals(request.getEventType()) && details.containsKey("slaughter_count")) {
-                    int count = Integer.parseInt(details.get("slaughter_count").toString());
-                    livestockGroupRepository.findById(request.getLivestockGroupId()).ifPresent(g -> {
-                        int newQty = Math.max(0, g.getCurrentQuantity() - count);
-                        g.setCurrentQuantity(newQty);
-                        livestockGroupRepository.save(g);
-                    });
+        // 3. Fluctuation in group quantity and health status
+        int affected = request.getHeadCountAffected() != null ? request.getHeadCountAffected() : 0;
+        if (request.getLivestockGroupId() != null) {
+            if (affected == 0 && StringUtils.hasText(request.getDetailsJson())) {
+                try {
+                    Map<String, Object> details = objectMapper.readValue(request.getDetailsJson(), new TypeReference<>() {});
+                    if (details.containsKey("birth_count")) {
+                        affected = Integer.parseInt(details.get("birth_count").toString());
+                    } else if (details.containsKey("slaughter_count")) {
+                        affected = Integer.parseInt(details.get("slaughter_count").toString());
+                    } else if (details.containsKey("affected_count")) {
+                        affected = Integer.parseInt(details.get("affected_count").toString());
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to parse detailsJson for livestock quantity adjustments", e);
                 }
-            } catch (Exception e) {
-                log.warn("Failed to parse detailsJson for livestock quantity adjustments", e);
+            }
+
+            if (affected > 0) {
+                final int finalAffected = affected;
+                livestockGroupRepository.findById(request.getLivestockGroupId()).ifPresent(g -> {
+                    if ("MORTALITY".equals(request.getEventType()) || "CULLING".equals(request.getEventType())
+                            || "SOLD".equals(request.getEventType()) || "SLAUGHTER".equals(request.getEventType())) {
+                        int newQty = Math.max(0, g.getCurrentQuantity() - finalAffected);
+                        g.setCurrentQuantity(newQty);
+                        if (newQty == 0 && ("SOLD".equals(request.getEventType()) || "CULLING".equals(request.getEventType()) || "SLAUGHTER".equals(request.getEventType()))) {
+                            g.setStatus("SOLD");
+                        }
+                        livestockGroupRepository.save(g);
+                    } else if ("BIRTH".equals(request.getEventType())) {
+                        g.setCurrentQuantity(g.getCurrentQuantity() + finalAffected);
+                        livestockGroupRepository.save(g);
+                    }
+                });
+            }
+        } else if (request.getLivestockIndividualId() != null) {
+            livestockIndividualRepository.findById(request.getLivestockIndividualId()).ifPresent(ind -> {
+                if ("MORTALITY".equals(request.getEventType())) {
+                    ind.setHealthStatus("DEAD");
+                    livestockIndividualRepository.save(ind);
+                } else if ("CULLING".equals(request.getEventType())) {
+                    ind.setHealthStatus("CULLED");
+                    livestockIndividualRepository.save(ind);
+                } else if ("SOLD".equals(request.getEventType()) || "SLAUGHTER".equals(request.getEventType())) {
+                    ind.setHealthStatus("SOLD");
+                    livestockIndividualRepository.save(ind);
+                } else if ("DISEASE_TREATMENT".equals(request.getEventType()) || "MEDICAL_TREATMENT".equals(request.getEventType())) {
+                    ind.setHealthStatus("TREATING");
+                    livestockIndividualRepository.save(ind);
+                }
+            });
+        }
+
+        String detailsJson = request.getDetailsJson();
+        if (request.getHeadCountAffected() != null || request.getTotalCost() != null) {
+            try {
+                Map<String, Object> map = new HashMap<>();
+                if (StringUtils.hasText(detailsJson)) {
+                    map = objectMapper.readValue(detailsJson, new TypeReference<>() {});
+                }
+                if (request.getHeadCountAffected() != null) {
+                    map.put("head_count_affected", request.getHeadCountAffected());
+                }
+                if (request.getTotalCost() != null) {
+                    map.put("total_cost", request.getTotalCost());
+                }
+                detailsJson = objectMapper.writeValueAsString(map);
+            } catch (Exception ex) {
+                log.warn("Failed to serialize detailsJson with headCountAffected/totalCost", ex);
             }
         }
 
@@ -504,7 +613,7 @@ public class LivestockServiceImpl implements LivestockService {
                 .withdrawalDays(withdrawalDays)
                 .withdrawalEndDate(withdrawalEndDate)
                 .isQuarantined(isQuarantined)
-                .detailsJson(request.getDetailsJson())
+                .detailsJson(detailsJson)
                 .veterinarianUserId(request.getVeterinarianUserId() != null ? request.getVeterinarianUserId() : currentUserId)
                 .isInventoryBackflushed(false)
                 .createdAt(Instant.now())
@@ -670,11 +779,50 @@ public class LivestockServiceImpl implements LivestockService {
                         .createdBy(currentUserId)
                         .build();
 
-                farmExpenseRepository.save(expense);
+                expense = farmExpenseRepository.save(expense);
+                budgetService.consumeBudgetForConfirmedExpense(expense);
             }
 
             event.setIsInventoryBackflushed(true);
             event = livestockEventRepository.save(event);
+        }
+
+        // 6. External Veterinary Service Expense (totalCost)
+        if (request.getTotalCost() != null && request.getTotalCost().compareTo(BigDecimal.ZERO) > 0) {
+            CostCategory serviceCat = costCategoryRepository.findByTenantIdAndCostType(tenantId, "SERVICES")
+                    .stream().findFirst()
+                    .orElseGet(() -> {
+                        CostCategory newCat = CostCategory.builder()
+                                .tenantId(tenantId)
+                                .name("Chi phí Dịch vụ Thú y")
+                                .code("VET-SERVICE")
+                                .costType("SERVICES")
+                                .createdAt(Instant.now())
+                                .createdBy(currentUserId)
+                                .build();
+                        return costCategoryRepository.save(newCat);
+                    });
+
+            String svcExpCode = "EXP-SVC-LIVE-" + LocalDate.now().toString().replace("-", "") + "-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+            FarmExpense svcExpense = FarmExpense.builder()
+                    .tenantId(tenantId)
+                    .farmId(farmId)
+                    .costCategoryId(serviceCat.getId())
+                    .expenseCode(svcExpCode)
+                    .expenseSource("VET_SERVICE")
+                    .referenceId(event.getId())
+                    .livestockGroupId(event.getLivestockGroupId())
+                    .expenseDate(request.getEventDate())
+                    .amount(request.getTotalCost())
+                    .unitCostEligible(true)
+                    .status("CONFIRMED")
+                    .notes("Chi phí dịch vụ thú y khám/tiêm sự kiện #" + event.getId())
+                    .createdAt(Instant.now())
+                    .createdBy(currentUserId)
+                    .build();
+
+            svcExpense = farmExpenseRepository.save(svcExpense);
+            budgetService.consumeBudgetForConfirmedExpense(svcExpense);
         }
 
         log.info("Created livestock event id={} type={} on farmId={}", event.getId(), event.getEventType(), farmId);
@@ -867,6 +1015,36 @@ public class LivestockServiceImpl implements LivestockService {
         group.setUpdatedAt(Instant.now());
         group.setUpdatedBy(SecurityUtils.getCurrentUserId());
         livestockGroupRepository.save(group);
+
+        farmTaskService.cancelPendingRoutineTasksForZone(farmId, group.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+        releaseZoneLocationsIfEmpty(tenantId, farmId, group.getZoneId());
+    }
+
+    private void releaseZoneLocationsIfEmpty(Long tenantId, Long farmId, Long zoneId) {
+        if (zoneId == null) return;
+        boolean hasActiveSeasons = cropSeasonRepository.findAll((root, query, cb) -> cb.and(
+                cb.equal(root.get("farmId"), farmId),
+                cb.equal(root.get("zoneId"), zoneId),
+                cb.not(root.get("status").in("CLOSED", "CANCELLED"))
+        )).stream().findAny().isPresent();
+
+        boolean hasActiveGroups = livestockGroupRepository.findAll((root, query, cb) -> cb.and(
+                cb.equal(root.get("farmId"), farmId),
+                cb.equal(root.get("zoneId"), zoneId),
+                cb.not(root.get("status").in("SOLD", "CLOSED", "CULLED"))
+        )).stream().findAny().isPresent();
+
+        if (!hasActiveSeasons && !hasActiveGroups) {
+            var locs = zoneLocationRepository.findByZoneId(zoneId);
+            for (var loc : locs) {
+                if ("OCCUPIED".equalsIgnoreCase(loc.getStatus())) {
+                    loc.setStatus("EMPTY");
+                    loc.setUpdatedAt(Instant.now());
+                    zoneLocationRepository.save(loc);
+                }
+            }
+            log.info("Released zone locations for zoneId={} back to EMPTY", zoneId);
+        }
     }
 
     @Override

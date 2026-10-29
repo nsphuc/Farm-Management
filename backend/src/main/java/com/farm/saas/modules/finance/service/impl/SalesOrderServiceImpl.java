@@ -18,6 +18,7 @@ import com.farm.saas.modules.platform.entity.Enterprise;
 import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.EnterpriseRepository;
 import com.farm.saas.modules.platform.repository.PartnerRepository;
+import com.farm.saas.modules.notification.service.NotificationService;
 import com.farm.saas.modules.quality.entity.ProductBatch;
 import com.farm.saas.modules.quality.repository.ProductBatchRepository;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +52,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
     private final EnterpriseRepository enterpriseRepository;
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -182,6 +184,21 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             salesOrderItemRepository.save(item);
         }
 
+        // GAP-ACC-07: Notify farm manager when wholesale order created in PENDING
+        if ("PENDING".equals(order.getStatus())) {
+            Long managerUserId = farm != null ? farm.getManagerUserId() : null;
+            sendNotificationQuietly(
+                    tenantId,
+                    managerUserId,
+                    "Đơn bán sỉ B2B mới chờ duyệt: " + order.getOrderCode(),
+                    "Kế toán vừa lập Đơn bán sỉ [" + order.getOrderCode() + "] với tổng thanh toán " + order.getFinalAmount() + " VNĐ đang chờ phê duyệt.",
+                    "SYSTEM",
+                    "SALES_ORDER",
+                    order.getId(),
+                    "/app/sales-cashflow"
+            );
+        }
+
         return toDetailResponse(order);
     }
 
@@ -230,6 +247,38 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         order.setUpdatedBy(currentUserId);
         order = salesOrderRepository.save(order);
 
+        // GAP-ACC-07: 2-way notification on confirmation
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long accountantUserId = order.getCreatedBy();
+        if (accountantUserId == null) {
+            accountantUserId = userRepository.findByUsername("accountant").map(User::getId).orElse(null);
+        }
+        sendNotificationQuietly(
+                tenantId,
+                accountantUserId,
+                "Đơn bán sỉ [" + order.getOrderCode() + "] đã được phê duyệt",
+                "Đơn bán sỉ [" + order.getOrderCode() + "] đã được phê duyệt và ghi nhận công nợ phải thu.",
+                "SYSTEM",
+                "SALES_ORDER",
+                order.getId(),
+                "/app/sales-cashflow"
+        );
+
+        // Notify warehouse staff to prepare goods
+        Optional<User> whUserOpt = userRepository.findByUsername("warehouse");
+        if (whUserOpt.isPresent()) {
+            sendNotificationQuietly(
+                    tenantId,
+                    whUserOpt.get().getId(),
+                    "Lệnh chuẩn bị giao hàng cho đơn bán sỉ: " + order.getOrderCode(),
+                    "Đơn bán sỉ [" + order.getOrderCode() + "] đã được Giám đốc phê duyệt. Vui lòng chuẩn bị lô thành phẩm và lập phiếu xuất xe giao hàng.",
+                    "SYSTEM",
+                    "SALES_ORDER",
+                    order.getId(),
+                    "/app/sales-cashflow"
+            );
+        }
+
         return toDetailResponse(order);
     }
 
@@ -271,12 +320,48 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             }
         }
 
+        // Hủy bản ghi công nợ dự kiến nếu chưa thanh toán
+        debtRecordRepository.findBySalesOrderId(order.getId()).ifPresent(debt -> {
+            if (debt.getPaidAmount() == null || debt.getPaidAmount().compareTo(BigDecimal.ZERO) == 0) {
+                debt.setStatus("CANCELLED");
+                debt.setUpdatedAt(Instant.now());
+                debt.setUpdatedBy(currentUserId);
+                debtRecordRepository.save(debt);
+            }
+        });
+
         order.setStatus("CANCELLED");
         order.setUpdatedAt(Instant.now());
         order.setUpdatedBy(currentUserId);
         order = salesOrderRepository.save(order);
 
+        // GAP-ACC-07: Notify accountant on cancellation
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long accountantUserId = order.getCreatedBy();
+        if (accountantUserId == null) {
+            accountantUserId = userRepository.findByUsername("accountant").map(User::getId).orElse(null);
+        }
+        sendNotificationQuietly(
+                tenantId,
+                accountantUserId,
+                "Đơn bán sỉ [" + order.getOrderCode() + "] đã bị hủy",
+                "Đơn bán sỉ [" + order.getOrderCode() + "] đã bị hủy và đã hoàn trả tồn giữ chỗ.",
+                "WARNING",
+                "SALES_ORDER",
+                order.getId(),
+                "/app/sales-cashflow"
+        );
+
         return toDetailResponse(order);
+    }
+
+    private void sendNotificationQuietly(Long tenantId, Long recipientUserId, String title, String message, String type, String refType, Long refId, String actionUrl) {
+        if (recipientUserId == null) return;
+        try {
+            notificationService.sendNotification(tenantId, recipientUserId, title, message, type, refType, refId, actionUrl);
+        } catch (Exception ex) {
+            log.warn("Failed to send sales order notification to user id={}: {}", recipientUserId, ex.getMessage());
+        }
     }
 
     private Farm validateFarm(Long farmId) {

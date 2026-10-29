@@ -9,6 +9,7 @@ import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 export function CropTypesTab() {
   const [data, setData] = useState([]);
@@ -119,6 +120,7 @@ export function CropTypesTab() {
       }
       setModalOpen(false);
       fetchData();
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
       const errMsg = applyServerFieldErrors(err, setFieldErrors);
       setGeneralError(errMsg);
@@ -132,6 +134,7 @@ export function CropTypesTab() {
     try {
       await masterDataService.deleteCropType(id);
       fetchData();
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
       const errInfo = extractApiErrors(err);
       alert(errInfo.message || 'Không thể xóa giống cây trồng đã phát sinh dữ liệu vụ mùa!');
@@ -174,7 +177,7 @@ export function CropTypesTab() {
       className: 'text-right',
       render: (item) => (
         <div className="flex items-center justify-end gap-1">
-          <Can permission="PERM_FARM_UPDATE">
+          <Can anyPermissions={['PERM_CROP_PLAN', 'PERM_FARM_UPDATE']}>
             <button
               type="button"
               onClick={() => handleOpenModal(item)}
@@ -209,7 +212,7 @@ export function CropTypesTab() {
             className="pl-9 text-xs"
           />
         </div>
-        <Can permission="PERM_FARM_UPDATE">
+        <Can anyPermissions={['PERM_CROP_PLAN', 'PERM_FARM_UPDATE']}>
           <Button
             type="button"
             variant="primary"

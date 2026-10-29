@@ -9,4 +9,5 @@ public interface WarehouseReceiptRepository extends JpaRepository<WarehouseRecei
     java.util.Optional<WarehouseReceipt> findByFarmIdAndId(Long farmId, Long id);
     java.util.Optional<WarehouseReceipt> findByTenantIdAndFarmIdAndReceiptCode(Long tenantId, Long farmId, String receiptCode);
     boolean existsByTenantIdAndFarmIdAndReceiptCode(Long tenantId, Long farmId, String receiptCode);
+    boolean existsByWarehouseId(Long warehouseId);
 }

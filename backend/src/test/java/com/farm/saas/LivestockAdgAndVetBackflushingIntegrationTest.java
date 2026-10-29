@@ -21,6 +21,15 @@ import com.farm.saas.modules.livestock.repository.LivestockWeightLogRepository;
 import com.farm.saas.modules.masterdata.entity.LivestockBreed;
 import com.farm.saas.modules.masterdata.entity.Material;
 import com.farm.saas.modules.masterdata.entity.MaterialCategory;
+import com.farm.saas.modules.crop.dto.request.CreateCropSeasonRequest;
+import com.farm.saas.modules.crop.service.CropSeasonService;
+import com.farm.saas.modules.geography.entity.ZoneLocation;
+import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
+import com.farm.saas.modules.livestock.dto.request.CreateLivestockGroupRequest;
+import com.farm.saas.modules.livestock.dto.request.UpdateLivestockGroupRequest;
+import com.farm.saas.modules.livestock.service.LivestockService;
+import com.farm.saas.modules.masterdata.entity.CropType;
+import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
 import com.farm.saas.modules.masterdata.entity.Warehouse;
 import com.farm.saas.modules.masterdata.repository.LivestockBreedRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialCategoryRepository;
@@ -97,6 +106,18 @@ public class LivestockAdgAndVetBackflushingIntegrationTest {
 
     @Autowired
     private WarehouseInventoryRepository inventoryRepository;
+
+    @Autowired
+    private ZoneLocationRepository zoneLocationRepository;
+
+    @Autowired
+    private LivestockService livestockService;
+
+    @Autowired
+    private CropSeasonService cropSeasonService;
+
+    @Autowired
+    private CropTypeRepository cropTypeRepository;
 
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
@@ -329,5 +350,116 @@ public class LivestockAdgAndVetBackflushingIntegrationTest {
                 warehouseId, testVaccine.getId(), VACCINE_BATCH).orElseThrow();
         assertEquals(0, new BigDecimal("45.00").compareTo(vaccineInv.getQuantityOnHand()),
                 "Tồn kho vắc-xin phải giảm từ 50 xuống 45 liều!");
+    }
+
+    @Test
+    @DisplayName("GAP-TECH-09: Tự động đồng bộ trạng thái Ô chuồng / Vị trí OCCUPIED khi tạo Mùa vụ / Đàn nuôi và giải phóng về EMPTY khi kết thúc")
+    void testZoneLocationOccupancyAndReleaseSync() {
+        Long tenantId = 1L;
+
+        // --- 1. TEST CHĂN NUÔI: ĐÀN NUÔI (WS-E <-> WS-A) ---
+        ProductionZone isolatedBarn = zoneRepository.save(ProductionZone.builder()
+                .tenantId(tenantId)
+                .farmId(farmId)
+                .code("ZONE-PEN-ISO-" + UUID.randomUUID().toString().substring(0, 5))
+                .name("Khu Chuồng Cách Ly Test Sync")
+                .zoneType("BARN")
+                .areaM2(new BigDecimal("1500.00"))
+                .status("ACTIVE")
+                .createdAt(Instant.now())
+                .build());
+
+        ZoneLocation penLocation = zoneLocationRepository.save(ZoneLocation.builder()
+                .tenantId(tenantId)
+                .farmId(farmId)
+                .zoneId(isolatedBarn.getId())
+                .code("PEN-01-" + UUID.randomUUID().toString().substring(0, 5))
+                .name("Ô Chuồng Nuôi 01")
+                .status("EMPTY")
+                .createdAt(Instant.now())
+                .build());
+
+        assertEquals("EMPTY", penLocation.getStatus(), "Ban đầu ô chuồng phải ở trạng thái EMPTY");
+
+        // Khởi tạo đàn nuôi gắn với ô chuồng này
+        CreateLivestockGroupRequest createGroupReq = CreateLivestockGroupRequest.builder()
+                .groupCode("GRP-ISO-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase())
+                .breedId(testGroup.getBreedId())
+                .zoneId(isolatedBarn.getId())
+                .locationId(penLocation.getId())
+                .initialQuantity(20)
+                .entryDate(LocalDate.now())
+                .build();
+
+        var createdGroup = livestockService.createGroup(farmId, createGroupReq);
+        assertNotNull(createdGroup.getId());
+
+        // Kiểm tra vị trí ô chuồng đã tự động chuyển sang OCCUPIED
+        ZoneLocation occupiedPen = zoneLocationRepository.findById(penLocation.getId()).orElseThrow();
+        assertEquals("OCCUPIED", occupiedPen.getStatus(), "Sau khi tạo đàn nuôi gán vị trí, ô chuồng phải tự động là OCCUPIED!");
+
+        // Xuất bán / đóng đàn nuôi
+        livestockService.updateGroup(farmId, createdGroup.getId(), UpdateLivestockGroupRequest.builder()
+                .status("SOLD")
+                .build());
+
+        // Kiểm tra vị trí ô chuồng đã tự động giải phóng về EMPTY
+        ZoneLocation releasedPen = zoneLocationRepository.findById(penLocation.getId()).orElseThrow();
+        assertEquals("EMPTY", releasedPen.getStatus(), "Sau khi đàn nuôi SOLD/CLOSED và không còn đàn nào khác, ô chuồng phải giải phóng về EMPTY!");
+
+        // --- 2. TEST TRỒNG TRỌT: MÙA VỤ CANH TÁC (WS-E <-> WS-A) ---
+        ProductionZone isolatedField = zoneRepository.save(ProductionZone.builder()
+                .tenantId(tenantId)
+                .farmId(farmId)
+                .code("ZONE-PLOT-ISO-" + UUID.randomUUID().toString().substring(0, 5))
+                .name("Khu Vực Đồng Ruộng Test Sync")
+                .zoneType("OPEN_FIELD")
+                .areaM2(new BigDecimal("5000.00"))
+                .status("ACTIVE")
+                .createdAt(Instant.now())
+                .build());
+
+        ZoneLocation plotLocation = zoneLocationRepository.save(ZoneLocation.builder()
+                .tenantId(tenantId)
+                .farmId(farmId)
+                .zoneId(isolatedField.getId())
+                .code("PLOT-01-" + UUID.randomUUID().toString().substring(0, 5))
+                .name("Luống Canh Tác 01")
+                .status("EMPTY")
+                .createdAt(Instant.now())
+                .build());
+
+        assertEquals("EMPTY", plotLocation.getStatus(), "Ban đầu luống canh tác phải ở trạng thái EMPTY");
+
+        CropType cropType = cropTypeRepository.save(CropType.builder()
+                .tenantId(tenantId)
+                .name("Lúa Nếp Thơm Test")
+                .varietyCode("VAR-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase())
+                .growthDaysStandard(90)
+                .build());
+
+        // Khởi tạo mùa vụ gắn với luống này
+        CreateCropSeasonRequest createSeasonReq = CreateCropSeasonRequest.builder()
+                .seasonCode("SSN-ISO-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase())
+                .cropTypeId(cropType.getId())
+                .zoneId(isolatedField.getId())
+                .locationId(plotLocation.getId())
+                .startDate(LocalDate.now())
+                .plantedAreaM2(new BigDecimal("1000.00"))
+                .build();
+
+        var createdSeason = cropSeasonService.createSeason(farmId, createSeasonReq);
+        assertNotNull(createdSeason.getId());
+
+        // Kiểm tra luống đã tự động chuyển sang OCCUPIED
+        ZoneLocation occupiedPlot = zoneLocationRepository.findById(plotLocation.getId()).orElseThrow();
+        assertEquals("OCCUPIED", occupiedPlot.getStatus(), "Sau khi tạo mùa vụ gán vị trí, luống phải tự động là OCCUPIED!");
+
+        // Đóng mùa vụ
+        cropSeasonService.closeSeason(farmId, createdSeason.getId());
+
+        // Kiểm tra luống đã tự động giải phóng về EMPTY
+        ZoneLocation releasedPlot = zoneLocationRepository.findById(plotLocation.getId()).orElseThrow();
+        assertEquals("EMPTY", releasedPlot.getStatus(), "Sau khi mùa vụ đóng (CLOSED) và không còn vụ nào khác, luống phải giải phóng về EMPTY!");
     }
 }

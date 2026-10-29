@@ -21,25 +21,33 @@ const FARM_TYPE_LABELS = {
 export function FarmContextSwitcher() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { userInfo, isOwner, isFarmLocked, isFarmManager } = useAuthStore();
-  const {
-    activeFarmId,
-    activeFarm,
-    setActiveFarmId,
-    farms: storeFarms,
-    dataVersion,
-    fetchFarms,
-  } = useActiveFarmStore();
+  const userInfo = useAuthStore((s) => s.userInfo);
+  const isOwner = useAuthStore((s) => s.isOwner);
+  const isFarmLocked = useAuthStore((s) => s.isFarmLocked);
+  const isFarmManager = useAuthStore((s) => s.isFarmManager);
+  const activeFarmId = useActiveFarmStore((s) => s.activeFarmId);
+  const activeFarm = useActiveFarmStore((s) => s.activeFarm);
+  const setActiveFarmId = useActiveFarmStore((s) => s.setActiveFarmId);
+  const storeFarms = useActiveFarmStore((s) => s.farms);
+  const dataVersion = useActiveFarmStore((s) => s.dataVersion);
+  const fetchFarms = useActiveFarmStore((s) => s.fetchFarms);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const prevDataVersionRef = useRef(dataVersion);
+  const hasFetchedRef = useRef(false);
 
   const accessibleFarms = storeFarms && storeFarms.length > 0 ? storeFarms : (userInfo?.accessibleFarms || []);
-  const locked = isFarmLocked();
+  const locked = isFarmLocked ? isFarmLocked() : false;
 
-  // Tự động tải/cập nhật danh sách trang trại khi dataVersion thay đổi (tạo/sửa farm/zone ở WS-A)
+  // Tự động tải/cập nhật danh sách trang trại khi khởi tạo hoặc khi dataVersion thực sự thay đổi
   useEffect(() => {
-    fetchFarms();
-  }, [dataVersion]);
+    if (!userInfo) return;
+    if (!hasFetchedRef.current || prevDataVersionRef.current !== dataVersion) {
+      hasFetchedRef.current = true;
+      prevDataVersionRef.current = dataVersion;
+      fetchFarms();
+    }
+  }, [userInfo?.id, dataVersion]);
 
   // Đóng dropdown khi click ra ngoài
   useEffect(() => {

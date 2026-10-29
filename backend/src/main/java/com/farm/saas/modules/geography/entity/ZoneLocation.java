@@ -1,6 +1,7 @@
 package com.farm.saas.modules.geography.entity;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.*;
 
@@ -38,6 +39,12 @@ public class ZoneLocation {
 
     @Column(name = "status", nullable = false, length = 30)
     private String status;
+
+    @Column(name = "area_m2", precision = 12, scale = 2)
+    private BigDecimal areaM2;
+
+    @Column(name = "capacity")
+    private Integer capacity;
 
     @Column(name = "created_at")
     private Instant createdAt;

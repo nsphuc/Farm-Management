@@ -15,41 +15,67 @@ import { Can } from '@/components/common/Can';
 import { inventoryService } from '@/services/modules/inventoryService';
 import { formatCurrency, formatDate, formatNumber } from '@/utils/formatters';
 import { CheckCircle2 } from 'lucide-react';
+import { toast } from '@/store/useToastStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 export function TransferDetailDrawer({ isOpen, onClose, transfer, farmId, onSuccess }) {
+  const [currentTransfer, setCurrentTransfer] = React.useState(transfer);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const syncTrigger = useActiveFarmStore((state) => state.syncTrigger);
 
-  if (!transfer) return null;
+  React.useEffect(() => {
+    setCurrentTransfer(transfer);
+  }, [transfer]);
 
-  const targetFarmId = farmId || transfer.fromFarmId || transfer.farmId;
+  const activeTransfer = currentTransfer || transfer;
+  const targetFarmId = farmId || activeTransfer?.fromFarmId || activeTransfer?.farmId;
+
+  // GAP-SYNC-05: Lắng nghe syncTrigger để tự động làm mới lệnh điều chuyển đang mở
+  React.useEffect(() => {
+    if (isOpen && activeTransfer?.id && targetFarmId) {
+      inventoryService
+        .getTransferById(targetFarmId, activeTransfer.id)
+        .then((res) => {
+          if (res) setCurrentTransfer(res);
+        })
+        .catch(() => {});
+    }
+  }, [isOpen, activeTransfer?.id, targetFarmId, syncTrigger?.inventory, syncTrigger?.all]);
+
+  if (!transfer && !currentTransfer) return null;
+  const item = activeTransfer;
 
   const handleDispatch = async () => {
-    if (!window.confirm(`Xác nhận phê duyệt lệnh xuất điều chuyển ${transfer.transferCode}? Hàng sẽ được trừ khỏi kho xuất và chuyển sang trạng thái IN_TRANSIT.`)) return;
+    if (!window.confirm(`Xác nhận phê duyệt lệnh xuất điều chuyển ${activeTransfer.transferCode}? Hàng sẽ được trừ khỏi kho xuất và chuyển sang trạng thái IN_TRANSIT.`)) return;
     try {
       setIsSubmitting(true);
-      await inventoryService.dispatchTransfer(targetFarmId, transfer.id);
-      alert('Đã phê duyệt lệnh xuất điều chuyển thành công!');
+      await inventoryService.dispatchTransfer(targetFarmId, activeTransfer.id);
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
+      useActiveFarmStore.getState().notifyDataChanged?.('inventory');
+      toast.success('Đã phê duyệt lệnh xuất điều chuyển thành công!');
       onSuccess?.();
       onClose?.();
     } catch (err) {
       console.error('Lỗi khi duyệt xuất điều chuyển:', err);
-      alert('Không thể duyệt xuất điều chuyển: ' + (err.response?.data?.message || err.message));
+      toast.error('Không thể duyệt xuất điều chuyển: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleReceive = async () => {
-    if (!window.confirm(`Xác nhận tiếp nhận hàng điều chuyển của lệnh ${transfer.transferCode}? Hàng sẽ được cộng dồn vào kho đích và hoàn tất lệnh.`)) return;
+    if (!window.confirm(`Xác nhận tiếp nhận hàng điều chuyển của lệnh ${activeTransfer.transferCode}? Hàng sẽ được cộng dồn vào kho đích và hoàn tất lệnh.`)) return;
     try {
       setIsSubmitting(true);
-      await inventoryService.receiveTransfer(targetFarmId, transfer.id);
-      alert('Đã tiếp nhận hàng điều chuyển thành công!');
+      await inventoryService.receiveTransfer(targetFarmId, activeTransfer.id);
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
+      useActiveFarmStore.getState().notifyDataChanged?.('inventory');
+      toast.success('Đã tiếp nhận hàng điều chuyển thành công!');
       onSuccess?.();
       onClose?.();
     } catch (err) {
       console.error('Lỗi khi tiếp nhận điều chuyển:', err);
-      alert('Không thể tiếp nhận điều chuyển: ' + (err.response?.data?.message || err.message));
+      toast.error('Không thể tiếp nhận điều chuyển: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsSubmitting(false);
     }
@@ -123,28 +149,28 @@ export function TransferDetailDrawer({ isOpen, onClose, transfer, farmId, onSucc
     <SlideOverDrawer
       isOpen={isOpen}
       onClose={onClose}
-      title={`Lệnh Điều Chuyển Kho: ${transfer.transferCode}`}
-      subtitle={`Ngày chuyển: ${formatDate(transfer.transferDate)} • ${transfer.fromWarehouseName || 'Kho nguồn'} ➔ ${transfer.toWarehouseName || 'Kho đích'}`}
+      title={`Lệnh Điều Chuyển Kho: ${activeTransfer.transferCode}`}
+      subtitle={`Ngày chuyển: ${formatDate(activeTransfer.transferDate)} • ${activeTransfer.fromWarehouseName || 'Kho nguồn'} ➔ ${activeTransfer.toWarehouseName || 'Kho đích'}`}
       icon={<ArrowLeftRight className="h-5 w-5 text-blue-600" />}
       width="max-w-3xl"
       footer={
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">Trạng thái lệnh:</span>
-            <StatusBadge status={transfer.status} size="sm" />
-            {(transfer.status === 'DRAFT' || transfer.status === 'PENDING') && (
+            <StatusBadge status={activeTransfer.status} size="sm" />
+            {(activeTransfer.status === 'DRAFT' || activeTransfer.status === 'PENDING') && (
               <span className="text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-amber-200">
                 Chờ Giám đốc trại duyệt xuất chuyển
               </span>
             )}
-            {transfer.status === 'IN_TRANSIT' && (
+            {activeTransfer.status === 'IN_TRANSIT' && (
               <span className="text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-blue-200">
                 Đang luân chuyển trên đường
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            {(transfer.status === 'DRAFT' || transfer.status === 'PENDING') && (
+            {(activeTransfer.status === 'DRAFT' || activeTransfer.status === 'PENDING') && (
               <Can permission="PERM_INVENTORY_TRANSFER" role="ROLE_FARM_MANAGER">
                 <Button
                   variant="primary"
@@ -159,7 +185,7 @@ export function TransferDetailDrawer({ isOpen, onClose, transfer, farmId, onSucc
               </Can>
             )}
 
-            {transfer.status === 'IN_TRANSIT' && (
+            {activeTransfer.status === 'IN_TRANSIT' && (
               <Can permission="PERM_INVENTORY_TRANSFER" role={['ROLE_FARM_MANAGER', 'ROLE_WAREHOUSE_STAFF']}>
                 <Button
                   variant="primary"
@@ -188,7 +214,7 @@ export function TransferDetailDrawer({ isOpen, onClose, transfer, farmId, onSucc
             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Kho Xuất Chuyển</span>
             <span className="font-bold text-slate-900 text-xs flex items-center gap-1">
               <Warehouse className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-              <span className="truncate">{transfer.fromWarehouseName || `Kho #${transfer.fromWarehouseId}`}</span>
+              <span className="truncate">{activeTransfer.fromWarehouseName || `Kho #${activeTransfer.fromWarehouseId}`}</span>
             </span>
           </div>
 
@@ -196,28 +222,28 @@ export function TransferDetailDrawer({ isOpen, onClose, transfer, farmId, onSucc
             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Kho Tiếp Nhận</span>
             <span className="font-bold text-emerald-800 text-xs flex items-center gap-1">
               <Warehouse className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-              <span className="truncate">{transfer.toWarehouseName || `Kho #${transfer.toWarehouseId}`}</span>
+              <span className="truncate">{activeTransfer.toWarehouseName || `Kho #${activeTransfer.toWarehouseId}`}</span>
             </span>
           </div>
 
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Thời Gian Xuất</span>
             <span className="text-xs font-medium text-slate-700 block">
-              {transfer.dispatchedAt ? formatDate(transfer.dispatchedAt) : 'Chưa xuất kho'}
+              {activeTransfer.dispatchedAt ? formatDate(activeTransfer.dispatchedAt) : 'Chưa xuất kho'}
             </span>
           </div>
 
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Thời Gian Nhận</span>
             <span className="text-xs font-medium text-slate-700 block">
-              {transfer.receivedAt ? formatDate(transfer.receivedAt) : 'Đang luân chuyển'}
+              {activeTransfer.receivedAt ? formatDate(activeTransfer.receivedAt) : 'Đang luân chuyển'}
             </span>
           </div>
         </div>
 
-        {transfer.notes && (
+        {activeTransfer.notes && (
           <div className="bg-slate-100 rounded-xl p-3 text-xs text-slate-700">
-            <strong>Ghi chú điều chuyển:</strong> {transfer.notes}
+            <strong>Ghi chú điều chuyển:</strong> {activeTransfer.notes}
           </div>
         )}
 
@@ -225,11 +251,11 @@ export function TransferDetailDrawer({ isOpen, onClose, transfer, farmId, onSucc
         <div>
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2.5 flex items-center gap-1.5">
             <Package className="h-3.5 w-3.5 text-blue-600" />
-            <span>Danh Sách Vật Tư Điều Chuyển ({transfer.items?.length || 0})</span>
+            <span>Danh Sách Vật Tư Điều Chuyển ({activeTransfer.items?.length || 0})</span>
           </h4>
           <DataTable
             columns={itemColumns}
-            data={transfer.items || []}
+            data={activeTransfer.items || []}
             emptyStateProps={{
               title: 'Không có mặt hàng nào trong phiếu chuyển',
             }}

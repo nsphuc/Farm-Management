@@ -26,29 +26,30 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping("/api/v1/users")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasRole('ROLE_SUPER_ADMIN')")
     public ResponseEntity<Page<UserDetailResponse>> getUsers(
+            @RequestParam(required = false) Long tenantId,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long roleId,
             @RequestParam(required = false) String keyword,
             @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ResponseEntity.ok(userService.getUsers(status, roleId, keyword, pageable));
+        return ResponseEntity.ok(userService.getUsers(tenantId, status, roleId, keyword, pageable));
     }
 
     @GetMapping("/api/v1/users/{id}")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasRole('ROLE_SUPER_ADMIN')")
     public ResponseEntity<UserDetailResponse> getUserById(@PathVariable Long id) {
         return ResponseEntity.ok(userService.getUserById(id));
     }
 
     @PostMapping("/api/v1/users")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasRole('ROLE_SUPER_ADMIN')")
     public ResponseEntity<UserDetailResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(userService.createUser(request));
     }
 
     @PutMapping("/api/v1/users/{id}/roles")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasRole('ROLE_SUPER_ADMIN')")
     public ResponseEntity<UserDetailResponse> updateUserRoles(
             @PathVariable Long id,
             @Valid @RequestBody UpdateUserRolesRequest request) {
@@ -56,11 +57,19 @@ public class UserController {
     }
 
     @PutMapping("/api/v1/users/{id}/status")
-    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE')")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasRole('ROLE_SUPER_ADMIN')")
     public ResponseEntity<UserDetailResponse> updateUserStatus(
             @PathVariable Long id,
             @Valid @RequestBody UpdateUserStatusRequest request) {
         return ResponseEntity.ok(userService.updateUserStatus(id, request));
+    }
+
+    @PostMapping("/api/v1/users/{id}/reset-password")
+    @PreAuthorize("hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasRole('ROLE_SUPER_ADMIN')")
+    public ResponseEntity<java.util.Map<String, Object>> resetPassword(
+            @PathVariable Long id,
+            @RequestBody(required = false) com.farm.saas.modules.auth.dto.request.ResetPasswordRequest request) {
+        return ResponseEntity.ok(userService.resetPassword(id, request));
     }
 
     @GetMapping("/api/v1/system/roles")

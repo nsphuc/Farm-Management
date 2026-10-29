@@ -22,6 +22,12 @@ public class UpdateLivestockIndividualRequest {
     @Pattern(regexp = "^(MALE|FEMALE|CASTRATED)$", message = "Giới tính phải là MALE, FEMALE hoặc CASTRATED")
     private String gender;
 
+    private java.time.LocalDate birthDate;
+
+    private String motherTagCode;
+
+    private String fatherTagCode;
+
     @DecimalMin(value = "0.00", message = "Cân nặng hiện tại không được âm")
     private BigDecimal currentWeightKg;
 

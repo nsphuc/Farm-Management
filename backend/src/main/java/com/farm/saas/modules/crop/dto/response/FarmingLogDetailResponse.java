@@ -44,6 +44,8 @@ public class FarmingLogDetailResponse {
         private String warehouseName;
         private String batchNumber;
         private BigDecimal actualQuantity;
+        private BigDecimal suggestedQuantity;
+        private String varianceReason;
         private String unit;
         private BigDecimal unitPrice;
         private BigDecimal totalPrice;

@@ -386,9 +386,10 @@ export function EmployeeFormModal({
     }
 
     // 5. Validation Trang Trại & Chức vụ
-    if (owner && !formData.farmId) {
+    const isInvalidFarm = !formData.farmId || formData.farmId === 'ALL' || Number.isNaN(Number(formData.farmId));
+    if (owner && isInvalidFarm) {
       errs.farmId = 'Vui lòng chọn trang trại cụ thể để bổ nhiệm Giám đốc / Quản lý';
-    } else if (!owner && !formData.farmId) {
+    } else if (!owner && isInvalidFarm) {
       errs.farmId = 'Nhân sự phải được gắn vào trang trại bạn đang phụ trách';
     }
 
@@ -439,48 +440,111 @@ export function EmployeeFormModal({
       setIsSubmitting(true);
       setGeneralError(null);
 
-      const isSeasonalWorker = formData.position === 'SEASONAL_NO_ACCOUNT';
-      const shouldCreateAccount = !isSeasonalWorker && Boolean(formData.enableProvisioning);
+      // Làm sạch (Sanitize) dữ liệu trước khi gửi API
+      const cleanFarmId = (!formData.farmId || formData.farmId === 'ALL' || Number.isNaN(Number(formData.farmId)))
+        ? null
+        : Number(formData.farmId);
 
+      const rawZoneId = formData.assignedZoneId || formData.zoneId;
       const isFarmManagerRole = formData.position === 'FARM_MANAGER' || formData.selectedRole === 'ROLE_FARM_MANAGER';
-      const payload = {
-        farmId: formData.farmId ? Number(formData.farmId) : null,
-        assignedZoneId: isFarmManagerRole ? null : (formData.assignedZoneId ? Number(formData.assignedZoneId) : null),
-        employeeCode: formData.employeeCode.trim().toUpperCase(),
-        fullName: formData.fullName.trim(),
-        phone: formData.phone?.trim() || null,
-        email: formData.email?.trim() || null,
-        idCardNumber: formData.idCardNumber?.trim() || null,
-        dateOfBirth: formData.dateOfBirth,
-        position: formData.position?.trim() || null,
-        joinedDate: formData.joinedDate,
-        baseSalary: Number(formData.baseSalary) || 0,
-        hourlyRate: Number(formData.hourlyRate) || 0,
-        contractType: formData.contractType,
-        annualLeaveQuota: Number(formData.annualLeaveQuota) || 12.0,
-        // One-step Provisioning fields
-        createAccount: shouldCreateAccount,
-        enableProvisioning: shouldCreateAccount,
-        username: shouldCreateAccount ? formData.username?.trim() : undefined,
-        initialPassword: shouldCreateAccount ? formData.initialPassword : undefined,
-        roleCode: shouldCreateAccount ? formData.selectedRole : undefined,
-      };
+      const cleanZoneId = (isFarmManagerRole || !rawZoneId || Number.isNaN(Number(rawZoneId)))
+        ? null
+        : Number(rawZoneId);
+
+      const cleanDob = (formData.dateOfBirth && typeof formData.dateOfBirth === 'string' && formData.dateOfBirth.trim() !== '')
+        ? formData.dateOfBirth.trim()
+        : null;
+
+      const cleanJoinedDate = (formData.joinedDate && typeof formData.joinedDate === 'string' && formData.joinedDate.trim() !== '')
+        ? formData.joinedDate.trim()
+        : new Date().toISOString().split('T')[0];
+
+      const cleanPhone = formData.phone?.trim() ? formData.phone.trim() : null;
+      const cleanEmail = formData.email?.trim() ? formData.email.trim() : null;
+      const cleanIdCard = formData.idCardNumber?.trim() ? formData.idCardNumber.trim() : null;
+      const cleanFullName = formData.fullName?.trim() ? formData.fullName.trim() : '';
+      const cleanPosition = formData.position?.trim() ? formData.position.trim() : null;
+      const cleanDepartment = formData.department?.trim() ? formData.department.trim() : null;
+      const cleanBaseSalary = Number(formData.baseSalary) >= 0 ? Number(formData.baseSalary) : 0;
+      const cleanHourlyRate = Number(formData.hourlyRate) >= 0 ? Number(formData.hourlyRate) : 0;
+      const cleanAnnualLeave = Number(formData.annualLeaveQuota) >= 0 ? Number(formData.annualLeaveQuota) : 12.0;
+      const cleanContractType = formData.contractType || 'FULL_TIME';
+      const cleanStatus = formData.status || 'ACTIVE';
 
       let result;
       if (isEditing) {
-        result = await hrService.updateEmployee(employee.id, {
-          ...payload,
-          status: formData.status,
-        });
+        // Tách biệt rõ ràng Payload cho updateEmployee (Khớp chính xác UpdateEmployeeRequest.java)
+        const updatePayload = {
+          fullName: cleanFullName,
+          phone: cleanPhone,
+          email: cleanEmail,
+          idCardNumber: cleanIdCard,
+          dateOfBirth: cleanDob,
+          joinedDate: cleanJoinedDate,
+          position: cleanPosition,
+          department: cleanDepartment,
+          baseSalary: cleanBaseSalary,
+          hourlyRate: cleanHourlyRate,
+          contractType: cleanContractType,
+          annualLeaveQuota: cleanAnnualLeave,
+          status: cleanStatus,
+          farmId: cleanFarmId,
+          assignedZoneId: cleanZoneId,
+          zoneId: cleanZoneId,
+          roleInFarm: cleanPosition,
+        };
+
+        result = await hrService.updateEmployee(employee.id, updatePayload);
+
+        // Nếu trong lúc Sửa nhân viên, người dùng bật tùy chọn cấp tài khoản mới (đối với nhân viên chưa có userId)
+        const isSeasonalWorker = formData.position === 'SEASONAL_NO_ACCOUNT';
+        const shouldCreateAccount = !isSeasonalWorker && Boolean(formData.enableProvisioning);
+        if (shouldCreateAccount && !employee.userId && formData.username?.trim()) {
+          try {
+            await hrService.provisionAccount(employee.id, {
+              username: formData.username.trim(),
+              initialPassword: formData.initialPassword || 'Password@123',
+              roleCode: formData.selectedRole || 'ROLE_FIELD_STAFF',
+            });
+          } catch (provErr) {
+            console.warn('Account provisioning during employee update failed:', provErr);
+          }
+        }
       } else {
-        result = await hrService.createEmployee(payload);
+        const isSeasonalWorker = formData.position === 'SEASONAL_NO_ACCOUNT';
+        const shouldCreateAccount = !isSeasonalWorker && Boolean(formData.enableProvisioning);
+
+        const createPayload = {
+          farmId: cleanFarmId,
+          assignedZoneId: cleanZoneId,
+          zoneId: cleanZoneId,
+          employeeCode: formData.employeeCode ? formData.employeeCode.trim().toUpperCase() : '',
+          fullName: cleanFullName,
+          phone: cleanPhone,
+          email: cleanEmail,
+          idCardNumber: cleanIdCard,
+          dateOfBirth: cleanDob,
+          position: cleanPosition,
+          department: cleanDepartment,
+          joinedDate: cleanJoinedDate,
+          baseSalary: cleanBaseSalary,
+          hourlyRate: cleanHourlyRate,
+          contractType: cleanContractType,
+          annualLeaveQuota: cleanAnnualLeave,
+          // One-step Provisioning fields
+          createAccount: shouldCreateAccount,
+          enableProvisioning: shouldCreateAccount,
+          username: shouldCreateAccount ? formData.username?.trim() : undefined,
+          initialPassword: shouldCreateAccount ? formData.initialPassword : undefined,
+          roleCode: shouldCreateAccount ? formData.selectedRole : undefined,
+        };
+
+        result = await hrService.createEmployee(createPayload);
       }
 
       notifyDataChanged?.('employees');
       notifyDataChanged?.('zones');
-      if (formData.position === 'FARM_MANAGER' || isEditing) {
-        notifyDataChanged?.('farms');
-      }
+      notifyDataChanged?.('farms');
 
       onSuccess?.(result);
       onClose();

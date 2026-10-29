@@ -3,6 +3,7 @@ package com.farm.saas.modules.hr.service.impl;
 import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
+import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
@@ -21,6 +22,7 @@ import com.farm.saas.modules.hr.repository.OvertimeRequestRepository;
 import com.farm.saas.modules.hr.service.LeaveOvertimeService;
 import com.farm.saas.modules.masterdata.entity.WorkShift;
 import com.farm.saas.modules.masterdata.repository.WorkShiftRepository;
+import com.farm.saas.modules.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -30,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Slf4j
 @Service
@@ -42,6 +45,7 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
     private final FarmRepository farmRepository;
     private final WorkShiftRepository workShiftRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional
@@ -74,6 +78,25 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
 
         leave = leaveRequestRepository.save(leave);
         log.info("Created leave request id={}, employeeId={}, type={}, days={}", leave.getId(), employee.getId(), leave.getLeaveType(), leave.getTotalDays());
+
+        // Bắn thông báo tự động cho Giám đốc trang trại
+        if (notificationService != null && farm.getManagerUserId() != null) {
+            try {
+                notificationService.sendNotification(
+                        tenantId,
+                        farm.getManagerUserId(),
+                        "Đơn xin nghỉ phép mới chờ phê duyệt",
+                        String.format("Nhân viên [%s] vừa gửi đơn xin nghỉ phép (%s ngày) chờ phê duyệt.",
+                                employee.getFullName(), leave.getTotalDays()),
+                        "SYSTEM",
+                        "LEAVE_REQUEST",
+                        leave.getId(),
+                        "/app/personnel"
+                );
+            } catch (Exception ex) {
+                log.warn("Failed to send leave notification to farm manager: {}", ex.getMessage());
+            }
+        }
 
         return mapToLeaveResponse(leave, employee, farm);
     }
@@ -132,6 +155,26 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
         leave = leaveRequestRepository.save(leave);
         Farm farm = farmRepository.findById(leave.getFarmId()).orElse(null);
 
+        // Bắn thông báo kết quả xét duyệt về cho tài khoản công nhân
+        if (notificationService != null && employee.getUserId() != null) {
+            try {
+                String statusText = "APPROVED".equals(leave.getStatus()) ? "đã được phê duyệt" : "đã bị từ chối";
+                notificationService.sendNotification(
+                        tenantId,
+                        employee.getUserId(),
+                        "Kết quả xét duyệt đơn nghỉ phép",
+                        String.format("Đơn xin nghỉ phép của bạn từ ngày %s đến ngày %s %s.",
+                                leave.getStartDate(), leave.getEndDate(), statusText),
+                        "SYSTEM",
+                        "LEAVE_REQUEST",
+                        leave.getId(),
+                        "/app/daily-ops"
+                );
+            } catch (Exception ex) {
+                log.warn("Failed to send leave approval notification to employee: {}", ex.getMessage());
+            }
+        }
+
         return mapToLeaveResponse(leave, employee, farm);
     }
 
@@ -185,6 +228,25 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
         ot = overtimeRequestRepository.save(ot);
         log.info("Created OT request id={}, employeeId={}, hours={}", ot.getId(), employee.getId(), ot.getTotalHours());
 
+        // Bắn thông báo tự động cho Giám đốc trang trại
+        if (notificationService != null && farm.getManagerUserId() != null) {
+            try {
+                notificationService.sendNotification(
+                        tenantId,
+                        farm.getManagerUserId(),
+                        "Đơn đăng ký tăng ca mới chờ phê duyệt",
+                        String.format("Nhân viên [%s] vừa gửi đơn đăng ký làm thêm giờ (%s giờ) chờ phê duyệt.",
+                                employee.getFullName(), ot.getTotalHours()),
+                        "SYSTEM",
+                        "OVERTIME_REQUEST",
+                        ot.getId(),
+                        "/app/personnel"
+                );
+            } catch (Exception ex) {
+                log.warn("Failed to send OT notification to farm manager: {}", ex.getMessage());
+            }
+        }
+
         WorkShift shift = request.getShiftId() != null ? workShiftRepository.findById(request.getShiftId()).orElse(null) : null;
         return mapToOvertimeResponse(ot, employee, farm, shift);
     }
@@ -216,6 +278,28 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
         ot.setUpdatedBy(currentUserId);
 
         ot = overtimeRequestRepository.save(ot);
+
+        // Bắn thông báo kết quả xét duyệt về cho tài khoản công nhân
+        Employee otEmployee = employeeRepository.findById(ot.getEmployeeId()).orElse(null);
+        if (notificationService != null && otEmployee != null && otEmployee.getUserId() != null) {
+            try {
+                String statusText = "APPROVED".equals(ot.getStatus()) ? "đã được phê duyệt" : "đã bị từ chối";
+                notificationService.sendNotification(
+                        tenantId,
+                        otEmployee.getUserId(),
+                        "Kết quả xét duyệt đơn tăng ca",
+                        String.format("Đơn đăng ký tăng ca ngày %s (%s giờ) của bạn %s.",
+                                ot.getOtDate(), ot.getTotalHours(), statusText),
+                        "SYSTEM",
+                        "OVERTIME_REQUEST",
+                        ot.getId(),
+                        "/app/daily-ops"
+                );
+            } catch (Exception ex) {
+                log.warn("Failed to send OT approval notification to employee: {}", ex.getMessage());
+            }
+        }
+
         return enrichOvertimeResponse(ot);
     }
 
@@ -244,7 +328,46 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
                     .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", requestedEmployeeId));
         }
         return employeeRepository.findByTenantIdAndUserId(tenantId, currentUserId)
-                .orElseThrow(() -> new BusinessException("EMPLOYEE_PROFILE_REQUIRED", "Tài khoản chưa được liên kết với hồ sơ nhân sự"));
+                .orElseGet(() -> autoProvisionEmployeeProfile(tenantId, currentUserId, null));
+    }
+
+    private Employee autoProvisionEmployeeProfile(Long tenantId, Long userId, Long farmIdHint) {
+        log.info("Tự phục hồi: Khởi tạo nhanh hồ sơ Employee cho tenantId={}, userId={}", tenantId, userId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("EMPLOYEE_PROFILE_REQUIRED", "Tài khoản hiện tại chưa được liên kết với hồ sơ nhân sự"));
+
+        Long farmId = farmIdHint;
+        if (farmId == null) {
+            var farms = farmRepository.findByTenantId(tenantId);
+            if (farms != null && !farms.isEmpty()) {
+                farmId = farms.get(0).getId();
+            }
+        }
+
+        String employeeCode = "EMP-SEED-" + userId;
+        if (employeeRepository.findByTenantIdAndEmployeeCode(tenantId, employeeCode).isPresent()) {
+            employeeCode = "EMP-SEED-" + userId + "-" + (System.currentTimeMillis() % 10000);
+        }
+
+        Employee employee = Employee.builder()
+                .tenantId(tenantId)
+                .farmId(farmId)
+                .userId(userId)
+                .employeeCode(employeeCode)
+                .fullName(user.getFullName() != null && !user.getFullName().isBlank() ? user.getFullName() : user.getUsername())
+                .phone(user.getPhone())
+                .email(user.getEmail())
+                .joinedDate(LocalDate.now())
+                .baseSalary(BigDecimal.ZERO)
+                .hourlyRate(BigDecimal.ZERO)
+                .contractType("FULL_TIME")
+                .annualLeaveQuota(new BigDecimal("12.0"))
+                .status("ACTIVE")
+                .createdAt(Instant.now())
+                .createdBy(userId)
+                .build();
+
+        return employeeRepository.save(employee);
     }
 
     private LeaveRequestDetailResponse enrichLeaveResponse(LeaveRequest l) {

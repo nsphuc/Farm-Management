@@ -16,6 +16,7 @@ import com.farm.saas.modules.finance.repository.BudgetLineItemRepository;
 import com.farm.saas.modules.finance.repository.BudgetRepository;
 import com.farm.saas.modules.finance.repository.CostAllocationRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
+import com.farm.saas.modules.finance.service.BudgetService;
 import com.farm.saas.modules.finance.service.FarmExpenseService;
 import com.farm.saas.modules.finance.dto.response.MultiFarmExpenseSummaryResponse;
 import com.farm.saas.modules.geography.entity.Farm;
@@ -26,8 +27,12 @@ import com.farm.saas.modules.livestock.entity.LivestockGroup;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.masterdata.entity.CostCategory;
 import com.farm.saas.modules.masterdata.repository.CostCategoryRepository;
+import com.farm.saas.common.security.CustomUserDetails;
+import com.farm.saas.common.security.FarmSecurityEvaluator;
 import com.farm.saas.modules.notification.service.NotificationService;
 import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
+import com.farm.saas.modules.auth.entity.User;
+import com.farm.saas.modules.auth.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -52,12 +57,15 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
     private final CostCategoryRepository costCategoryRepository;
     private final BudgetRepository budgetRepository;
     private final BudgetLineItemRepository budgetLineItemRepository;
+    private final BudgetService budgetService;
     private final FarmRepository farmRepository;
     private final OperationalCycleRepository operationalCycleRepository;
     private final CropSeasonRepository cropSeasonRepository;
     private final LivestockGroupRepository livestockGroupRepository;
     private final HarvestRecordRepository harvestRecordRepository;
     private final NotificationService notificationService;
+    private final FarmSecurityEvaluator farmSecurityEvaluator;
+    private final UserRepository userRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -307,13 +315,20 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         String expenseSource = request.getExpenseSource() != null ? request.getExpenseSource() : "MANUAL";
         String paymentMethod = request.getPaymentMethod() != null ? request.getPaymentMethod() : "CASH";
 
-        boolean isChecker = SecurityUtils.getCurrentUser() != null &&
-                SecurityUtils.getCurrentUser().hasAnyRole("ROLE_FARM_MANAGER", "ROLE_FARM_OWNER", "ROLE_SUPER_ADMIN");
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+        boolean isChecker = currentUser != null && (
+                currentUser.hasAnyRole("ROLE_FARM_MANAGER", "ROLE_FARM_OWNER", "ROLE_SUPER_ADMIN") ||
+                farmSecurityEvaluator.isFarmManagerOrOwner(farmId)
+        );
         boolean isAutoBackflush = "INVENTORY_BACKFLUSH".equalsIgnoreCase(expenseSource)
                 || "PAYROLL_ALLOCATION".equalsIgnoreCase(expenseSource);
 
+        // Maker-Checker:
+        // - ROLE_ACCOUNTANT (Maker): creates DRAFT expense waiting for manager approval
+        // - ROLE_FARM_MANAGER / OWNER / ADMIN (Checker): automatically CONFIRMED and budget spent amount updated immediately
+        // - System auto backflush: automatically CONFIRMED
         String status = "DRAFT";
-        if (isAutoBackflush || (isChecker && "CONFIRMED".equalsIgnoreCase(request.getStatus()))) {
+        if (isAutoBackflush || isChecker) {
             status = "CONFIRMED";
         }
 
@@ -342,9 +357,21 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
 
         expense = farmExpenseRepository.save(expense);
 
-        // Budget consumption on CONFIRMED
+        // Budget consumption on CONFIRMED (GAP-SYNC-07)
         if ("CONFIRMED".equals(status)) {
-            consumeBudget(farmId, tenantId, currentUserId, expense, costCategory);
+            budgetService.consumeBudgetForConfirmedExpense(expense);
+        } else if ("DRAFT".equals(status)) {
+            // GAP-ACC-06: Notify farm manager when expense created in DRAFT
+            sendNotificationQuietly(
+                    tenantId,
+                    farm.getManagerUserId(),
+                    "Chứng từ chi phí mới chờ phê duyệt: " + expense.getExpenseCode(),
+                    "Kế toán vừa lập chứng từ chi phí [" + expense.getExpenseCode() + "] với số tiền " + expense.getAmount() + " VNĐ đang chờ phê duyệt.",
+                    "SYSTEM",
+                    "FARM_EXPENSE",
+                    expense.getId(),
+                    "/app/cost-accounting"
+            );
         }
 
         return toDetailResponse(expense);
@@ -377,10 +404,94 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         expense.setUpdatedBy(currentUserId);
         FarmExpense savedExpense = farmExpenseRepository.save(expense);
 
-        // Budget consumption on CONFIRMED
-        consumeBudget(farmId, tenantId, currentUserId, savedExpense, costCategory);
+        // Budget consumption on CONFIRMED (GAP-SYNC-07)
+        budgetService.consumeBudgetForConfirmedExpense(savedExpense);
+
+        // GAP-ACC-06: Notify creator (accountant) on manager confirmation
+        Long creatorId = savedExpense.getCreatedBy();
+        if (creatorId == null) {
+            creatorId = userRepository.findByUsername("accountant").map(User::getId).orElse(null);
+        }
+        sendNotificationQuietly(
+                tenantId,
+                creatorId,
+                "Chứng từ chi phí [" + savedExpense.getExpenseCode() + "] đã được phê duyệt",
+                "Chứng từ chi phí [" + savedExpense.getExpenseCode() + "] đã được Giám đốc trang trại phê duyệt.",
+                "SYSTEM",
+                "FARM_EXPENSE",
+                savedExpense.getId(),
+                "/app/cost-accounting"
+        );
 
         return toDetailResponse(savedExpense);
+    }
+
+    @Override
+    @Transactional
+    public FarmExpenseDetailResponse cancelExpense(Long farmId, Long id, String reason) {
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        validateFarm(farmId);
+
+        FarmExpense expense = farmExpenseRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Expense not found: " + id));
+
+        if (!expense.getFarmId().equals(farmId)) {
+            throw new BusinessException("BAD_REQUEST", "Expense does not belong to specified farm");
+        }
+
+        if ("CANCELLED".equals(expense.getStatus())) {
+            return toDetailResponse(expense);
+        }
+
+        if (!"DRAFT".equalsIgnoreCase(expense.getStatus()) && !"CONFIRMED".equalsIgnoreCase(expense.getStatus())) {
+            throw new BusinessException("BAD_REQUEST", "Chỉ có thể hủy hoặc từ chối chi phí ở trạng thái DRAFT hoặc CONFIRMED");
+        }
+
+        boolean wasConfirmed = "CONFIRMED".equalsIgnoreCase(expense.getStatus());
+
+        expense.setStatus("CANCELLED");
+        if (reason != null && !reason.trim().isEmpty()) {
+            String note = (expense.getNotes() != null && !expense.getNotes().isEmpty())
+                    ? expense.getNotes() + " | Lý do hủy: " + reason.trim()
+                    : "Lý do hủy: " + reason.trim();
+            expense.setNotes(note);
+        }
+        expense.setUpdatedAt(Instant.now());
+        expense.setUpdatedBy(currentUserId);
+        FarmExpense saved = farmExpenseRepository.save(expense);
+
+        // GAP-SYNC-07: Revert budget spent amount if it was confirmed
+        if (wasConfirmed) {
+            budgetService.revertBudgetForCancelledExpense(saved);
+        }
+
+        // GAP-ACC-06: Notify creator (accountant) on rejection/cancellation
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long creatorId = saved.getCreatedBy();
+        if (creatorId == null) {
+            creatorId = userRepository.findByUsername("accountant").map(User::getId).orElse(null);
+        }
+        sendNotificationQuietly(
+                tenantId,
+                creatorId,
+                "Chứng từ chi phí [" + saved.getExpenseCode() + "] đã bị từ chối/hủy",
+                "Chứng từ chi phí [" + saved.getExpenseCode() + "] đã bị từ chối/hủy.",
+                "SYSTEM",
+                "FARM_EXPENSE",
+                saved.getId(),
+                "/app/cost-accounting"
+        );
+
+        return toDetailResponse(saved);
+    }
+
+    private void sendNotificationQuietly(Long tenantId, Long recipientUserId, String title, String message, String type, String refType, Long refId, String actionUrl) {
+        if (recipientUserId == null) return;
+        try {
+            notificationService.sendNotification(tenantId, recipientUserId, title, message, type, refType, refId, actionUrl);
+        } catch (Exception ex) {
+            log.warn("Failed to send expense notification to user id={}: {}", recipientUserId, ex.getMessage());
+        }
     }
 
     private void consumeBudget(Long farmId, Long tenantId, Long currentUserId, FarmExpense expense, CostCategory costCategory) {

@@ -11,6 +11,7 @@ import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { SettlementDetailDrawer } from './SettlementDetailDrawer';
+import { toast } from '@/store/useToastStore';
 
 export function CycleSettlementConsole({ farmId }) {
   const { syncTrigger, notifyDataChanged } = useActiveFarmStore();
@@ -76,10 +77,10 @@ export function CycleSettlementConsole({ farmId }) {
       setIsDrawerOpen(false);
       setSelectedSettlement(null);
       await loadSettlements();
-      alert('Đã xác nhận kết toán và khóa sổ chu kỳ thành công!');
+      toast.success('Đã xác nhận kết toán và khóa sổ chu kỳ thành công!');
     } catch (err) {
       console.error('Failed to confirm settlement:', err);
-      alert('Có lỗi xảy ra khi xác nhận kết toán: ' + (err.response?.data?.message || err.message));
+      toast.error('Có lỗi xảy ra khi xác nhận kết toán: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsConfirming(false);
     }
@@ -97,10 +98,10 @@ export function CycleSettlementConsole({ farmId }) {
       setIsDrawerOpen(false);
       setSelectedSettlement(null);
       await loadSettlements();
-      alert('Đã ký duyệt bảng kết toán chu kỳ thành công! Kế toán trại đã sẵn sàng quét mã VietQR chuyển lợi nhuận về Owner.');
+      toast.success('Đã ký duyệt bảng kết toán chu kỳ thành công! Kế toán trại đã sẵn sàng quét mã VietQR chuyển lợi nhuận về Owner.');
     } catch (err) {
       console.error('Failed to approve settlement:', err);
-      alert('Có lỗi xảy ra khi ký duyệt kết toán: ' + (err.response?.data?.message || err.message));
+      toast.error('Có lỗi xảy ra khi ký duyệt kết toán: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsApproving(false);
     }

@@ -6,6 +6,7 @@ import { CheckCircle2, DollarSign, Building, Calendar, Layers, AlertCircle } fro
 import { formatCurrency } from '@/utils/formatters';
 import { financeService } from '@/services/modules/financeService';
 import { geographyService } from '@/services/modules/geographyService';
+import { useAuthStore } from '@/store/useAuthStore';
 
 const STANDARD_COST_TYPES = [
   {
@@ -41,6 +42,8 @@ const STANDARD_COST_TYPES = [
 ];
 
 export function BudgetApprovalModal({ isOpen, onClose, onSuccess, initialFarmId, farms = [] }) {
+  const { isFarmAccountant } = useAuthStore();
+  const isAccountant = isFarmAccountant();
   const currentYear = new Date().getFullYear();
   const [selectedFarmId, setSelectedFarmId] = useState('');
   const [cycles, setCycles] = useState([]);
@@ -185,14 +188,19 @@ export function BudgetApprovalModal({ isOpen, onClose, onSuccess, initialFarmId,
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Cấp & Phê Duyệt Ngân Sách Chu Kỳ Cho Trang Trại"
-      subtitle="Đặc quyền Chủ đầu tư (Owner): Phê duyệt hạn mức cấp vốn đầu kỳ (Status: ACTIVE) và kích hoạt cảnh báo 85% thực chi"
+      title={isAccountant ? "Lập Dự Toán Ngân Sách Chu Kỳ (Trình Duyệt)" : "Cấp & Phê Duyệt Ngân Sách Chu Kỳ Cho Trang Trại"}
+      subtitle={isAccountant
+        ? "Quy trình Maker-Checker: Kế toán lập dự thảo hạn mức chi phí (Status: DRAFT) trình Giám đốc trang trại / Chủ sở hữu phê duyệt."
+        : "Đặc quyền Giám đốc trại / Chủ đầu tư: Thiết lập và kích hoạt ngân sách cấp vốn đầu kỳ (Status: ACTIVE), tự động bật cảnh báo 85% thực chi."
+      }
       icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />}
       size="xl"
       footer={
         <div className="flex items-center justify-between w-full">
           <div className="flex items-baseline gap-2">
-            <span className="text-xs text-slate-500 font-medium">Tổng hạn mức phê duyệt:</span>
+            <span className="text-xs text-slate-500 font-medium">
+              {isAccountant ? 'Tổng dự toán trình duyệt:' : 'Tổng hạn mức phê duyệt:'}
+            </span>
             <span className="text-lg font-black text-emerald-700">{formatCurrency(totalBudget)}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -206,13 +214,22 @@ export function BudgetApprovalModal({ isOpen, onClose, onSuccess, initialFarmId,
               onClick={handleSubmit}
               isLoading={isLoading}
             >
-              Phê Duyệt & Cấp Vốn Ngay
+              {isAccountant ? '[Gửi Trình Duyệt Dự Toán (DRAFT)]' : '[Lưu & Kích Hoạt Ngân Sách]'}
             </Button>
           </div>
         </div>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {isAccountant && (
+          <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs">
+            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+            <span>
+              💡 <strong>Lưu ý Maker-Checker:</strong> Ngân sách bạn lập sẽ được lưu ở trạng thái <strong>DRAFT</strong> và chuyển đến Giám đốc trại / Chủ sở hữu để tiến hành thẩm định và bấm <strong>[Phê Duyệt]</strong>.
+            </span>
+          </div>
+        )}
+
         {error && (
           <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs animate-in fade-in">
             <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />

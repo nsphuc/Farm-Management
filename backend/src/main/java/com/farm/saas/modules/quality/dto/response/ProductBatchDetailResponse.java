@@ -49,6 +49,8 @@ public class ProductBatchDetailResponse {
     private String recallReason;
     private Long inspectorUserId;
     private String inspectorFullName;
+    private String inspectorName;
+    private Instant inspectedAt;
     private BigDecimal soldQuantity;
     private Long scanCount;
     private String snapshotHash;
@@ -57,11 +59,20 @@ public class ProductBatchDetailResponse {
     private String farmingTimelineJson;
     private String harvestInfoJson;
     private String qcInspectionJson;
+    private String qcJson;
     private String qcInspectionCode;
     private String qcOverallResult;
     private List<ProductBatchSourceResponse> sources;
     private Instant createdAt;
     private Instant updatedAt;
+
+    public String getInspectorName() {
+        return inspectorName != null ? inspectorName : inspectorFullName;
+    }
+
+    public String getQcJson() {
+        return qcJson != null ? qcJson : qcInspectionJson;
+    }
 
     @Getter
     @Setter

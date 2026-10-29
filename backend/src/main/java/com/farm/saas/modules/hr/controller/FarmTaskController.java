@@ -23,7 +23,7 @@ public class FarmTaskController {
     private final FarmTaskService farmTaskService;
 
     @PostMapping("/api/v1/farms/{farmId}/tasks")
-    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_TASK_ASSIGN', 'PERM_INVENTORY_RECEIPT', 'PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or @farmSecurity.isZoneManager(#farmId)) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<FarmTaskDetailResponse> createTask(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateFarmTaskRequest request) {
@@ -32,23 +32,33 @@ public class FarmTaskController {
     }
 
     @PostMapping("/api/v1/farms/{farmId}/tasks/generate-daily-routines")
-    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_TASK_ASSIGN') or @farmSecurity.isZoneManager(#farmId)) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<List<FarmTaskDetailResponse>> generateDailyRoutines(
             @PathVariable Long farmId) {
         return ResponseEntity.ok(farmTaskService.generateDailyRoutines(farmId));
     }
 
-    @PutMapping("/api/v1/farms/{farmId}/tasks/{id}")
-    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PutMapping({"/api/v1/farms/{farmId}/tasks/{id}", "/api/v1/tasks/{id}"})
+    @PreAuthorize("hasAnyAuthority('PERM_TASK_ASSIGN', 'PERM_INVENTORY_RECEIPT', 'PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or (#farmId != null and @farmSecurity.isZoneManager(#farmId))")
     public ResponseEntity<FarmTaskDetailResponse> updateTask(
-            @PathVariable Long farmId,
+            @PathVariable(required = false) Long farmId,
             @PathVariable Long id,
-            @Valid @RequestBody CreateFarmTaskRequest request) {
+            @Valid @RequestBody com.farm.saas.modules.hr.dto.request.UpdateFarmTaskRequest request) {
         return ResponseEntity.ok(farmTaskService.updateTask(farmId, id, request));
     }
 
+    @PatchMapping({"/api/v1/tasks/{id}/cancel", "/api/v1/farms/{farmId}/tasks/{id}/cancel"})
+    @PreAuthorize("hasAnyAuthority('PERM_TASK_ASSIGN', 'PERM_INVENTORY_RECEIPT', 'PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or (#farmId != null and @farmSecurity.isZoneManager(#farmId))")
+    public ResponseEntity<FarmTaskDetailResponse> cancelTask(
+            @PathVariable(required = false) Long farmId,
+            @PathVariable Long id,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
+        String reason = body != null ? (body.get("cancellationReason") != null ? body.get("cancellationReason") : body.get("completionNotes") != null ? body.get("completionNotes") : body.get("reason")) : null;
+        return ResponseEntity.ok(farmTaskService.cancelTask(id, reason));
+    }
+
     @DeleteMapping("/api/v1/farms/{farmId}/tasks/{id}")
-    @PreAuthorize("hasAuthority('PERM_TASK_ASSIGN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_TASK_ASSIGN', 'PERM_INVENTORY_RECEIPT', 'PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF') or @farmSecurity.isZoneManager(#farmId)) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<Void> deleteTask(
             @PathVariable Long farmId,
             @PathVariable Long id) {

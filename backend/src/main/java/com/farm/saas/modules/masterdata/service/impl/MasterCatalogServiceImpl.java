@@ -2,10 +2,17 @@ package com.farm.saas.modules.masterdata.service.impl;
 
 import com.farm.saas.common.audit.AuditTrailEvent;
 import com.farm.saas.common.exception.ApiException;
+import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
+import com.farm.saas.modules.crop.repository.CropSeasonRepository;
+import com.farm.saas.modules.finance.repository.BudgetLineItemRepository;
+import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.hr.repository.ShiftAssignmentRepository;
+import com.farm.saas.modules.hr.repository.TimeAttendanceRepository;
+import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.masterdata.dto.request.*;
 import com.farm.saas.modules.masterdata.dto.response.*;
 import com.farm.saas.modules.masterdata.entity.*;
@@ -36,6 +43,12 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
     private final CostCategoryRepository costCategoryRepository;
     private final MaterialRepository materialRepository;
     private final FarmRepository farmRepository;
+    private final CropSeasonRepository cropSeasonRepository;
+    private final LivestockGroupRepository livestockGroupRepository;
+    private final ShiftAssignmentRepository shiftAssignmentRepository;
+    private final TimeAttendanceRepository timeAttendanceRepository;
+    private final FarmExpenseRepository farmExpenseRepository;
+    private final BudgetLineItemRepository budgetLineItemRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     private static final Set<String> VALID_SPECIES = Set.of(
@@ -152,6 +165,30 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
         return toCropTypeResponse(updated);
     }
 
+    @Override
+    @Transactional
+    public void deleteCropType(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        CropType ct = cropTypeRepository.findByTenantIdAndId(tenantId, id)
+                .orElseThrow(() -> new ResourceNotFoundException("Loại cây trồng", id));
+
+        if (cropSeasonRepository.existsByCropTypeId(id) || consumptionQuotaRepository.existsByCropTypeId(id)) {
+            throw new BusinessException("Giống cây trồng này đã được sử dụng trong mùa vụ hoặc định mức kỹ thuật, không thể xóa!");
+        }
+
+        cropTypeRepository.delete(ct);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(tenantId)
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("DELETE_CROP_TYPE")
+                .module("MASTERDATA")
+                .endpoint("/api/v1/master/crop-types/" + id)
+                .method("DELETE")
+                .newValue("Deleted crop type: " + ct.getVarietyCode())
+                .build());
+    }
+
     // ==========================================
     // 2. LIVESTOCK BREEDS (#21)
     // ==========================================
@@ -251,6 +288,30 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
                 .build());
 
         return toBreedResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public void deleteLivestockBreed(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        LivestockBreed breed = livestockBreedRepository.findByTenantIdAndId(tenantId, id)
+                .orElseThrow(() -> new ResourceNotFoundException("Giống vật nuôi", id));
+
+        if (livestockGroupRepository.existsByBreedId(id) || consumptionQuotaRepository.existsByLivestockBreedId(id)) {
+            throw new BusinessException("Giống vật nuôi này đã được sử dụng trong đàn nuôi hoặc định mức, không thể xóa!");
+        }
+
+        livestockBreedRepository.delete(breed);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(tenantId)
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("DELETE_LIVESTOCK_BREED")
+                .module("MASTERDATA")
+                .endpoint("/api/v1/master/livestock-breeds/" + id)
+                .method("DELETE")
+                .newValue("Deleted livestock breed: " + breed.getBreedName())
+                .build());
     }
 
     // ==========================================
@@ -356,6 +417,26 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
         return toQuotaResponse(updated);
     }
 
+    @Override
+    @Transactional
+    public void deleteQuota(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        ConsumptionQuota quota = consumptionQuotaRepository.findByTenantIdAndId(tenantId, id)
+                .orElseThrow(() -> new ResourceNotFoundException("Định mức", id));
+
+        consumptionQuotaRepository.delete(quota);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(tenantId)
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("DELETE_CONSUMPTION_QUOTA")
+                .module("MASTERDATA")
+                .endpoint("/api/v1/quotas/" + id)
+                .method("DELETE")
+                .newValue("Deleted quota ID: " + id)
+                .build());
+    }
+
     // ==========================================
     // 4. WORK SHIFTS (#52)
     // ==========================================
@@ -438,6 +519,30 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
                 .build());
 
         return toShiftResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public void deleteWorkShift(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        WorkShift shift = workShiftRepository.findByTenantIdAndId(tenantId, id)
+                .orElseThrow(() -> new ResourceNotFoundException("Ca làm việc", id));
+
+        if (shiftAssignmentRepository.existsByShiftId(id) || timeAttendanceRepository.existsByShiftId(id)) {
+            throw new BusinessException("Ca làm việc đã được phân công hoặc chấm công, không thể xóa!");
+        }
+
+        workShiftRepository.delete(shift);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(tenantId)
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("DELETE_WORK_SHIFT")
+                .module("HR")
+                .endpoint("/api/v1/hr/shifts/" + id)
+                .method("DELETE")
+                .newValue("Deleted shift: " + shift.getShiftCode())
+                .build());
     }
 
     // ==========================================
@@ -526,6 +631,30 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
                 .build());
 
         return toCostCategoryResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public void deleteCostCategory(Long id) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        CostCategory cc = costCategoryRepository.findByTenantIdAndId(tenantId, id)
+                .orElseThrow(() -> new ResourceNotFoundException("Danh mục chi phí", id));
+
+        if (farmExpenseRepository.existsByCostCategoryId(id) || budgetLineItemRepository.existsByCostCategoryId(id)) {
+            throw new BusinessException("Nhóm chi phí đã phát sinh chứng từ chi phí hoặc ngân sách, không thể xóa!");
+        }
+
+        costCategoryRepository.delete(cc);
+
+        eventPublisher.publishEvent(AuditTrailEvent.builder()
+                .tenantId(tenantId)
+                .userId(SecurityUtils.getCurrentUserId())
+                .action("DELETE_COST_CATEGORY")
+                .module("FINANCE")
+                .endpoint("/api/v1/cost-categories/" + id)
+                .method("DELETE")
+                .newValue("Deleted cost category: " + cc.getCode())
+                .build());
     }
 
     private CropTypeResponse toCropTypeResponse(CropType ct) {

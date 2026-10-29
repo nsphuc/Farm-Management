@@ -181,7 +181,7 @@ export function GeographyWorkspace() {
 
   useEffect(() => {
     fetchHierarchy();
-  }, [syncTrigger?.farms, syncTrigger?.zones]);
+  }, [syncTrigger?.farms, syncTrigger?.zones, syncTrigger?.employees]);
 
   // Tự động đồng bộ chọn farm trên giao diện khi activeFarmId thay đổi từ TopBar
   useEffect(() => {
@@ -200,13 +200,21 @@ export function GeographyWorkspace() {
       fetchAssignments(selectedFarm.id);
       fetchEmployees(selectedFarm.id);
     }
-  }, [selectedFarm?.id, syncTrigger?.employees]);
+  }, [selectedFarm?.id, syncTrigger?.employees, syncTrigger?.farms, syncTrigger?.zones]);
 
   useEffect(() => {
     if (selectedFarm?.id && selectedZone?.id) {
       fetchLocations(selectedFarm.id, selectedZone.id);
     }
-  }, [selectedFarm?.id, selectedZone?.id, syncTrigger?.zones]);
+  }, [
+    selectedFarm?.id,
+    selectedZone?.id,
+    syncTrigger?.zones,
+    syncTrigger?.locations,
+    syncTrigger?.seasons,
+    syncTrigger?.farming,
+    syncTrigger?.all,
+  ]);
 
   // Handle tree node selection
   const handleSelectNode = ({ type, item, farm, zone }) => {
@@ -395,14 +403,36 @@ export function GeographyWorkspace() {
     const roleStr = assignmentItem?.roleInFarm ? `(${assignmentItem.roleInFarm})` : '';
     if (!window.confirm(`Xác nhận kết thúc phân công cán bộ ${nameStr} ${roleStr} khỏi nhiệm vụ hiện trường?`)) return;
     try {
-      await geographyService.deleteAssignment(selectedFarm.id, assignmentId);
+      const targetFarmId = assignmentItem?.farmId || selectedFarm?.id || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null);
+      if (!targetFarmId) {
+        toast.error('Không tìm thấy trang trại tương ứng của phân công này!');
+        return;
+      }
+      // Optimistic update: xóa ngay lập tức khỏi state để giao diện phản hồi tức thì
+      setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+
+      const isNonUser = !assignmentItem?.userId || assignmentId < 0;
+      const targetEmpId = assignmentItem?.employeeId || (isNonUser ? Math.abs(assignmentId) : undefined);
+      const params = targetEmpId ? { employeeId: targetEmpId } : {};
+
+      await geographyService.deleteAssignment(targetFarmId, assignmentId, params);
       toast.success('Đã kết thúc phân công cán bộ thành công!');
       notifyDataChanged?.('employees');
       notifyDataChanged?.('zones');
-      fetchAssignments(selectedFarm.id);
+      notifyDataChanged?.('farms');
+
+      await Promise.all([
+        fetchAssignments(targetFarmId),
+        fetchEmployees(targetFarmId),
+        fetchHierarchy(),
+      ]);
     } catch (err) {
       const errInfo = extractApiErrors(err);
       toast.error(errInfo.message || 'Không thể kết thúc phân công!');
+      // Rollback nếu có lỗi
+      if (selectedFarm?.id) {
+        fetchAssignments(selectedFarm.id);
+      }
     }
   };
 
@@ -604,22 +634,20 @@ export function GeographyWorkspace() {
                       </Button>
                     </Can>
 
-                    {owner && (
-                      <Can permission="PERM_FARM_UPDATE">
-                        <Button
-                          type="button"
-                          variant="primary"
-                          size="sm"
-                          onClick={() => {
-                            setEditingFarm(selectedFarm);
-                            setFarmModalOpen(true);
-                          }}
-                          icon={<Edit2 className="h-4 w-4" />}
-                        >
-                          [✏️ Cập Nhật Thông Số Trại]
-                        </Button>
-                      </Can>
-                    )}
+                    <Can permission="PERM_FARM_UPDATE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        onClick={() => {
+                          setEditingFarm(selectedFarm);
+                          setFarmModalOpen(true);
+                        }}
+                        icon={<Edit2 className="h-4 w-4" />}
+                      >
+                        [✏️ Cập Nhật Thông Số Trại]
+                      </Button>
+                    </Can>
 
                     {owner && (
                       <Can permission="PERM_FARM_UPDATE">
@@ -911,6 +939,7 @@ export function GeographyWorkspace() {
               {!owner && (
                 <StaffAssignmentPane
                   assignments={assignments}
+                  employees={employees}
                   selectedZoneId={null}
                   onOpenAssignModal={handleOpenAssignModal}
                   onDeleteAssignment={handleDeleteAssignment}
@@ -1173,6 +1202,20 @@ export function GeographyWorkspace() {
                           <StatusBadge status={loc.status} size="xs" />
                         </div>
                         <div className="font-mono text-[11px] text-slate-500">{loc.code}</div>
+                        {(loc.areaM2 != null || loc.capacity != null) && (
+                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
+                            {loc.areaM2 != null && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                                📐 Diện tích: {Number(loc.areaM2).toLocaleString('vi-VN')} m²
+                              </span>
+                            )}
+                            {loc.capacity != null && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold">
+                                🐄 Sức chứa: {Number(loc.capacity).toLocaleString('vi-VN')} con
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {loc.description && (
                           <div className="text-[11px] text-slate-500 truncate">{loc.description}</div>
                         )}
@@ -1211,6 +1254,7 @@ export function GeographyWorkspace() {
               {!owner && (
                 <StaffAssignmentPane
                   assignments={assignments}
+                  employees={employees}
                   selectedZoneId={selectedZone.id}
                   onOpenAssignModal={handleOpenAssignModal}
                   onDeleteAssignment={handleDeleteAssignment}

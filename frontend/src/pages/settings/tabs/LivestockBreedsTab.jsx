@@ -8,6 +8,7 @@ import { FormField, Input, Select } from '@/components/ui/FormControls';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 const SPECIES_OPTIONS = [
   { value: 'CATTLE', label: 'CATTLE - Bò / Trâu' },
@@ -113,6 +114,7 @@ export function LivestockBreedsTab() {
       }
       setModalOpen(false);
       fetchData();
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
       applyServerFieldErrors(err, setFieldErrors);
       const errInfo = extractApiErrors(err);
@@ -127,6 +129,7 @@ export function LivestockBreedsTab() {
     try {
       await masterDataService.deleteLivestockBreed(id);
       fetchData();
+      useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
       const errInfo = extractApiErrors(err);
       alert(errInfo.message || 'Không thể xóa giống vật nuôi đã phát sinh lứa nuôi!');
@@ -167,7 +170,7 @@ export function LivestockBreedsTab() {
       className: 'text-right',
       render: (item) => (
         <div className="flex items-center justify-end gap-1">
-          <Can permission="PERM_FARM_UPDATE">
+          <Can anyPermissions={['PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE']}>
             <button
               type="button"
               onClick={() => handleOpenModal(item)}
@@ -212,7 +215,7 @@ export function LivestockBreedsTab() {
           </div>
         </div>
 
-        <Can permission="PERM_FARM_UPDATE">
+        <Can anyPermissions={['PERM_LIVESTOCK_MANAGE', 'PERM_FARM_UPDATE']}>
           <Button
             type="button"
             variant="primary"

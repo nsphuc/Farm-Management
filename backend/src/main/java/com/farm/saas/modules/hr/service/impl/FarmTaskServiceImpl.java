@@ -36,7 +36,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class FarmTaskServiceImpl implements FarmTaskService {
 
     private final FarmTaskRepository farmTaskRepository;
@@ -45,6 +44,40 @@ public class FarmTaskServiceImpl implements FarmTaskService {
     private final FarmRepository farmRepository;
     private final ProductionZoneRepository zoneRepository;
     private final UserRepository userRepository;
+    private final com.farm.saas.modules.notification.service.NotificationService notificationService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FarmTaskServiceImpl(
+            FarmTaskRepository farmTaskRepository,
+            FarmTaskAssigneeRepository farmTaskAssigneeRepository,
+            EmployeeRepository employeeRepository,
+            FarmRepository farmRepository,
+            ProductionZoneRepository zoneRepository,
+            UserRepository userRepository,
+            com.farm.saas.modules.notification.service.NotificationService notificationService) {
+        this.farmTaskRepository = farmTaskRepository;
+        this.farmTaskAssigneeRepository = farmTaskAssigneeRepository;
+        this.employeeRepository = employeeRepository;
+        this.farmRepository = farmRepository;
+        this.zoneRepository = zoneRepository;
+        this.userRepository = userRepository;
+        this.notificationService = notificationService;
+    }
+
+    public FarmTaskServiceImpl(
+            FarmTaskRepository farmTaskRepository,
+            FarmTaskAssigneeRepository farmTaskAssigneeRepository,
+            EmployeeRepository employeeRepository,
+            FarmRepository farmRepository,
+            ProductionZoneRepository zoneRepository,
+            UserRepository userRepository) {
+        this(farmTaskRepository, farmTaskAssigneeRepository, employeeRepository, farmRepository, zoneRepository, userRepository, null);
+    }
+
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.common.security.FarmSecurityEvaluator farmSecurity;
+
 
     @Override
     @Transactional
@@ -89,18 +122,86 @@ public class FarmTaskServiceImpl implements FarmTaskService {
         }
 
         log.info("Created farm task id={}, title={} on farmId={}", task.getId(), task.getTaskTitle(), farmId);
+
+        // Bắn Notification tới các công nhân được giao việc
+        if (notificationService != null) {
+            try {
+                Set<Long> targetUserIds = new HashSet<>();
+                if (task.getAssignedToEmployeeId() != null) {
+                    employeeRepository.findById(task.getAssignedToEmployeeId())
+                            .map(Employee::getUserId)
+                            .filter(uid -> uid != null && !uid.equals(currentUserId))
+                            .ifPresent(targetUserIds::add);
+                }
+                if (request.getAssignees() != null) {
+                    for (CreateFarmTaskRequest.TaskAssigneeItemRequest aReq : request.getAssignees()) {
+                        if (aReq.getEmployeeId() != null) {
+                            employeeRepository.findById(aReq.getEmployeeId())
+                                    .map(Employee::getUserId)
+                                    .filter(uid -> uid != null && !uid.equals(currentUserId))
+                                    .ifPresent(targetUserIds::add);
+                        }
+                    }
+                }
+                String notifTitle = "Nhiệm vụ mới được giao: " + task.getTaskTitle();
+                String notifMsg = "Bạn vừa được phân công nhiệm vụ [" + task.getTaskTitle() + "]. Hạn hoàn thành: " + (task.getDeadline() != null ? task.getDeadline() : "Không thời hạn");
+                for (Long rId : targetUserIds) {
+                    notificationService.sendNotification(
+                            task.getTenantId(),
+                            rId,
+                            notifTitle,
+                            notifMsg,
+                            "TASK",
+                            "FARM_TASK",
+                            task.getId(),
+                            "/app/my-dashboard"
+                    );
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to send task assignment notification: {}", ex.getMessage());
+            }
+        }
+
         return enrichTaskResponse(task);
     }
 
     @Override
     @Transactional
     public FarmTaskDetailResponse updateTask(Long farmId, Long taskId, CreateFarmTaskRequest request) {
+        com.farm.saas.modules.hr.dto.request.UpdateFarmTaskRequest updateReq = com.farm.saas.modules.hr.dto.request.UpdateFarmTaskRequest.builder()
+                .zoneId(request.getZoneId())
+                .taskTitle(request.getTaskTitle())
+                .taskType(request.getTaskType())
+                .priority(request.getPriority())
+                .assignedToEmployeeId(request.getAssignedToEmployeeId())
+                .deadline(request.getDeadline())
+                .completionNotes(request.getCompletionNotes())
+                .photosJson(request.getPhotosJson())
+                .assignees(request.getAssignees())
+                .build();
+        return updateTask(farmId, taskId, updateReq);
+    }
+
+    @Override
+    @Transactional
+    public FarmTaskDetailResponse updateTask(Long farmId, Long taskId, com.farm.saas.modules.hr.dto.request.UpdateFarmTaskRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
         FarmTask task = farmTaskRepository.findById(taskId)
-                .filter(t -> t.getFarmId().equals(farmId) && (tenantId == null || t.getTenantId().equals(tenantId)))
+                .filter(t -> (farmId == null || t.getFarmId().equals(farmId)) && (tenantId == null || t.getTenantId().equals(tenantId)))
                 .orElseThrow(() -> new ResourceNotFoundException("FarmTask", "id", taskId));
+
+        if (farmSecurity != null && !farmSecurity.canAccessFarm(task.getFarmId())) {
+            throw new AccessDeniedException("Không có quyền chỉnh sửa nhiệm vụ trên trang trại này.");
+        }
+
+        if ("DONE".equalsIgnoreCase(task.getStatus())) {
+            throw new com.farm.saas.common.exception.BusinessException("TASK_ALREADY_DONE", "Nhiệm vụ đã hoàn thành (DONE) không thể chỉnh sửa.");
+        }
+        if ("CANCELLED".equalsIgnoreCase(task.getStatus())) {
+            throw new com.farm.saas.common.exception.BusinessException("TASK_ALREADY_CANCELLED", "Nhiệm vụ đã bị hủy (CANCELLED) không thể chỉnh sửa.");
+        }
 
         task.setTaskTitle(request.getTaskTitle());
         task.setTaskType(request.getTaskType());
@@ -133,26 +234,46 @@ public class FarmTaskServiceImpl implements FarmTaskService {
             }
         }
 
-        log.info("Updated farm task id={}, title={} on farmId={}", task.getId(), task.getTaskTitle(), farmId);
+        log.info("Updated farm task id={}, title={} on farmId={}", task.getId(), task.getTaskTitle(), task.getFarmId());
+        return enrichTaskResponse(task);
+    }
+
+    @Override
+    @Transactional
+    public FarmTaskDetailResponse cancelTask(Long id, String reason) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+
+        FarmTask task = farmTaskRepository.findById(id)
+                .filter(t -> tenantId == null || t.getTenantId().equals(tenantId))
+                .orElseThrow(() -> new ResourceNotFoundException("FarmTask", "id", id));
+
+        if (farmSecurity != null && !farmSecurity.canAccessFarm(task.getFarmId())) {
+            throw new AccessDeniedException("Không có quyền hủy nhiệm vụ trên trang trại này.");
+        }
+
+        if ("DONE".equalsIgnoreCase(task.getStatus())) {
+            throw new com.farm.saas.common.exception.BusinessException("TASK_ALREADY_DONE", "Nhiệm vụ đã hoàn thành (DONE) không thể hủy.");
+        }
+
+        task.setStatus("CANCELLED");
+        if (StringUtils.hasText(reason)) {
+            task.setCompletionNotes(reason.trim());
+        } else if (!StringUtils.hasText(task.getCompletionNotes())) {
+            task.setCompletionNotes("Đã dừng / hủy nhiệm vụ bởi người điều hành");
+        }
+        task.setUpdatedAt(Instant.now());
+        task.setUpdatedBy(currentUserId);
+
+        task = farmTaskRepository.save(task);
+        log.info("Cancelled farm task id={} with reason='{}'", id, reason);
         return enrichTaskResponse(task);
     }
 
     @Override
     @Transactional
     public void deleteTask(Long farmId, Long taskId) {
-        Long tenantId = SecurityUtils.getCurrentTenantId();
-        Long currentUserId = SecurityUtils.getCurrentUserId();
-
-        FarmTask task = farmTaskRepository.findById(taskId)
-                .filter(t -> t.getFarmId().equals(farmId) && (tenantId == null || t.getTenantId().equals(tenantId)))
-                .orElseThrow(() -> new ResourceNotFoundException("FarmTask", "id", taskId));
-
-        task.setStatus("CANCELLED");
-        task.setCompletionNotes("Đã dừng / hủy nhiệm vụ bởi người điều hành");
-        task.setUpdatedAt(Instant.now());
-        task.setUpdatedBy(currentUserId);
-        farmTaskRepository.save(task);
-        log.info("Cancelled/deleted task id={} on farmId={}", taskId, farmId);
+        cancelTask(taskId, "Đã xóa / hủy nhiệm vụ bởi người điều hành");
     }
 
     @Override
@@ -167,17 +288,21 @@ public class FarmTaskServiceImpl implements FarmTaskService {
                 .orElseThrow(() -> new ResourceNotFoundException("FarmTask", "id", id));
 
         String targetStatus = request.getStatus() != null ? request.getStatus().trim().toUpperCase() : "";
+        String oldStatus = task.getStatus();
 
-        // Kiểm tra Maker-Checker: Chuyển sang DONE hoặc CANCELLED bắt buộc có PERM_TASK_ASSIGN hoặc cấp quản lý
+        // Kiểm tra Maker-Checker: Chuyển sang DONE hoặc CANCELLED bắt buộc có PERM_TASK_ASSIGN hoặc cấp quản lý / Trưởng phân khu
         if ("DONE".equals(targetStatus) || "CANCELLED".equals(targetStatus)) {
+            boolean isZoneManager = farmSecurity != null && farmSecurity.isZoneManager(task.getFarmId());
             boolean canApprove = currentUser != null && (
                     currentUser.isSuperAdmin()
                     || currentUser.hasPermission("PERM_TASK_ASSIGN")
                     || currentUser.hasRole("ROLE_FARM_MANAGER")
                     || currentUser.hasRole("ROLE_TECHNICAL_STAFF")
+                    || currentUser.hasRole("ROLE_WAREHOUSE_STAFF")
+                    || isZoneManager
             );
             if (!canApprove) {
-                throw new AccessDeniedException("Chỉ Quản lý trang trại hoặc Kỹ thuật viên (PERM_TASK_ASSIGN) mới có quyền nghiệm thu hoàn thành (DONE) hoặc hủy (CANCELLED) nhiệm vụ");
+                throw new AccessDeniedException("Chỉ Quản lý trang trại, Trưởng phân khu hoặc Kỹ thuật viên (PERM_TASK_ASSIGN) mới có quyền nghiệm thu hoàn thành (DONE) hoặc hủy (CANCELLED) nhiệm vụ");
             }
         }
 
@@ -192,8 +317,110 @@ public class FarmTaskServiceImpl implements FarmTaskService {
         task.setUpdatedBy(currentUserId);
 
         task = farmTaskRepository.save(task);
-        log.info("Updated task id={} status to {}", task.getId(), task.getStatus());
+        log.info("Updated task id={} status from {} to {}", task.getId(), oldStatus, task.getStatus());
+
+        // Bắn Notification tới người giao việc (assignedByUserId) và Giám đốc trang trại (farm.getManagerUserId())
+        if ("PENDING_REVIEW".equalsIgnoreCase(targetStatus) && notificationService != null) {
+            try {
+                String notifTitle = "Công việc hoàn thành chờ nghiệm thu";
+                String notifMsg = String.format("Công việc [%s] đã được hoàn thành tại hiện trường và đang chờ nghiệm thu.", task.getTaskTitle());
+                java.util.Set<Long> recipientUserIds = new java.util.HashSet<>();
+                if (task.getAssignedByUserId() != null && !task.getAssignedByUserId().equals(currentUserId)) {
+                    recipientUserIds.add(task.getAssignedByUserId());
+                }
+                farmRepository.findById(task.getFarmId()).ifPresent(farm -> {
+                    if (farm.getManagerUserId() != null && !farm.getManagerUserId().equals(currentUserId)) {
+                        recipientUserIds.add(farm.getManagerUserId());
+                    }
+                });
+                for (Long recipientId : recipientUserIds) {
+                    notificationService.sendNotification(
+                            task.getTenantId(),
+                            recipientId,
+                            notifTitle,
+                            notifMsg,
+                            "TASK",
+                            "FARM_TASK",
+                            task.getId(),
+                            "/app/my-dashboard"
+                    );
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to send task review notification: {}", ex.getMessage());
+            }
+        }
+
+        // Bắn Notification khi Nghiệm thu hoàn thành (DONE) tới công nhân thực hiện
+        if ("DONE".equalsIgnoreCase(targetStatus) && notificationService != null) {
+            try {
+                String notifTitle = "Nhiệm vụ đã được nghiệm thu hoàn thành: " + task.getTaskTitle();
+                String notifMsg = "Nhiệm vụ [" + task.getTaskTitle() + "] của bạn đã được nghiệm thu ĐẠT (DONE).";
+                Set<Long> workerUserIds = resolveTaskWorkerUserIds(task);
+                for (Long wId : workerUserIds) {
+                    if (!wId.equals(currentUserId)) {
+                        notificationService.sendNotification(
+                                task.getTenantId(),
+                                wId,
+                                notifTitle,
+                                notifMsg,
+                                "TASK",
+                                "FARM_TASK",
+                                task.getId(),
+                                "/app/my-dashboard"
+                        );
+                    }
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to send task DONE notification: {}", ex.getMessage());
+            }
+        }
+
+        // Bắn Notification khi trả về yêu cầu làm lại (PENDING_REVIEW -> IN_PROGRESS)
+        if ("PENDING_REVIEW".equalsIgnoreCase(oldStatus) && "IN_PROGRESS".equalsIgnoreCase(targetStatus) && notificationService != null) {
+            try {
+                String notifTitle = "Yêu cầu thực hiện lại công việc: " + task.getTaskTitle();
+                String notifMsg = "Nhiệm vụ [" + task.getTaskTitle() + "] cần thực hiện lại. Ghi chú kiểm tra: " + (request.getCompletionNotes() != null ? request.getCompletionNotes() : "Vui lòng kiểm tra lại hiện trường.");
+                Set<Long> workerUserIds = resolveTaskWorkerUserIds(task);
+                for (Long wId : workerUserIds) {
+                    if (!wId.equals(currentUserId)) {
+                        notificationService.sendNotification(
+                                task.getTenantId(),
+                                wId,
+                                notifTitle,
+                                notifMsg,
+                                "WARNING",
+                                "FARM_TASK",
+                                task.getId(),
+                                "/app/my-dashboard"
+                        );
+                    }
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to send task redo notification: {}", ex.getMessage());
+            }
+        }
+
         return enrichTaskResponse(task);
+    }
+
+    private Set<Long> resolveTaskWorkerUserIds(FarmTask task) {
+        Set<Long> workerUserIds = new HashSet<>();
+        if (task.getAssignedToEmployeeId() != null) {
+            employeeRepository.findById(task.getAssignedToEmployeeId())
+                    .map(Employee::getUserId)
+                    .filter(Objects::nonNull)
+                    .ifPresent(workerUserIds::add);
+        }
+        List<FarmTaskAssignee> assignees = farmTaskAssigneeRepository.findByTaskId(task.getId());
+        for (FarmTaskAssignee a : assignees) {
+            if (a.getEmployeeId() != null) {
+                employeeRepository.findById(a.getEmployeeId())
+                        .map(Employee::getUserId)
+                        .filter(Objects::nonNull)
+                        .ifPresent(workerUserIds::add);
+            }
+        }
+        return workerUserIds;
     }
 
     @Override

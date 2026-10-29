@@ -100,7 +100,14 @@ export function LeaveAndOvertimeTab({ farmId, employees = [] }) {
     } else {
       fetchOvertimes();
     }
-  }, [subTab, farmId, syncTrigger?.employees]);
+  }, [
+    subTab,
+    farmId,
+    syncTrigger?.employees,
+    syncTrigger?.tasks,
+    syncTrigger?.attendance,
+    syncTrigger?.all,
+  ]);
 
   // Helper: Lấy thông tin nhân viên & Quỹ phép năm
   const getEmployeeQuota = (employeeId, fallbackQuota) => {

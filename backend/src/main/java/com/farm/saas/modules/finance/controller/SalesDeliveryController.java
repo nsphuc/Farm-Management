@@ -26,7 +26,7 @@ public class SalesDeliveryController {
     private final SalesDeliveryService salesDeliveryService;
 
     @GetMapping
-    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_WAREHOUSE_STAFF')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Danh sách đợt giao hàng", description = "Lấy danh sách các đợt giao hàng có phân trang")
     public ResponseEntity<Page<SalesDeliveryDetailResponse>> getDeliveries(
             @PathVariable Long farmId,
@@ -35,7 +35,7 @@ public class SalesDeliveryController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_WAREHOUSE_STAFF')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Chi tiết đợt giao hàng", description = "Xem chi tiết một đợt xuất giao và mặt hàng đính kèm")
     public ResponseEntity<SalesDeliveryDetailResponse> getDeliveryById(
             @PathVariable Long farmId,
@@ -44,7 +44,7 @@ public class SalesDeliveryController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_DELIVERY_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Tạo đợt xuất giao hàng (Atomic Delivery Flow 6)",
             description = "Trừ tồn kho thành phẩm, giải phóng giữ chỗ, ghi sổ cái product_batch_transactions và sinh công nợ phải thu")
     public ResponseEntity<SalesDeliveryDetailResponse> createDelivery(
@@ -54,7 +54,7 @@ public class SalesDeliveryController {
     }
 
     @PostMapping("/{id}/dispatch")
-    @PreAuthorize("hasAuthority('PERM_DELIVERY_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Xác nhận điều xe / xuất bến", description = "Cập nhật trạng thái điều phối xuất bến của chuyến hàng")
     public ResponseEntity<SalesDeliveryDetailResponse> dispatchDelivery(
             @PathVariable Long farmId,
@@ -63,12 +63,23 @@ public class SalesDeliveryController {
     }
 
     @PostMapping("/{id}/pod")
-    @PreAuthorize("hasAuthority('PERM_DELIVERY_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Cập nhật biên bản giao nhận POD", description = "Đính kèm ảnh chứng từ Proof-of-Delivery và hoàn tất giao hàng")
     public ResponseEntity<SalesDeliveryDetailResponse> updatePod(
             @PathVariable Long farmId,
             @PathVariable Long id,
             @Valid @RequestBody UpdateDeliveryPodRequest request) {
         return ResponseEntity.ok(salesDeliveryService.updatePod(farmId, id, request));
+    }
+
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("(hasAnyAuthority('PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER')) and @farmSecurity.canAccessFarm(#farmId)")
+    @Operation(summary = "Hủy đợt xuất giao hàng (GAP-SYNC-08)", description = "Hủy chuyến giao hàng khi chưa hoàn tất DELIVERED, hoàn trả số lượng vào ProductBatch và hoàn nhập sổ cái")
+    public ResponseEntity<SalesDeliveryDetailResponse> cancelDelivery(
+            @PathVariable Long farmId,
+            @PathVariable Long id,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(salesDeliveryService.cancelDelivery(farmId, id, reason));
     }
 }

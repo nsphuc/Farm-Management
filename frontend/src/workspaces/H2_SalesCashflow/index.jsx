@@ -10,7 +10,12 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { CycleSettlementConsole } from './components/CycleSettlementConsole';
 import { SalesOrderMonitorTab } from './components/SalesOrderMonitorTab';
+import { SalesDeliveryMonitorTab } from './components/SalesDeliveryMonitorTab';
 import { DebtMonitorTab } from './components/DebtMonitorTab';
+import { CreateSalesOrderModal } from './components/CreateSalesOrderModal';
+import { CreateDeliveryModal } from './components/CreateDeliveryModal';
+import { CreatePaymentModal } from './components/CreatePaymentModal';
+import { AllocateOrOffsetDebtModal } from './components/AllocateOrOffsetDebtModal';
 
 /**
  * Workspace H2: Trung Tâm Bán Hàng, Giao Hàng & Thu Phí VietQR (Điều 2.9 File 08)
@@ -29,13 +34,29 @@ import { DebtMonitorTab } from './components/DebtMonitorTab';
  *   + Lên đơn bán sỉ, lập đợt giao hàng, cấn trừ công nợ và thu chi lẻ.
  */
 export function SalesCashflowWorkspace() {
-  const { activeFarmId, activeFarm } = useActiveFarmStore();
-  const { isOwner, isFarmManager } = useAuthStore();
+  const { activeFarmId, activeFarm, notifyDataChanged } = useActiveFarmStore();
+  const { isOwner, isFarmManager, isWarehouseKeeper, hasPermission } = useAuthStore();
   const owner = isOwner();
   const manager = isFarmManager();
+  const warehouseKeeper = isWarehouseKeeper() || (!hasPermission('PERM_FINANCE_SALES_ORDER') && hasPermission('PERM_DELIVERY_MANAGE'));
 
-  // Mặc định cho Owner & Farm Manager là tab SETTLEMENT, cho nhân sự trại là tab ORDERS
-  const [activeTab, setActiveTab] = useState(owner || manager ? 'SETTLEMENT' : 'ORDERS');
+  // Mặc định cho Owner & Farm Manager là tab SETTLEMENT, Thủ kho là DELIVERIES, Kế toán là ORDERS
+  const [activeTab, setActiveTab] = useState(
+    owner || manager ? 'SETTLEMENT' : warehouseKeeper ? 'DELIVERIES' : 'ORDERS'
+  );
+
+  // Bảo vệ SoD: Ngăn Thủ kho truy cập các tab tài chính qua state hoặc URL
+  React.useEffect(() => {
+    if (warehouseKeeper && !['DELIVERIES', 'ORDERS'].includes(activeTab)) {
+      setActiveTab('DELIVERIES');
+    }
+  }, [warehouseKeeper, activeTab]);
+
+  // Modal states
+  const [isCreateOrderOpen, setIsCreateOrderOpen] = useState(false);
+  const [isCreateDeliveryOpen, setIsCreateDeliveryOpen] = useState(false);
+  const [isCreatePaymentOpen, setIsCreatePaymentOpen] = useState(false);
+  const [isAllocateDebtOpen, setIsAllocateDebtOpen] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -54,6 +75,8 @@ export function SalesCashflowWorkspace() {
                   ? 'Trung Tâm Bán Hàng & Nhận Kết Toán Lợi Nhuận Chu Kỳ' 
                   : manager
                   ? 'Theo Dõi Doanh Thu & Ký Duyệt Bảng Kết Toán Chu Kỳ'
+                  : warehouseKeeper
+                  ? 'WS-H2: Điều Phối Xuất Kho Giao Hàng B2B & Chứng Từ POD'
                   : 'Trung Tâm Bán Hàng, Giao Hàng & Thu Phí VietQR'}
               </h1>
               {owner && (
@@ -68,12 +91,20 @@ export function SalesCashflowWorkspace() {
                   <span>Giám Đốc Trại</span>
                 </span>
               )}
+              {warehouseKeeper && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-900 border border-blue-300">
+                  <Truck className="h-3 w-3 text-blue-700" />
+                  <span>Bộ Phận Giao Vận Kho</span>
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               {owner
                 ? 'Giám sát bán sỉ, công nợ hai chiều và nhận chuyển khoản lợi nhuận ròng trực tiếp từ các trang trại'
                 : manager
                 ? 'Kiểm tra đối soát doanh thu, chi phí, ký duyệt kết toán chu kỳ nội bộ trước khi Kế toán chuyển tiền cho Owner'
+                : warehouseKeeper
+                ? 'Theo dõi đơn hàng đã duyệt, lập phiếu xuất kho nhiều đợt, điều xe giao hàng và cập nhật ảnh chứng từ POD'
                 : 'Lên đơn bán sỉ, giữ chỗ lô hàng, xuất giao nhiều đợt và cấn trừ công nợ hai chiều tại trang trại'}
             </p>
           </div>
@@ -81,62 +112,65 @@ export function SalesCashflowWorkspace() {
 
         {/* Action Buttons theo vai trò Maker-Checker */}
         <div className="flex items-center gap-2">
-          {activeTab === 'ORDERS' && (
-            <Can permission="PERM_FINANCE_SALES_ORDER" role="ROLE_ACCOUNTANT">
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Plus className="h-4 w-4" />}
-                onClick={() => alert('Kế toán lập đơn bán sỉ mới (PENDING)')}
-              >
-                + Tạo Đơn Bán Sỉ
-              </Button>
-            </Can>
+          {(activeTab === 'ORDERS' || activeTab === 'DELIVERIES') && (
+            <>
+              {!warehouseKeeper && (
+                <Can permission="PERM_FINANCE_SALES_ORDER" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<Plus className="h-4 w-4" />}
+                    onClick={() => setIsCreateOrderOpen(true)}
+                  >
+                    + Tạo Đơn Bán Sỉ
+                  </Button>
+                </Can>
+              )}
+
+              <Can permission="PERM_DELIVERY_MANAGE" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
+                <Button
+                  variant={warehouseKeeper ? "primary" : "outline"}
+                  size="sm"
+                  icon={<Truck className="h-4 w-4" />}
+                  onClick={() => setIsCreateDeliveryOpen(true)}
+                  className={warehouseKeeper ? "bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-xs" : ""}
+                >
+                  + Lập Phiếu Giao Hàng
+                </Button>
+              </Can>
+            </>
           )}
 
-          {activeTab === 'DELIVERIES' && (
-            <Can permission="PERM_DELIVERY_MANAGE" role="ROLE_WAREHOUSE_STAFF">
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Truck className="h-4 w-4" />}
-                onClick={() => alert('Thủ kho lập phiếu giao hàng mới')}
-              >
-                + Lập Phiếu Giao Hàng
-              </Button>
-            </Can>
-          )}
+          {!warehouseKeeper && (activeTab === 'DEBT' || activeTab === 'PAYMENTS') && (
+            <>
+              <Can permission="PERM_FINANCE_PAYMENT" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<Plus className="h-4 w-4" />}
+                  onClick={() => setIsCreatePaymentOpen(true)}
+                >
+                  + Lập Phiếu Thu/Chi
+                </Button>
+              </Can>
 
-          {activeTab === 'DEBT' && (
-            <Can permission="PERM_PAYMENT_ALLOCATE" role="ROLE_ACCOUNTANT">
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<CreditCard className="h-4 w-4" />}
-                onClick={() => alert('Kế toán phân bổ / cấn trừ công nợ đối tác 2 chiều')}
-              >
-                + Phân Bổ / Cấn Trừ Nợ
-              </Button>
-            </Can>
-          )}
-
-          {activeTab === 'PAYMENTS' && (
-            <Can permission="PERM_FINANCE_PAYMENT" role="ROLE_ACCOUNTANT">
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Plus className="h-4 w-4" />}
-                onClick={() => alert('Kế toán lập phiếu thu/chi mới (PENDING)')}
-              >
-                + Lập Phiếu Thu/Chi
-              </Button>
-            </Can>
+              <Can permission="PERM_PAYMENT_ALLOCATE" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={<CreditCard className="h-4 w-4" />}
+                  onClick={() => setIsAllocateDebtOpen(true)}
+                >
+                  + Phân Bổ / Cấn Trừ Nợ
+                </Button>
+              </Can>
+            </>
           )}
         </div>
       </div>
 
       {/* ======================================================== */}
-      {/* 2. BANNER THÔNG ĐIỆP DÀNH CHO FARM MANAGER               */}
+      {/* 2. BANNER THÔNG ĐIỆP DÀNH CHO FARM MANAGER & THỦ KHO     */}
       {/* ======================================================== */}
       {manager && (
         <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 text-xs text-blue-900 shadow-2xs animate-in fade-in">
@@ -147,6 +181,21 @@ export function SalesCashflowWorkspace() {
             </strong>
             <p className="text-blue-800">
               Kế toán trại (Role 5) thực hiện bán hàng và thanh toán chi phí hàng ngày. Cuối mỗi Chu kỳ vận hành (#16), bạn vào <strong>Tab Duyệt Bảng Kết Toán</strong> để thẩm định đối soát Tổng Doanh Thu, Tổng Chi Phí và Lợi Nhuận Ròng của trại. Bấm nút <strong>[✍️ Ký Duyệt Bảng Kết Toán]</strong> để phê duyệt nội bộ, cấp phép cho Kế toán trại quét VietQR chuyển phần lợi nhuận về tài khoản của Chủ đầu tư (Owner)!
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Banner Vận Hành Dành Riêng Cho Thủ Kho / Giao Vận */}
+      {warehouseKeeper && (
+        <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 text-xs text-blue-900 shadow-2xs animate-in fade-in">
+          <Truck className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
+          <div className="space-y-0.5 leading-relaxed">
+            <strong className="block font-bold text-blue-950">
+              Quy Trình Giao Vận & Xuất Kho Nông Sản B2B:
+            </strong>
+            <p className="text-blue-800">
+              Bạn đang ở chế độ giao vận kho. Chọn tab <strong>Đơn Hàng Đã Duyệt Chờ Giao</strong> để kiểm tra các đơn đã được Giám đốc trại phê duyệt (<span className="font-semibold text-emerald-700">CONFIRMED</span>). Bấm nút <strong>[+ Lập Phiếu Giao Hàng]</strong> để xuất hàng theo đợt từ các lô thành phẩm đã in tem QR, cập nhật biển số xe, tài xế và đối tác vận chuyển.
             </p>
           </div>
         </div>
@@ -169,6 +218,11 @@ export function SalesCashflowWorkspace() {
               id: 'ORDERS', 
               label: 'Theo Dõi Đơn Bán Hàng & Giao Hàng', 
               icon: Receipt 
+            },
+            { 
+              id: 'DELIVERIES', 
+              label: 'Tiến Độ Giao Vận & POD', 
+              icon: Truck 
             },
             { 
               id: 'DEBT', 
@@ -210,6 +264,11 @@ export function SalesCashflowWorkspace() {
               icon: Receipt 
             },
             { 
+              id: 'DELIVERIES', 
+              label: 'Tiến Độ Giao Vận & POD', 
+              icon: Truck 
+            },
+            { 
               id: 'DEBT', 
               label: 'Sổ Cái Công Nợ & Thu Chi (Read-Only)', 
               icon: CreditCard 
@@ -229,6 +288,40 @@ export function SalesCashflowWorkspace() {
               <span>{tab.label}</span>
               {tab.badge && (
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          ))
+        ) : warehouseKeeper ? (
+          // Tabs dành cho Thủ kho / Bộ phận giao vận (Bảo mật SoD: ẨN DEBT & PAYMENTS & SETTLEMENT)
+          [
+            { 
+              id: 'DELIVERIES', 
+              label: 'Xuất Giao Hàng Lên Xe & POD', 
+              icon: Truck, 
+              badge: 'Nhiệm vụ chính' 
+            },
+            { 
+              id: 'ORDERS', 
+              label: 'Đơn Hàng Đã Duyệt Chờ Giao (Read-Only)', 
+              icon: Receipt 
+            },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'border-blue-600 text-blue-700 bg-blue-50/40 font-bold rounded-t-xl'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <tab.icon className="h-4 w-4" />
+              <span>{tab.label}</span>
+              {tab.badge && (
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800">
                   {tab.badge}
                 </span>
               )}
@@ -271,17 +364,58 @@ export function SalesCashflowWorkspace() {
       )}
 
       {activeTab === 'DEBT' && (
-        <DebtMonitorTab farmId={activeFarmId} />
+        <DebtMonitorTab 
+          farmId={activeFarmId} 
+          onOpenAllocateModal={() => setIsAllocateDebtOpen(true)}
+          onOpenPaymentModal={() => setIsCreatePaymentOpen(true)}
+        />
       )}
 
-      {/* Cho Kế toán / Nhân viên trại khi mở tab DELIVERIES hoặc PAYMENTS */}
-      {!owner && !manager && activeTab === 'DELIVERIES' && (
-        <SalesOrderMonitorTab farmId={activeFarmId} />
+      {activeTab === 'DELIVERIES' && (
+        <SalesDeliveryMonitorTab 
+          farmId={activeFarmId} 
+          onOpenCreateDelivery={() => setIsCreateDeliveryOpen(true)} 
+        />
       )}
 
-      {!owner && !manager && activeTab === 'PAYMENTS' && (
-        <DebtMonitorTab farmId={activeFarmId} />
+      {activeTab === 'PAYMENTS' && (
+        <DebtMonitorTab 
+          farmId={activeFarmId} 
+          onOpenAllocateModal={() => setIsAllocateDebtOpen(true)}
+          onOpenPaymentModal={() => setIsCreatePaymentOpen(true)}
+        />
       )}
+
+      {/* ======================================================== */}
+      {/* 5. GIAO DIỆN CÁC MODAL THỰC TẾ                            */}
+      {/* ======================================================== */}
+      <CreateSalesOrderModal
+        isOpen={isCreateOrderOpen}
+        onClose={() => setIsCreateOrderOpen(false)}
+        activeFarmId={activeFarmId}
+        onSuccess={() => notifyDataChanged?.('finance')}
+      />
+
+      <CreateDeliveryModal
+        isOpen={isCreateDeliveryOpen}
+        onClose={() => setIsCreateDeliveryOpen(false)}
+        activeFarmId={activeFarmId}
+        onSuccess={() => notifyDataChanged?.('finance')}
+      />
+
+      <CreatePaymentModal
+        isOpen={isCreatePaymentOpen}
+        onClose={() => setIsCreatePaymentOpen(false)}
+        activeFarmId={activeFarmId}
+        onSuccess={() => notifyDataChanged?.('finance')}
+      />
+
+      <AllocateOrOffsetDebtModal
+        isOpen={isAllocateDebtOpen}
+        onClose={() => setIsAllocateDebtOpen(false)}
+        activeFarmId={activeFarmId}
+        onSuccess={() => notifyDataChanged?.('finance')}
+      />
     </div>
   );
 }

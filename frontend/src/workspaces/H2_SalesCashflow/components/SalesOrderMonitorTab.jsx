@@ -12,6 +12,8 @@ import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { Can } from '@/components/common/Can';
 
+import { toast } from '@/store/useToastStore';
+
 export function SalesOrderMonitorTab({ farmId }) {
   const { syncTrigger } = useActiveFarmStore();
   const [orders, setOrders] = useState([]);
@@ -25,11 +27,32 @@ export function SalesOrderMonitorTab({ farmId }) {
     if (!window.confirm(`Xác nhận phê duyệt đơn bán sỉ ${order.orderCode}? Hệ thống sẽ kiểm tra hạn mức tín dụng và khóa giữ chỗ lô hàng.`)) return;
     try {
       await financeService.confirmSalesOrder(order.farmId, order.id);
-      alert('Đã phê duyệt đơn bán sỉ và giữ chỗ lô hàng thành công!');
+      toast.success('Đã phê duyệt đơn bán sỉ và giữ chỗ lô hàng thành công!');
+      const store = useActiveFarmStore.getState();
+      store.notifyDataChanged?.('all');
+      store.notifyDataChanged?.('finance');
+      store.notifyDataChanged?.('partners');
       loadOrders();
     } catch (err) {
       console.error('Lỗi khi duyệt đơn bán sỉ:', err);
-      alert('Không thể duyệt đơn bán sỉ: ' + (err.response?.data?.message || err.message));
+      toast.error('Không thể duyệt đơn bán sỉ: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleCancelOrder = async (order) => {
+    const reason = window.prompt(`Nhập lý do hủy đơn bán sỉ ${order.orderCode} (Hệ thống sẽ giải phóng số lượng giữ chỗ và hủy công nợ liên kết):`, 'Khách hàng hủy đơn');
+    if (reason === null) return;
+    try {
+      await financeService.cancelSalesOrder(order.farmId, order.id, { reason });
+      toast.success(`Đã hủy đơn hàng ${order.orderCode} thành công!`);
+      const store = useActiveFarmStore.getState();
+      store.notifyDataChanged?.('all');
+      store.notifyDataChanged?.('finance');
+      store.notifyDataChanged?.('partners');
+      loadOrders();
+    } catch (err) {
+      console.error('Lỗi khi hủy đơn bán sỉ:', err);
+      toast.error('Không thể hủy đơn: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -53,7 +76,7 @@ export function SalesOrderMonitorTab({ farmId }) {
 
   useEffect(() => {
     loadOrders();
-  }, [farmId, syncTrigger?.finance]);
+  }, [farmId, syncTrigger?.finance, syncTrigger?.partners, syncTrigger?.all]);
 
   const filteredOrders = orders.filter((order) => {
     if (statusFilter && order.status !== statusFilter) return false;
@@ -173,6 +196,21 @@ export function SalesOrderMonitorTab({ farmId }) {
                 title="Phê duyệt đơn bán sỉ & giữ chỗ lô"
               >
                 Duyệt Đơn
+              </Button>
+            </Can>
+          )}
+
+          {(row.status === 'PENDING' || row.status === 'CONFIRMED') && (!row.deliveryStatus || row.deliveryStatus === 'PENDING' || row.deliveryStatus === 'UNSHIPPED') && (
+            <Can permission="PERM_FINANCE_SALES_ORDER" role="ROLE_FARM_MANAGER">
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<X className="h-3.5 w-3.5 text-rose-500" />}
+                onClick={() => handleCancelOrder(row)}
+                className="hover:bg-rose-50 text-rose-600 border-rose-200"
+                title="Hủy đơn hàng & giải phóng tồn giữ chỗ"
+              >
+                Hủy Đơn
               </Button>
             </Can>
           )}

@@ -22,8 +22,25 @@ public class TenantDetailResponse {
     private String subscriptionPlan;
     private SubscriptionDto activeSubscription;
     private UsageDto currentUsage;
+    private OwnerSummaryDto owner;
+    private String ownerFullName;
+    private String ownerEmail;
+    private String ownerPhone;
     private Instant createdAt;
     private Instant updatedAt;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OwnerSummaryDto {
+        private Long id;
+        private String username;
+        private String fullName;
+        private String email;
+        private String phone;
+        private String status;
+    }
 
     @Data
     @Builder

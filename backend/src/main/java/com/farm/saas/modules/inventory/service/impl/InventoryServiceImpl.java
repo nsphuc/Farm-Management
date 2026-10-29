@@ -7,15 +7,22 @@ import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.CustomUserDetails;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.finance.entity.DebtRecord;
+import com.farm.saas.modules.finance.entity.FarmExpense;
 import com.farm.saas.modules.finance.repository.DebtRecordRepository;
+import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
+import com.farm.saas.modules.finance.service.BudgetService;
+import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.inventory.dto.request.*;
 import com.farm.saas.modules.inventory.dto.response.*;
 import com.farm.saas.modules.inventory.entity.*;
 import com.farm.saas.modules.inventory.repository.*;
+import com.farm.saas.modules.masterdata.entity.CostCategory;
 import com.farm.saas.modules.masterdata.entity.Material;
 import com.farm.saas.modules.masterdata.entity.Warehouse;
+import com.farm.saas.modules.masterdata.repository.CostCategoryRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialRepository;
 import com.farm.saas.modules.masterdata.repository.WarehouseRepository;
+import com.farm.saas.modules.notification.service.NotificationService;
 import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.PartnerRepository;
 import jakarta.persistence.criteria.Predicate;
@@ -59,6 +66,30 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     private final PartnerRepository partnerRepository;
     private final DebtRecordRepository debtRecordRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final FarmRepository farmRepository;
+    private final FarmExpenseRepository farmExpenseRepository;
+    private final CostCategoryRepository costCategoryRepository;
+    private final BudgetService budgetService;
+    private final NotificationService notificationService;
+
+    private void notifyFarmManager(Long farmId, Long tenantId, String title, String message, String refType, Long refId, String actionUrl) {
+        if (notificationService == null || farmId == null) return;
+        farmRepository.findById(farmId).ifPresent(farm -> {
+            Long managerUserId = farm.getManagerUserId();
+            Long currentUserId = SecurityUtils.getCurrentUserId();
+            if (managerUserId != null && !managerUserId.equals(currentUserId)) {
+                notificationService.sendNotification(tenantId, managerUserId, title, message, "SYSTEM", refType, refId, actionUrl);
+            }
+        });
+    }
+
+    private void notifyCreator(Long farmId, Long tenantId, Long createdByUserId, String title, String message, String refType, Long refId, String actionUrl) {
+        if (notificationService == null || createdByUserId == null) return;
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        if (!createdByUserId.equals(currentUserId)) {
+            notificationService.sendNotification(tenantId, createdByUserId, title, message, "SYSTEM", refType, refId, actionUrl);
+        }
+    }
 
     private void applyFarmAccessPredicate(Long farmId, jakarta.persistence.criteria.Root<?> root,
                                           jakarta.persistence.criteria.CriteriaBuilder cb,
@@ -333,6 +364,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Receipt: " + receipt.getReceiptCode() + ", Amount: " + receipt.getTotalAmount())
                 .build());
 
+        notifyFarmManager(farmId, tenantId, "Phiếu nhập kho mới",
+                "Thủ kho vừa lập Phiếu nhập kho [" + receipt.getReceiptCode() + "] đang chờ phê duyệt.",
+                "WAREHOUSE_RECEIPT", receipt.getId(), "/app/inventory?tab=RECEIPT&id=" + receipt.getId());
+
         return enrichReceiptDetail(receipt);
     }
 
@@ -512,6 +547,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Completed receipt: " + receipt.getReceiptCode())
                 .build());
 
+        notifyCreator(farmId, tenantId, receipt.getCreatedBy(), "Phiếu nhập kho đã hoàn tất",
+                "Giám đốc trang trại đã phê duyệt hoàn tất Phiếu nhập kho [" + receipt.getReceiptCode() + "]. Hàng đã nhập kho.",
+                "WAREHOUSE_RECEIPT", receipt.getId(), "/app/inventory?tab=RECEIPT&id=" + receipt.getId());
+
         return enrichReceiptDetail(receipt);
     }
 
@@ -543,6 +582,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .method("POST")
                 .newValue("Cancelled receipt: " + receipt.getReceiptCode() + ", Reason: " + request.getCancellationReason())
                 .build());
+
+        notifyCreator(farmId, receipt.getTenantId(), receipt.getCreatedBy(), "Phiếu nhập kho đã bị hủy",
+                "Phiếu nhập kho [" + receipt.getReceiptCode() + "] đã bị hủy. Lý do: " + (request != null ? request.getCancellationReason() : ""),
+                "WAREHOUSE_RECEIPT", receipt.getId(), "/app/inventory?tab=RECEIPT&id=" + receipt.getId());
 
         return enrichReceiptDetail(receipt);
     }
@@ -614,6 +657,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .issueType(request.getIssueType().toUpperCase())
                 .receiverName(request.getReceiverName())
                 .seasonId(request.getSeasonId())
+                .livestockGroupId(request.getLivestockGroupId())
                 .isBackflushed(false)
                 .issueDate(request.getIssueDate())
                 .totalAmount(totalAmount)
@@ -639,6 +683,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .method("POST")
                 .newValue("Issue: " + issue.getIssueCode() + ", Amount: " + issue.getTotalAmount())
                 .build());
+
+        notifyFarmManager(farmId, tenantId, "Phiếu xuất kho mới",
+                "Thủ kho vừa lập Phiếu xuất kho [" + issue.getIssueCode() + "] đang chờ phê duyệt.",
+                "WAREHOUSE_ISSUE", issue.getId(), "/app/inventory?tab=ISSUE&id=" + issue.getId());
 
         return enrichIssueDetail(issue);
     }
@@ -765,6 +813,50 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Completed issue: " + issue.getIssueCode())
                 .build());
 
+        // Nếu xuất sử dụng nội bộ (INTERNAL_USE) và có gắn vụ mùa hoặc đàn nuôi -> Tự động sinh FarmExpense
+        if ("INTERNAL_USE".equalsIgnoreCase(issue.getIssueType()) && (issue.getSeasonId() != null || issue.getLivestockGroupId() != null)) {
+            CostCategory costCategory = costCategoryRepository.findByTenantIdAndCostType(tenantId, "MATERIALS")
+                    .stream().findFirst()
+                    .orElseGet(() -> {
+                        CostCategory newCat = CostCategory.builder()
+                                .tenantId(tenantId)
+                                .name("Chi phí Vật tư Xuất dùng")
+                                .code("MAT-EXP")
+                                .costType("MATERIALS")
+                                .createdAt(Instant.now())
+                                .createdBy(SecurityUtils.getCurrentUserId())
+                                .build();
+                        return costCategoryRepository.save(newCat);
+                    });
+
+            String expCode = "EXP-ISS-" + LocalDate.now().toString().replace("-", "") + "-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+            FarmExpense expense = FarmExpense.builder()
+                    .tenantId(tenantId)
+                    .farmId(farmId)
+                    .costCategoryId(costCategory.getId())
+                    .expenseCode(expCode)
+                    .expenseSource("INVENTORY_BACKFLUSH")
+                    .referenceId(issue.getId())
+                    .seasonId(issue.getSeasonId())
+                    .livestockGroupId(issue.getLivestockGroupId())
+                    .expenseDate(issue.getIssueDate())
+                    .amount(issue.getTotalAmount())
+                    .unitCostEligible(true)
+                    .status("CONFIRMED")
+                    .notes("Chi phí vật tư xuất kho nội bộ theo phiếu #" + issue.getIssueCode() +
+                            (StringUtils.hasText(issue.getNotes()) ? " (" + issue.getNotes().trim() + ")" : ""))
+                    .createdAt(Instant.now())
+                    .createdBy(SecurityUtils.getCurrentUserId())
+                    .build();
+            expense = farmExpenseRepository.save(expense);
+            budgetService.consumeBudgetForConfirmedExpense(expense);
+            log.info("Auto-generated FarmExpense {} for completed internal issue {}", expCode, issue.getIssueCode());
+        }
+
+        notifyCreator(farmId, tenantId, issue.getCreatedBy(), "Phiếu xuất kho đã hoàn tất",
+                "Giám đốc trang trại đã phê duyệt hoàn tất Phiếu xuất kho [" + issue.getIssueCode() + "]. Hàng đã xuất kho.",
+                "WAREHOUSE_ISSUE", issue.getId(), "/app/inventory?tab=ISSUE&id=" + issue.getId());
+
         return enrichIssueDetail(issue);
     }
 
@@ -796,6 +888,31 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .method("POST")
                 .newValue("Cancelled issue: " + issue.getIssueCode() + ", Reason: " + request.getCancellationReason())
                 .build());
+
+        // Nếu phiếu xuất trước đó có sinh chi phí FarmExpense, hủy bỏ chi phí tương ứng và hoàn trả ngân sách (GAP-SYNC-07)
+        final Long issueTenantId = issue.getTenantId();
+        final Long issueId = issue.getId();
+        final String issueCode = issue.getIssueCode();
+        farmExpenseRepository.findAll((root, query, cb) -> cb.and(
+                cb.equal(root.get("tenantId"), issueTenantId),
+                cb.equal(root.get("farmId"), farmId),
+                cb.equal(root.get("referenceId"), issueId),
+                cb.equal(root.get("expenseSource"), "INVENTORY_BACKFLUSH")
+        )).forEach(fe -> {
+            boolean wasConfirmed = "CONFIRMED".equalsIgnoreCase(fe.getStatus());
+            fe.setStatus("CANCELLED");
+            fe.setNotes((fe.getNotes() != null ? fe.getNotes() : "") + " [HỦY THEO PHIẾU XUẤT " + issueCode + "]");
+            fe.setUpdatedAt(Instant.now());
+            fe.setUpdatedBy(SecurityUtils.getCurrentUserId());
+            FarmExpense savedFe = farmExpenseRepository.save(fe);
+            if (wasConfirmed) {
+                budgetService.revertBudgetForCancelledExpense(savedFe);
+            }
+        });
+
+        notifyCreator(farmId, issue.getTenantId(), issue.getCreatedBy(), "Phiếu xuất kho đã bị hủy",
+                "Phiếu xuất kho [" + issue.getIssueCode() + "] đã bị hủy. Lý do: " + (request != null ? request.getCancellationReason() : ""),
+                "WAREHOUSE_ISSUE", issue.getId(), "/app/inventory?tab=ISSUE&id=" + issue.getId());
 
         return enrichIssueDetail(issue);
     }
@@ -874,6 +991,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .method("POST")
                 .newValue("Transfer: " + transfer.getTransferCode())
                 .build());
+
+        notifyFarmManager(farmId, tenantId, "Lệnh điều chuyển kho mới",
+                "Thủ kho vừa tạo Lệnh điều chuyển kho [" + transfer.getTransferCode() + "] đang chờ phê duyệt.",
+                "WAREHOUSE_TRANSFER", transfer.getId(), "/app/inventory?tab=TRANSFER&id=" + transfer.getId());
 
         return enrichTransferDetail(transfer);
     }
@@ -985,6 +1106,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Dispatched transfer: " + transfer.getTransferCode())
                 .build());
 
+        notifyCreator(farmId, tenantId, transfer.getCreatedBy(), "Lệnh điều chuyển đã xuất kho",
+                "Lệnh điều chuyển kho [" + transfer.getTransferCode() + "] đã xuất hàng, đang trên đường vận chuyển.",
+                "WAREHOUSE_TRANSFER", transfer.getId(), "/app/inventory?tab=TRANSFER&id=" + transfer.getId());
+
         return enrichTransferDetail(transfer);
     }
 
@@ -1083,6 +1208,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .method("POST")
                 .newValue("Received transfer: " + transfer.getTransferCode())
                 .build());
+
+        notifyCreator(farmId, tenantId, transfer.getCreatedBy(), "Lệnh điều chuyển hoàn tất",
+                "Lệnh điều chuyển kho [" + transfer.getTransferCode() + "] đã được kho nhận nhập kho thành công.",
+                "WAREHOUSE_TRANSFER", transfer.getId(), "/app/inventory?tab=TRANSFER&id=" + transfer.getId());
 
         return enrichTransferDetail(transfer);
     }
@@ -1209,6 +1338,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         stocktake.setUpdatedBy(SecurityUtils.getCurrentUserId());
         stocktake = stocktakeRepository.save(stocktake);
 
+        notifyFarmManager(farmId, tenantId, "Kiểm đếm thực tế kho",
+                "Thủ kho vừa cập nhật số liệu kiểm đếm thực tế cho Phiếu kiểm kê [" + stocktake.getStocktakeCode() + "].",
+                "STOCKTAKE", stocktake.getId(), "/app/inventory?tab=STOCKTAKE&id=" + stocktake.getId());
+
         return enrichStocktakeDetail(stocktake);
     }
 
@@ -1331,6 +1464,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .method("POST")
                 .newValue("Adjusted stocktake: " + stocktake.getStocktakeCode())
                 .build());
+
+        notifyCreator(farmId, tenantId, stocktake.getCreatedBy(), "Kiểm kê kho đã chốt cân bằng",
+                "Đợt kiểm kê kho [" + stocktake.getStocktakeCode() + "] đã được phê duyệt và hoàn tất cân bằng tồn kho.",
+                "STOCKTAKE", stocktake.getId(), "/app/inventory?tab=STOCKTAKE&id=" + stocktake.getId());
 
         return enrichStocktakeDetail(stocktake);
     }
@@ -1496,6 +1633,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .issueType(i.getIssueType())
                 .receiverName(i.getReceiverName())
                 .seasonId(i.getSeasonId())
+                .livestockGroupId(i.getLivestockGroupId())
                 .farmingLogId(i.getFarmingLogId())
                 .livestockEventId(i.getLivestockEventId())
                 .isBackflushed(i.getIsBackflushed())

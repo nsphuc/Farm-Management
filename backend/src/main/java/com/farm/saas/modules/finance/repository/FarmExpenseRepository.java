@@ -45,4 +45,6 @@ public interface FarmExpenseRepository extends JpaRepository<FarmExpense, Long>,
 
     @Query("SELECT COALESCE(SUM(e.amount), 0) FROM FarmExpense e WHERE e.livestockGroupId = :groupId AND e.status = 'CONFIRMED'")
     BigDecimal sumConfirmedExpensesByLivestockGroupId(@Param("groupId") Long groupId);
+
+    boolean existsByCostCategoryId(Long costCategoryId);
 }

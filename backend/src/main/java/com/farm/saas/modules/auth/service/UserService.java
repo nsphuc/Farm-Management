@@ -12,9 +12,11 @@ import java.util.List;
 
 public interface UserService {
     Page<UserDetailResponse> getUsers(String status, Long roleId, String keyword, Pageable pageable);
+    Page<UserDetailResponse> getUsers(Long tenantId, String status, Long roleId, String keyword, Pageable pageable);
     UserDetailResponse getUserById(Long id);
     UserDetailResponse createUser(CreateUserRequest request);
     UserDetailResponse updateUserRoles(Long id, UpdateUserRolesRequest request);
     UserDetailResponse updateUserStatus(Long id, UpdateUserStatusRequest request);
+    java.util.Map<String, Object> resetPassword(Long id, com.farm.saas.modules.auth.dto.request.ResetPasswordRequest request);
     List<RoleMatrixResponse> getSystemRoles();
 }

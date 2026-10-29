@@ -159,7 +159,7 @@ export function FarmFormModal({
             <div>
               <span className="font-bold">Quyền hạn Giám Đốc Trang Trại:</span>
               <p className="mt-0.5 text-blue-800">
-                Bạn chỉ có quyền cập nhật tên, loại hình, tọa độ GPS, bán kính geofence và địa chỉ chi tiết. Mã định danh và tổng diện tích trang trại được khóa cố định theo hồ sơ Chủ đầu tư (Owner).
+                Bạn có quyền cập nhật các thông số kỹ thuật và vận hành của trang trại (Tên, Loại hình, Tổng diện tích, Tọa độ GPS, Bán kính geofence và Địa chỉ). Phân công bổ nhiệm Giám đốc do Chủ đầu tư (Owner) quản lý.
               </p>
             </div>
           </div>
@@ -207,11 +207,7 @@ export function FarmFormModal({
             label="Tổng Diện Tích (m²)"
             required
             error={fieldErrors.totalAreaM2}
-            hint={
-              isRestrictedManager
-                ? '🔒 Khóa cố định: Chỉ Owner mới có quyền thay đổi diện tích trại'
-                : `Tương đương ${(Number(formData.totalAreaM2) / 10000 || 0).toFixed(2)} hecta (ha)`
-            }
+            hint={`Tương đương ${(Number(formData.totalAreaM2) / 10000 || 0).toFixed(2)} hecta (ha)`}
           >
             <Input
               type="number"
@@ -220,8 +216,6 @@ export function FarmFormModal({
               name="totalAreaM2"
               value={formData.totalAreaM2}
               onChange={handleChange}
-              disabled={isRestrictedManager}
-              className={isRestrictedManager ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}
             />
           </FormField>
 

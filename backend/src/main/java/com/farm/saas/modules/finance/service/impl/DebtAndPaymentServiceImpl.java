@@ -13,6 +13,7 @@ import com.farm.saas.modules.finance.dto.response.PaymentTransactionDetailRespon
 import com.farm.saas.modules.finance.entity.*;
 import com.farm.saas.modules.finance.repository.*;
 import com.farm.saas.modules.finance.service.DebtAndPaymentService;
+import com.farm.saas.modules.notification.service.NotificationService;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.platform.entity.Partner;
@@ -45,6 +46,7 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
     private final PartnerRepository partnerRepository;
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -149,6 +151,20 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
             }
         }
 
+        // GAP-ACC-08: Notify farm manager when payment transaction is recorded
+        Farm farm = farmRepository.findById(farmId).orElse(null);
+        Long managerUserId = farm != null ? farm.getManagerUserId() : null;
+        sendNotificationQuietly(
+                tenantId,
+                managerUserId,
+                "Phiếu giao dịch thanh toán mới: " + payment.getPaymentCode(),
+                "Kế toán vừa lập phiếu giao dịch thanh toán [" + payment.getPaymentCode() + "] số tiền " + payment.getAmount() + " VNĐ.",
+                "SYSTEM",
+                "PAYMENT_TRANSACTION",
+                payment.getId(),
+                "/app/sales-cashflow"
+        );
+
         return toPaymentDetailResponse(payment);
     }
 
@@ -179,6 +195,57 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
         if (payment.getDebtRecordId() != null && payment.getAllocatedAmount().compareTo(BigDecimal.ZERO) == 0) {
             applyAllocation(tenantId, farmId, payment, payment.getDebtRecordId(), payment.getAmount(), payment.getNotes());
         }
+
+        return toPaymentDetailResponse(payment);
+    }
+
+    @Override
+    @Transactional
+    public PaymentTransactionDetailResponse cancelPayment(Long farmId, Long paymentId, String reason) {
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        validateFarm(farmId);
+
+        PaymentTransaction payment = paymentTransactionRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Payment transaction not found: " + paymentId));
+        if (!payment.getFarmId().equals(farmId)) {
+            throw new BusinessException("BAD_REQUEST", "Payment does not belong to specified farm");
+        }
+
+        if ("CANCELLED".equals(payment.getStatus())) {
+            return toPaymentDetailResponse(payment);
+        }
+
+        if (!"PENDING".equalsIgnoreCase(payment.getStatus()) && !"DRAFT".equalsIgnoreCase(payment.getStatus())) {
+            throw new BusinessException("BAD_REQUEST", "Chỉ có thể hủy giao dịch thanh toán ở trạng thái PENDING hoặc DRAFT");
+        }
+
+        payment.setStatus("CANCELLED");
+        if (reason != null && !reason.trim().isEmpty()) {
+            String note = (payment.getNotes() != null && !payment.getNotes().isEmpty())
+                    ? payment.getNotes() + " | Lý do hủy: " + reason.trim()
+                    : "Lý do hủy: " + reason.trim();
+            payment.setNotes(note);
+        }
+        payment.setUpdatedAt(Instant.now());
+        payment.setUpdatedBy(currentUserId);
+        payment = paymentTransactionRepository.save(payment);
+
+        // GAP-ACC-08: Notify accountant on payment cancellation
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long accountantUserId = payment.getCreatedBy();
+        if (accountantUserId == null) {
+            accountantUserId = userRepository.findByUsername("accountant").map(User::getId).orElse(null);
+        }
+        sendNotificationQuietly(
+                tenantId,
+                accountantUserId,
+                "Phiếu giao dịch thanh toán đã bị hủy: " + payment.getPaymentCode(),
+                "Phiếu giao dịch thanh toán [" + payment.getPaymentCode() + "] đã bị hủy.",
+                "WARNING",
+                "PAYMENT_TRANSACTION",
+                payment.getId(),
+                "/app/sales-cashflow"
+        );
 
         return toPaymentDetailResponse(payment);
     }
@@ -407,7 +474,30 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
             });
         }
 
+        // GAP-ACC-08: Notify farm manager on 2-way debt offset
+        Farm farm = farmRepository.findById(farmId).orElse(null);
+        Long managerUserId = farm != null ? farm.getManagerUserId() : null;
+        sendNotificationQuietly(
+                tenantId,
+                managerUserId,
+                "Cấn trừ công nợ 2 chiều: " + payment.getPaymentCode(),
+                "Kế toán vừa thực hiện cấn trừ công nợ 2 chiều [" + payment.getPaymentCode() + "] số tiền " + payment.getAmount() + " VNĐ.",
+                "SYSTEM",
+                "PAYMENT_TRANSACTION",
+                payment.getId(),
+                "/app/sales-cashflow"
+        );
+
         return toPaymentDetailResponse(payment);
+    }
+
+    private void sendNotificationQuietly(Long tenantId, Long recipientUserId, String title, String message, String type, String refType, Long refId, String actionUrl) {
+        if (recipientUserId == null) return;
+        try {
+            notificationService.sendNotification(tenantId, recipientUserId, title, message, type, refType, refId, actionUrl);
+        } catch (Exception ex) {
+            log.warn("Failed to send payment notification to user id={}: {}", recipientUserId, ex.getMessage());
+        }
     }
 
     private Farm validateFarm(Long farmId) {

@@ -39,10 +39,17 @@ public class CropTypeController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
     public ResponseEntity<CropTypeResponse> updateCropType(
             @PathVariable Long id,
             @Valid @RequestBody UpdateCropTypeRequest request) {
         return ResponseEntity.ok(masterCatalogService.updateCropType(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('PERM_CROP_PLAN', 'PERM_FARM_UPDATE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    public ResponseEntity<Void> deleteCropType(@PathVariable Long id) {
+        masterCatalogService.deleteCropType(id);
+        return ResponseEntity.noContent().build();
     }
 }

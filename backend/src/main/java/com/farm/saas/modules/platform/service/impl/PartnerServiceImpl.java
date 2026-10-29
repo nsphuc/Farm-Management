@@ -269,7 +269,7 @@ public class PartnerServiceImpl implements PartnerService {
         BigDecimal currentPayableDebt = BigDecimal.ZERO;
         try {
             BigDecimal rec = jdbcTemplate.queryForObject(
-                    "SELECT COALESCE(SUM(remaining_debt), 0.00) FROM debt_records WHERE partner_id = ? AND debt_type = 'RECEIVABLE' AND status != 'PAID'",
+                    "SELECT COALESCE(SUM(remaining_debt), 0.00) FROM debt_records WHERE partner_id = ? AND debt_type = 'RECEIVABLE' AND status NOT IN ('SETTLED', 'BAD_DEBT')",
                     BigDecimal.class, p.getId());
             if (rec != null) currentReceivableDebt = rec;
         } catch (Exception ex) {
@@ -278,7 +278,7 @@ public class PartnerServiceImpl implements PartnerService {
 
         try {
             BigDecimal pay = jdbcTemplate.queryForObject(
-                    "SELECT COALESCE(SUM(remaining_debt), 0.00) FROM debt_records WHERE partner_id = ? AND debt_type = 'PAYABLE' AND status != 'PAID'",
+                    "SELECT COALESCE(SUM(remaining_debt), 0.00) FROM debt_records WHERE partner_id = ? AND debt_type = 'PAYABLE' AND status NOT IN ('SETTLED', 'BAD_DEBT')",
                     BigDecimal.class, p.getId());
             if (pay != null) currentPayableDebt = pay;
         } catch (Exception ex) {

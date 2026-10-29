@@ -30,6 +30,7 @@ public class UserInfoDto {
     private String primaryScope;
     private Integer maxFarms;
     private String planType;
+    private Long employeeId;
 
     @Data
     @Builder

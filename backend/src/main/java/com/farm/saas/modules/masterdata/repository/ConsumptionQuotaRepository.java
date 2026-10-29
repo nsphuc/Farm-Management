@@ -10,4 +10,7 @@ public interface ConsumptionQuotaRepository extends JpaRepository<ConsumptionQuo
     java.util.List<ConsumptionQuota> findByTenantId(Long tenantId);
     java.util.List<ConsumptionQuota> findByFarmId(Long farmId);
     java.util.Optional<ConsumptionQuota> findByTenantIdAndId(Long tenantId, Long id);
+    boolean existsByCropTypeId(Long cropTypeId);
+    boolean existsByLivestockBreedId(Long livestockBreedId);
+    boolean existsByMaterialId(Long materialId);
 }

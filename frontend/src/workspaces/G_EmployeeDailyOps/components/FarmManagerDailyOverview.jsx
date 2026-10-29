@@ -22,7 +22,9 @@ import { hrService } from '@/services/modules/hrService';
 import { qaService } from '@/services/modules/qaService';
 import { inventoryService } from '@/services/modules/inventoryService';
 import { geographyService } from '@/services/modules/geographyService';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { formatNumber } from '@/utils/formatters';
+
 
 const ZONE_TYPE_LABELS = {
   CROP: 'Trồng Trọt',
@@ -61,7 +63,9 @@ export function FarmManagerDailyOverview({
   const [warehouses, setWarehouses] = useState([]);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
 
-  // 1. Tải số lượng đơn nghỉ phép, OT và lô KCS đang chờ duyệt
+  const syncTrigger = useActiveFarmStore((state) => state.syncTrigger);
+
+  // 1. Tải số lượng đơn nghỉ phép, OT và lô KCS đang chờ duyệt (tự động reload khi có syncTrigger)
   useEffect(() => {
     let isMounted = true;
 
@@ -100,7 +104,15 @@ export function FarmManagerDailyOverview({
     return () => {
       isMounted = false;
     };
-  }, [farmId]);
+  }, [
+    farmId,
+    syncTrigger?.all,
+    syncTrigger?.employees,
+    syncTrigger?.attendance,
+    syncTrigger?.tasks,
+    syncTrigger?.batches,
+  ]);
+
 
   // 2. Tính toán các chỉ số thống kê
   const totalEmployees = employees.length;

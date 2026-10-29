@@ -17,14 +17,14 @@ public class EnterpriseProfileController {
     private final EnterpriseProfileService enterpriseProfileService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FARM_VIEW')")
+    @PreAuthorize("hasAnyRole('ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_SUPER_ADMIN') or hasAnyRole('FARM_OWNER', 'FARM_MANAGER', 'ACCOUNTANT', 'SUPER_ADMIN') or hasAuthority('PERM_FARM_VIEW')")
     public ResponseEntity<EnterpriseProfileResponse> getProfile() {
         EnterpriseProfileResponse response = enterpriseProfileService.getProfile();
         return ResponseEntity.ok(response);
     }
 
     @PutMapping
-    @PreAuthorize("hasAuthority('PERM_FARM_UPDATE')")
+    @PreAuthorize("hasAnyRole('ROLE_FARM_OWNER', 'FARM_OWNER', 'ROLE_SUPER_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<EnterpriseProfileResponse> updateProfile(@Valid @RequestBody UpdateEnterpriseProfileRequest request) {
         EnterpriseProfileResponse response = enterpriseProfileService.updateProfile(request);
         return ResponseEntity.ok(response);

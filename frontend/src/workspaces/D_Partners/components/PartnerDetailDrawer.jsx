@@ -25,6 +25,9 @@ import { VietQRModal } from '@/components/common/VietQRModal';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { financeService } from '@/services/modules/financeService';
+import { toast } from '@/store/useToastStore';
 
 export function PartnerDetailDrawer({
   isOpen,
@@ -43,6 +46,11 @@ export function PartnerDetailDrawer({
   const [vietQrOpen, setVietQrOpen] = useState(false);
   const [copiedAccount, setCopiedAccount] = useState(false);
 
+  // Sổ chi tiết công nợ (debt_records)
+  const { activeFarmId, syncTrigger } = useActiveFarmStore();
+  const [debts, setDebts] = useState([]);
+  const [debtsLoading, setDebtsLoading] = useState(false);
+
   // Quick Credit Approval by Checker (Manager / Owner)
   const [editingCreditLimit, setEditingCreditLimit] = useState(false);
   const [creditInput, setCreditInput] = useState(partner?.creditLimit || 0);
@@ -56,11 +64,36 @@ export function PartnerDetailDrawer({
     }
   }, [partner]);
 
+  // Nạp danh sách công nợ chi tiết của đối tác
+  React.useEffect(() => {
+    if (activeTab === 'credit' && partner?.id) {
+      const loadDebts = async () => {
+        try {
+          setDebtsLoading(true);
+          const targetFarmId = activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : undefined;
+          const res = await financeService.getDebts({
+            farmId: targetFarmId,
+            partnerId: partner.id,
+            size: 50,
+          });
+          const list = res?.content || (Array.isArray(res) ? res : []);
+          setDebts(list);
+        } catch (err) {
+          console.error('Lỗi khi nạp sổ công nợ đối tác:', err);
+          setDebts([]);
+        } finally {
+          setDebtsLoading(false);
+        }
+      };
+      loadDebts();
+    }
+  }, [activeTab, partner?.id, activeFarmId, syncTrigger?.partners, syncTrigger?.finance, syncTrigger?.all]);
+
   if (!partner) return null;
 
   const handleToggleStatus = async (newStatus) => {
     if (!canApproveCreditOrStatus) {
-      alert('Chỉ Giám đốc trang trại hoặc Chủ đầu tư mới có quyền đưa đối tác vào danh sách đen / mở khóa!');
+      toast.error('Chỉ Giám đốc trang trại hoặc Chủ đầu tư mới có quyền đưa đối tác vào danh sách đen / mở khóa!');
       return;
     }
     const confirmMsg =
@@ -72,10 +105,11 @@ export function PartnerDetailDrawer({
     try {
       setStatusLoading(true);
       await partnerService.updatePartnerStatus(partner.id, newStatus);
+      toast.success(newStatus === 'BLACKLISTED' ? `Đã khóa đen đối tác ${partner.name}` : `Đã mở khóa đối tác ${partner.name}`);
       onStatusChanged?.();
     } catch (err) {
       const errInfo = extractApiErrors(err);
-      alert(errInfo.message || 'Không thể thay đổi trạng thái đối tác!');
+      toast.error(errInfo.message || 'Không thể thay đổi trạng thái đối tác!');
     } finally {
       setStatusLoading(false);
     }
@@ -101,12 +135,12 @@ export function PartnerDetailDrawer({
         paymentTermDays: partner.paymentTermDays,
         creditRating: partner.creditRating,
       });
-      alert(`Đã duyệt hạn mức tín dụng ${formatCurrency(creditInput)} cho đối tác ${partner.name}!`);
+      toast.success(`Đã duyệt hạn mức tín dụng ${formatCurrency(creditInput)} cho đối tác ${partner.name}!`);
       setEditingCreditLimit(false);
       onStatusChanged?.();
     } catch (err) {
       const errInfo = extractApiErrors(err);
-      alert(errInfo.message || 'Không thể cập nhật hạn mức tín dụng!');
+      toast.error(errInfo.message || 'Không thể cập nhật hạn mức tín dụng!');
     } finally {
       setCreditSaving(false);
     }
@@ -308,6 +342,88 @@ export function PartnerDetailDrawer({
                   <span>0 ₫</span>
                   <span>{formatCurrency(partner.creditLimit)}</span>
                 </div>
+              </div>
+
+              {/* Bảng Sổ Chi Tiết Công Nợ (debt_records) */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-slate-700" />
+                    <h5 className="font-bold text-slate-900 text-xs uppercase tracking-wider">
+                      Sổ Chi Tiết Công Nợ & Lịch Sử Giao Dịch ({debts.length})
+                    </h5>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">Bảng debt_records</span>
+                </div>
+
+                {debtsLoading ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-500">
+                    Đang tải sổ cái công nợ...
+                  </div>
+                ) : debts.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center space-y-1">
+                    <FileText className="h-6 w-6 text-slate-300 mx-auto" />
+                    <p className="text-xs font-medium text-slate-600">
+                      Đối tác chưa phát sinh khoản công nợ nào tại trang trại
+                    </p>
+                    <span className="text-[10px] text-slate-400">
+                      Các khoản nợ phải thu (đơn bán) hoặc phải trả (nhập kho) sẽ hiển thị chi tiết tại đây
+                    </span>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                    <div className="overflow-x-auto max-h-72">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-slate-50 text-[11px] font-bold text-slate-600 border-b border-slate-200 sticky top-0">
+                          <tr>
+                            <th className="py-2.5 px-3">Chứng Từ Gốc</th>
+                            <th className="py-2.5 px-3">Loại Nợ</th>
+                            <th className="py-2.5 px-3 text-right">Tổng Nợ</th>
+                            <th className="py-2.5 px-3 text-right">Đã Trả</th>
+                            <th className="py-2.5 px-3 text-right">Còn Lại</th>
+                            <th className="py-2.5 px-3">Hạn Thanh Toán</th>
+                            <th className="py-2.5 px-3 text-center">Trạng Thái</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {debts.map((debt) => (
+                            <tr key={debt.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
+                                {debt.orderCode || debt.receiptCode || `#${debt.id}`}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                    debt.debtType === 'RECEIVABLE'
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                      : 'bg-purple-50 text-purple-700 border-purple-200'
+                                  }`}
+                                >
+                                  {debt.debtType === 'RECEIVABLE' ? 'Phải thu' : 'Phải trả'}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-800">
+                                {formatCurrency(debt.totalDebt)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono text-emerald-700">
+                                {formatCurrency(debt.paidAmount)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-rose-600">
+                                {formatCurrency(debt.remainingDebt)}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600 text-[11px]">
+                                {formatDate(debt.dueDate)}
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                <StatusBadge status={debt.status} size="xs" />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Thẩm quyền duyệt hạn mức của Checker (Farm Manager & Owner) */}
