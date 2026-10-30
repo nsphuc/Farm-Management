@@ -4,7 +4,6 @@ import { geographyService } from '@/services/modules/geographyService';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, CodeInput } from '@/components/ui/FormControls';
-import { GeoJsonPolygonEditor } from './GeoJsonPolygonEditor';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { formatArea } from '@/utils/formatters';
@@ -454,13 +453,6 @@ export function ZoneFormModal({
             />
           </FormField>
         </div>
-
-        {/* 5. Khung trực quan GeoJSON Polygon */}
-        <GeoJsonPolygonEditor
-          value={formData.mapLayoutJson}
-          onChange={(json) => setFormData((prev) => ({ ...prev, mapLayoutJson: json }))}
-          farmCenter={currentFarm}
-        />
       </form>
     </Modal>
   );

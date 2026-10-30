@@ -72,6 +72,7 @@ export function DailyRoutineTaskTab({
   tasks = [],
   zones = [],
   employees = [],
+  assignments = [],
   isTechnicalLead = false,
   isWarehouseKeeper = false,
   isZoneManager = false,
@@ -471,6 +472,7 @@ export function DailyRoutineTaskTab({
         farmId={farmId}
         zones={zones}
         employees={employees}
+        assignments={assignments}
         initialData={editingTask}
       />
     </div>

@@ -467,21 +467,29 @@ export function Personnel360Workspace() {
     },
     {
       key: 'userId',
-      header: 'Loại Tài Khoản',
-      width: '140px',
+      header: 'Tài Khoản & Quyền',
+      width: '150px',
       render: (row) =>
         row.userId ? (
-          row.userStatus === 'LOCKED' ? (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-              <Lock className="h-3 w-3 text-rose-600" />
-              <span>TK Bị Khóa</span>
+          <div>
+            {row.userStatus === 'LOCKED' ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                <Lock className="h-3 w-3 text-rose-600" />
+                <span>TK Bị Khóa</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                <KeyRound className="h-3 w-3 text-emerald-600" />
+                <span>Có TK Web</span>
+              </span>
+            )}
+            <span
+              className="block font-mono text-[11px] font-bold text-slate-700 truncate mt-0.5"
+              title={row.username || row.phone || row.employeeCode}
+            >
+              @{row.username || row.phone || row.employeeCode}
             </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              <KeyRound className="h-3 w-3 text-emerald-600" />
-              <span>Có TK Web</span>
-            </span>
-          )
+          </div>
         ) : (
           <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
             <span>Lao động không TK</span>
@@ -520,7 +528,7 @@ export function Personnel360Workspace() {
               >
                 360°
               </Button>
-              {isFm && (
+              {isFm ? (
                 <>
                   <Button
                     size="xs"
@@ -548,6 +556,20 @@ export function Personnel360Workspace() {
                     </Button>
                   )}
                 </>
+              ) : (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  icon={<Edit2 className="h-3.5 w-3.5" />}
+                  onClick={() => {
+                    setEditingEmployee(row);
+                    setIsFormModalOpen(true);
+                  }}
+                  title="Sửa Hồ Sơ Nhân Sự & Quản Lý Tài Khoản"
+                  className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                >
+                  Sửa
+                </Button>
               )}
             </div>
           );
@@ -898,7 +920,7 @@ export function Personnel360Workspace() {
       {/* - Farm Manager: Hiển thị đầy đủ 4 Tab                   */}
       {/* ======================================================== */}
       {!owner && !technicalLead && !warehouseKeeper && (
-        <div className="flex border-b border-slate-200 overflow-x-auto space-x-2">
+        <div className="flex border-b border-slate-200 overflow-x-auto space-x-2 no-scrollbar">
           <button
             type="button"
             onClick={() => setActiveSegment('DIRECTORY')}
@@ -977,7 +999,7 @@ export function Personnel360Workspace() {
                 </div>
               )}
 
-              <div className="relative min-w-[260px]">
+              <div className="relative w-full sm:w-auto min-w-0 sm:min-w-[260px]">
                 <Input
                   prefixIcon={<Search className="h-4 w-4 text-slate-400" />}
                   placeholder="Tìm mã NV, họ tên, SĐT, CCCD..."

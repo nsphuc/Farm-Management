@@ -38,6 +38,7 @@ export function CropSeasonModal({
   const [isLoadingLocations, setIsLoadingLocations] = useState(false);
   const [cycles, setCycles] = useState([]);
   const [cropTypes, setCropTypes] = useState([]);
+  const [seedMaterials, setSeedMaterials] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,11 +56,12 @@ export function CropSeasonModal({
 
     const loadMetadata = async () => {
       try {
-        const [zonesRes, cyclesRes, cropTypesRes, assignmentsRes] = await Promise.all([
+        const [zonesRes, cyclesRes, cropTypesRes, assignmentsRes, matsRes] = await Promise.all([
           geographyService.getZones(farmId).catch(() => []),
           geographyService.getCycles(farmId).catch(() => []),
           masterDataService.getCropTypes().catch(() => []),
           geographyService.getAssignments(farmId).catch(() => []),
+          masterDataService.getMaterials().catch(() => []),
         ]);
 
         const rawZones = Array.isArray(zonesRes) ? zonesRes : (zonesRes?.content || []);
@@ -79,6 +81,13 @@ export function CropSeasonModal({
 
         const rawAssign = Array.isArray(assignmentsRes) ? assignmentsRes : (assignmentsRes?.content || []);
         setAssignments(rawAssign);
+
+        const rawMats = Array.isArray(matsRes) ? matsRes : (matsRes?.content || []);
+        const seeds = rawMats.filter((m) => 
+          (m.name && (m.name.toLowerCase().includes('giống') || m.name.toLowerCase().includes('hạt'))) ||
+          (m.categoryCode && m.categoryCode.includes('SEED'))
+        );
+        setSeedMaterials(seeds);
       } catch (err) {
         console.error('Lỗi khi nạp dữ liệu danh mục mùa vụ:', err);
       }
@@ -150,7 +159,7 @@ export function CropSeasonModal({
     if (!zoneId) return 'Chưa có trưởng khu';
     const numId = Number(zoneId);
     const assign = assignments.find(
-      (a) => a.zoneId === numId && a.roleInFarm === 'ZONE_MANAGER' && a.isActive !== false
+      (a) => Number(a.zoneId) === numId && a.roleInFarm === 'ZONE_MANAGER' && a.isActive !== false
     );
     if (!assign) return 'Chưa có trưởng khu';
     return assign.userFullName || assign.username || 'Trưởng khu';
@@ -517,14 +526,38 @@ export function CropSeasonModal({
           )}
         </div>
 
+        {/* Hạt giống / Cây giống từ kho & Lượng giống */}
+        {seedMaterials && seedMaterials.length > 0 && (
+          <div>
+            <FormField label="Hạt giống / Cây giống cụ thể (Tùy chọn - Liên kết kho)" hint="Chọn từ danh mục Hạt giống/Cây giống để định danh cụ thể nguồn giống gieo trồng">
+              <Select
+                onChange={(e) => {
+                  const mId = e.target.value;
+                  const mat = seedMaterials.find(m => String(m.id) === String(mId));
+                  if (mat && mat.standardUnit) {
+                    toast.info(`Đã chọn: ${mat.name} (Đơn vị chuẩn: ${mat.standardUnit})`);
+                  }
+                }}
+              >
+                <option value="">-- Chọn loại hạt / khay cây giống (hoặc nhập tự do bên dưới) --</option>
+                {seedMaterials.map((mat) => (
+                  <option key={mat.id} value={mat.id}>
+                    {mat.name} ({mat.skuCode}) - ĐVT: {mat.standardUnit}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+          </div>
+        )}
+
         {/* Lượng giống & Sản lượng dự kiến */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FormField label="Lượng giống ban đầu (kg/hạt)" hint="Tổng khối lượng hạt giống / cây giống">
+          <FormField label="Lượng giống gieo ban đầu" hint="Số lượng hạt, khối lượng (kg) hoặc số khay giống">
             <Input
               type="number"
               step="0.01"
               min="0"
-              placeholder="Ví dụ: 15.5"
+              placeholder="Ví dụ: 15.5 hoặc 1000"
               name="seedQuantity"
               value={formData.seedQuantity}
               onChange={(e) => setFormData({ ...formData, seedQuantity: e.target.value })}

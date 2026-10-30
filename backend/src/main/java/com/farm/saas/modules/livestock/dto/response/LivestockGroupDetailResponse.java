@@ -23,8 +23,16 @@ public class LivestockGroupDetailResponse {
     private String groupCode;
     private Long breedId;
     private String breedName;
+    private Long partnerId;
+    private String partnerName;
     private Integer initialQuantity;
     private Integer currentQuantity;
+    private BigDecimal unitPrice;
+    private BigDecimal totalCost;
+    private BigDecimal avgInitialWeightKg;
+    private String healthCertificate;
+    private String origin;
+    private String notes;
     private LocalDate entryDate;
     private String status;
     private LocalDate activeWithdrawalEndDate;

@@ -415,6 +415,42 @@ export const useAuthStore = create((set, get) => ({
   },
 
   /**
+   * Lấy danh sách ID các phân khu mà user hiện tại đang được phân công phụ trách (ZONE_MANAGER / TECHNICAL_LEAD).
+   * - Nếu là Super Admin, Farm Owner hoặc Farm Manager: trả về null (Toàn quyền quản lý tất cả các phân khu).
+   * - Nếu là Zone Manager / Technical Lead: trả về mảng các ID phân khu [zoneId, ...] (bị giới hạn trong phạm vi phân khu phụ trách).
+   */
+  getManagedZoneIds: (farmId = null) => {
+    const { userInfo, isOwner, isFarmManager } = get();
+    if (!userInfo) return [];
+    if (isOwner() || isFarmManager(farmId)) {
+      return null; // Không bị giới hạn phân khu
+    }
+
+    const assignments = userInfo.farmAssignments || userInfo.farm_assignments || [];
+    const zoneIds = new Set();
+
+    // 1. Quét farmAssignments
+    assignments.forEach((a) => {
+      if (a.isActive === false) return;
+      if (farmId != null && a.farmId != null && Number(a.farmId) !== Number(farmId)) return;
+      const role = a.roleInFarm || a.role_in_farm;
+      if (['ZONE_MANAGER', 'TECHNICAL_LEAD'].includes(role) && (a.zoneId || a.zone_id)) {
+        zoneIds.add(Number(a.zoneId || a.zone_id));
+      }
+    });
+
+    // 2. Kiểm tra assignedZoneId / zoneId trực tiếp trên userInfo (nếu có)
+    if (userInfo.assignedZoneId) {
+      zoneIds.add(Number(userInfo.assignedZoneId));
+    }
+    if (userInfo.zoneId) {
+      zoneIds.add(Number(userInfo.zoneId));
+    }
+
+    return Array.from(zoneIds);
+  },
+
+  /**
    * Role 3 - Trưởng bộ phận kỹ thuật (isTechnicalLead)
    * Tài khoản có ROLE_TECHNICAL_STAFF (kiêm TECHNICAL_LEAD / AGRONOMIST / VETERINARIAN tại phân khu).
    * Phụ trách các phân khu trồng trọt/chăn nuôi, quản lý đội công nhân khu mình,
@@ -537,10 +573,10 @@ export const useAuthStore = create((set, get) => ({
     if (isSuperAdmin()) return 'SUPER_ADMIN';
     if (isFarmManager(farmId)) return 'FARM_MANAGER';
     if (isOwner()) return 'OWNER';
-    if (isZoneManager(farmId)) return 'ZONE_MANAGER';
-    if (isFarmAccountant()) return 'FARM_ACCOUNTANT';
-    if (isTechnicalLead()) return 'TECHNICAL_LEAD';
     if (isWarehouseKeeper()) return 'WAREHOUSE_KEEPER';
+    if (isFarmAccountant()) return 'FARM_ACCOUNTANT';
+    if (isZoneManager(farmId)) return 'ZONE_MANAGER';
+    if (isTechnicalLead()) return 'TECHNICAL_LEAD';
     if (isFieldWorker()) return 'FIELD_WORKER';
     return 'STAFF';
   },

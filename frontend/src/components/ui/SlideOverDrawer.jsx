@@ -51,7 +51,7 @@ export function SlideOverDrawer({
         onClick={onClose}
       />
 
-      <div className="fixed inset-y-0 right-0 flex max-w-full pl-10">
+      <div className="fixed inset-y-0 right-0 flex max-w-full pl-0 sm:pl-10">
         <div
           className={cn(
             'w-screen transform bg-white shadow-2xl transition-all duration-300 animate-in slide-in-from-right flex flex-col',

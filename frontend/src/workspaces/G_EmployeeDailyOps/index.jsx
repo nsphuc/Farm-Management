@@ -21,6 +21,7 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { Can } from '@/components/common/Can';
 import { hrService } from '@/services/modules/hrService';
 import { geographyService } from '@/services/modules/geographyService';
+import { formatLocalDate } from '@/utils/formatters';
 
 /**
  * WORKSPACE G (/app/my-dashboard): CỔNG NHÂN VIÊN & CHẤM CÔNG HIỆN TRƯỜNG
@@ -100,8 +101,8 @@ export function EmployeeDailyOpsWorkspace() {
         const matched = list.find((e) => e.userId === userInfo.id);
         if (matched) {
           setEmployee(matched);
-        } else if (list.length > 0) {
-          setEmployee(list[0]);
+        } else {
+          setEmployee(null);
         }
       }
     } catch (err) {
@@ -121,17 +122,17 @@ export function EmployeeDailyOpsWorkspace() {
     }
   };
 
-  // 5. Tải dữ liệu chấm công hôm nay
+  // 5. Tải dữ liệu chấm công hôm nay theo ngày địa phương
   const fetchTodayAttendance = async () => {
     if (!activeFarmId) return;
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = formatLocalDate();
       const data = await hrService.getAttendances({ farmId: activeFarmId, workDate: todayStr });
       const list = Array.isArray(data) ? data : data?.content || [];
       setTodayAttendances(list);
 
-      if (list.length > 0) {
-        const myRecord = employee ? list.find((a) => a.employeeId === employee.id) : list[0];
+      if (list.length > 0 && employee?.id) {
+        const myRecord = list.find((a) => Number(a.employeeId) === Number(employee.id));
         setTodayAttendance(myRecord || null);
       } else {
         setTodayAttendance(null);
@@ -259,16 +260,18 @@ export function EmployeeDailyOpsWorkspace() {
         />
       )}
 
-      {/* KHỐI 3: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động (ROLE_FARM_MANAGER, ROLE_TECHNICAL_STAFF, ROLE_WAREHOUSE_STAFF hoặc FARM_MANAGER / ZONE_MANAGER / TECHNICAL_LEAD / WAREHOUSE_KEEPER) */}
-      <Can permission="PERM_HR_ATTENDANCE" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
-        <TeamRollCallPanel
-          activeFarm={activeFarm}
-          shifts={shifts}
-          employees={employees}
-          todayAttendances={todayAttendances}
-          onRefresh={handleRefreshAll}
-        />
-      </Can>
+      {/* KHỐI DÀNH CHO ZONE MANAGER: Bảng Điểm Danh & Chấm Công Tổ Hộ Lao Động Không Có Tài Khoản (Nhiệm vụ trực tiếp của Tổ Trưởng Khu Vực) */}
+      {!farmManager && (
+        <Can permission="PERM_HR_ATTENDANCE" role={['ROLE_TECHNICAL_STAFF']} farmRole={['ZONE_MANAGER', 'TECHNICAL_LEAD']}>
+          <TeamRollCallPanel
+            activeFarm={activeFarm}
+            shifts={shifts}
+            employees={employees}
+            todayAttendances={todayAttendances}
+            onRefresh={handleRefreshAll}
+          />
+        </Can>
+      )}
 
       {/* KHỐI 3: QUẢN LÝ CÔNG VIỆC HIỆN TRƯỜNG */}
       {fieldWorker ? (
@@ -317,6 +320,7 @@ export function EmployeeDailyOpsWorkspace() {
               tasks={tasks}
               zones={zones}
               employees={employees}
+              assignments={assignments}
               isTechnicalLead={technicalLead}
               isWarehouseKeeper={warehouseKeeper}
               isZoneManager={zoneManager}
@@ -331,6 +335,7 @@ export function EmployeeDailyOpsWorkspace() {
               farmId={activeFarmId}
               zones={zones}
               employees={employees}
+              assignments={assignments}
               isTechnicalLead={technicalLead}
               isWarehouseKeeper={warehouseKeeper}
               isZoneManager={zoneManager}
@@ -346,6 +351,7 @@ export function EmployeeDailyOpsWorkspace() {
           farmId={activeFarmId}
           zones={zones}
           employees={employees}
+          assignments={assignments}
           canManageTasks={false}
           onRefresh={fetchTasks}
         />

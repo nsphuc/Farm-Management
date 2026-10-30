@@ -7,6 +7,7 @@ import { hrService } from '@/services/modules/hrService';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 const TASK_TYPES = [
   { value: 'FEEDING', label: 'Cho ăn / Chăm sóc đàn (FEEDING)' },
@@ -31,10 +32,33 @@ export function RoutineTaskModal({
   farmId,
   zones = [],
   employees = [],
+  assignments = [],
   initialData = null,
 }) {
   const { activeFarmType, farms } = useActiveFarmStore();
+  const { userInfo, isOwner, isFarmManager, getManagedZoneIds } = useAuthStore();
   const currentFarmType = (farmId ? farms.find((f) => Number(f.id || f.farmId) === Number(farmId))?.farmType : null) || activeFarmType || 'MIXED';
+
+  // 1. Phân quyền: Cấp toàn trại (Owner / Farm Manager) hay Cấp phân khu (Zone Manager / Tech Lead)
+  const isManagerOrOwner = isOwner() || isFarmManager(farmId);
+  const rawManagedZoneIds = getManagedZoneIds ? getManagedZoneIds(farmId) : null;
+  const userAssignments = (assignments || []).filter((a) =>
+    a.isActive !== false &&
+    Number(a.userId) === Number(userInfo?.id) &&
+    ['ZONE_MANAGER', 'TECHNICAL_LEAD'].includes(a.roleInFarm) &&
+    a.zoneId
+  );
+  const extraZoneIds = userAssignments.map((a) => Number(a.zoneId));
+  const managedZoneIds = isManagerOrOwner
+    ? null
+    : Array.from(new Set([...(rawManagedZoneIds || []), ...extraZoneIds]));
+  const isZoneRestricted = managedZoneIds !== null;
+
+  // 2. Danh sách phân khu được phép áp dụng
+  const availableZones = React.useMemo(() => {
+    if (!isZoneRestricted) return zones;
+    return zones.filter((z) => managedZoneIds.includes(Number(z.id)));
+  }, [zones, isZoneRestricted, managedZoneIds]);
 
   const availableTaskTypes = React.useMemo(() => {
     if (currentFarmType === 'CROP') {
@@ -47,8 +71,6 @@ export function RoutineTaskModal({
   }, [currentFarmType]);
 
   const defaultTaskType = currentFarmType === 'CROP' ? 'PLANTING' : 'FEEDING';
-
-  const activeEmployees = employees.filter((e) => e.status === 'ACTIVE');
 
   const [formData, setFormData] = useState({
     titleText: '',
@@ -63,41 +85,127 @@ export function RoutineTaskModal({
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generalError, setGeneralError] = useState(null);
+  const [filterBySelectedZone, setFilterBySelectedZone] = useState(true);
+
+  // Helper: Kiểm tra nhân sự có thuộc phân khu targetZoneId không
+  const isEmployeeInZone = React.useCallback((emp, targetZoneId) => {
+    if (!targetZoneId) return true;
+    const tid = Number(targetZoneId);
+
+    if (emp.assignedZoneId && Number(emp.assignedZoneId) === tid) return true;
+    if (emp.zoneId && Number(emp.zoneId) === tid) return true;
+
+    if (assignments && assignments.length > 0) {
+      const hasZoneAssign = assignments.some((a) => {
+        if (a.isActive === false || Number(a.zoneId) !== tid) return false;
+        return (
+          (a.employeeId && Number(a.employeeId) === Number(emp.id)) ||
+          (emp.userId && a.userId && Number(a.userId) === Number(emp.userId)) ||
+          (emp.employeeCode && a.employeeCode === emp.employeeCode)
+        );
+      });
+      if (hasZoneAssign) return true;
+    }
+
+    const targetZoneObj = zones.find((z) => Number(z.id) === tid);
+    if (targetZoneObj && emp.department) {
+      const dept = emp.department.trim().toLowerCase();
+      const zName = targetZoneObj.name.trim().toLowerCase();
+      if (dept.includes(zName) || zName.includes(dept)) return true;
+    }
+
+    if (userInfo?.id && emp.userId && Number(emp.userId) === Number(userInfo.id)) {
+      return true;
+    }
+
+    return false;
+  }, [assignments, zones, userInfo?.id]);
+
+  // Danh sách nhân sự được phép phân công
+  const assignableEmployees = React.useMemo(() => {
+    const activeEmployees = employees.filter((e) => e.status === 'ACTIVE');
+    const effectiveZoneId = formData.zoneId;
+
+    if (isZoneRestricted) {
+      if (!effectiveZoneId) return [];
+      return activeEmployees.filter((emp) => isEmployeeInZone(emp, effectiveZoneId));
+    }
+
+    if (filterBySelectedZone && effectiveZoneId) {
+      return activeEmployees.filter((emp) => isEmployeeInZone(emp, effectiveZoneId));
+    }
+
+    return activeEmployees;
+  }, [employees, formData.zoneId, isZoneRestricted, filterBySelectedZone, isEmployeeInZone]);
 
   useEffect(() => {
     if (isOpen) {
+      let defaultZone = '';
+      if (isZoneRestricted) {
+        if (availableZones.length > 0) {
+          defaultZone = String(availableZones[0].id);
+        }
+      } else {
+        defaultZone = zones[0]?.id ? String(zones[0].id) : '';
+      }
+
       if (initialData) {
         // Mode: Chỉnh sửa hoặc nạp từ preset
         const rawTitle = initialData.taskTitle || '';
         const cleanTitle = rawTitle.replace(/^\[CỐ ĐỊNH HÀNG NGÀY\]\s*/i, '');
         const currentAssigneeIds = (initialData.assignees || []).map((a) => a.employeeId);
         const leader = (initialData.assignees || []).find((a) => a.roleInTask === 'LEADER');
+        const taskZoneId = initialData.zoneId ? String(initialData.zoneId) : defaultZone;
+        const validZoneId = isZoneRestricted && !availableZones.some((z) => String(z.id) === taskZoneId) ? defaultZone : taskZoneId;
+
+        const initialZoneStaff = employees.filter((e) => e.status === 'ACTIVE' && isEmployeeInZone(e, validZoneId));
 
         setFormData({
           titleText: cleanTitle,
           taskType: initialData.taskType || defaultTaskType,
           priority: initialData.priority || 'MEDIUM',
-          zoneId: initialData.zoneId ? String(initialData.zoneId) : (zones[0]?.id ? String(zones[0].id) : ''),
+          zoneId: validZoneId,
           completionNotes: initialData.completionNotes || '',
-          selectedEmployeeIds: currentAssigneeIds.length > 0 ? currentAssigneeIds : (activeEmployees[0]?.id ? [activeEmployees[0].id] : []),
-          leaderEmployeeId: leader?.employeeId ? String(leader.employeeId) : (currentAssigneeIds[0] ? String(currentAssigneeIds[0]) : ''),
+          selectedEmployeeIds: currentAssigneeIds.length > 0 ? currentAssigneeIds : (initialZoneStaff[0]?.id ? [initialZoneStaff[0].id] : []),
+          leaderEmployeeId: leader?.employeeId ? String(leader.employeeId) : (currentAssigneeIds[0] ? String(currentAssigneeIds[0]) : (initialZoneStaff[0]?.id ? String(initialZoneStaff[0].id) : '')),
         });
       } else {
         // Mode: Thêm mới hoàn toàn
+        const initialZoneStaff = employees.filter((e) => e.status === 'ACTIVE' && isEmployeeInZone(e, defaultZone));
+
         setFormData({
           titleText: '',
           taskType: defaultTaskType,
           priority: 'MEDIUM',
-          zoneId: zones[0]?.id ? String(zones[0].id) : '',
+          zoneId: defaultZone,
           completionNotes: '',
-          selectedEmployeeIds: activeEmployees[0]?.id ? [activeEmployees[0].id] : [],
-          leaderEmployeeId: activeEmployees[0]?.id ? String(activeEmployees[0].id) : '',
+          selectedEmployeeIds: initialZoneStaff[0]?.id ? [initialZoneStaff[0].id] : [],
+          leaderEmployeeId: initialZoneStaff[0]?.id ? String(initialZoneStaff[0].id) : '',
         });
       }
+
       setErrors({});
-      setGeneralError(null);
+      if (isZoneRestricted && availableZones.length === 0) {
+        setGeneralError('Bạn chưa được phân công phụ trách phân khu nào tại trang trại này để thiết lập việc cố định.');
+      } else {
+        setGeneralError(null);
+      }
     }
-  }, [isOpen, initialData, zones, employees, defaultTaskType]);
+  }, [isOpen, initialData, zones, availableZones, employees, defaultTaskType, isZoneRestricted, isEmployeeInZone]);
+
+  // Xử lý khi đổi phân khu: tự động cập nhật danh sách nhân sự nếu là Zone Manager
+  const handleZoneChange = (newZoneId) => {
+    setFormData((prev) => {
+      const updated = { ...prev, zoneId: newZoneId };
+      if (isZoneRestricted) {
+        const validStaff = employees.filter((e) => e.status === 'ACTIVE' && isEmployeeInZone(e, newZoneId));
+        const retainedIds = prev.selectedEmployeeIds.filter((id) => validStaff.some((s) => s.id === id));
+        updated.selectedEmployeeIds = retainedIds.length > 0 ? retainedIds : (validStaff[0]?.id ? [validStaff[0].id] : []);
+        updated.leaderEmployeeId = updated.selectedEmployeeIds.length > 0 ? String(updated.selectedEmployeeIds[0]) : '';
+      }
+      return updated;
+    });
+  };
 
   const handleToggleEmployee = (empId) => {
     setFormData((prev) => {
@@ -128,6 +236,9 @@ export function RoutineTaskModal({
     const errs = {};
     if (!formData.titleText?.trim()) {
       errs.titleText = 'Tiêu đề công việc không được để trống';
+    }
+    if (isZoneRestricted && !formData.zoneId) {
+      errs.zoneId = 'Bắt buộc chọn phân khu phụ trách';
     }
     if (formData.selectedEmployeeIds.length === 0) {
       errs.assignees = 'Cần phân công ít nhất 1 nhân viên thực hiện việc cố định này';
@@ -239,17 +350,29 @@ export function RoutineTaskModal({
             />
           </FormField>
 
-          <FormField label="Khu Vực Áp Dụng (Zone)">
+          <FormField
+            label={isZoneRestricted ? "Phân Khu Phụ Trách *" : "Khu Vực Áp Dụng (Zone)"}
+            error={errors.zoneId}
+          >
             <Select
               value={formData.zoneId}
-              onChange={(e) => setFormData({ ...formData, zoneId: e.target.value })}
-              placeholder="-- Toàn trang trại --"
+              onChange={(e) => handleZoneChange(e.target.value)}
+              placeholder={isZoneRestricted ? "-- Chọn phân khu phụ trách --" : "-- Toàn trang trại --"}
             >
-              {zones.map((z) => (
-                <option key={z.id} value={z.id}>
-                  {z.name} ({z.code})
+              {!isZoneRestricted && (
+                <option value="">-- Toàn trang trại --</option>
+              )}
+              {availableZones.length === 0 ? (
+                <option value="" disabled>
+                  -- Không có phân khu phụ trách --
                 </option>
-              ))}
+              ) : (
+                availableZones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.name} ({z.code})
+                  </option>
+                ))
+              )}
             </Select>
           </FormField>
         </div>
@@ -265,76 +388,111 @@ export function RoutineTaskModal({
 
         {/* Danh sách nhân sự: Hỗ trợ cả Role 6A và Role 6B */}
         <div className="space-y-2 pt-2 border-t border-slate-100">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
             <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
               <Users className="h-4 w-4 text-emerald-600" />
               <span>Phân Công Nhân Sự Thực Hiện Hàng Ngày</span>
               <span className="text-rose-500 font-bold">*</span>
             </label>
-            <span className="text-[11px] text-slate-500">
-              Đã chọn: <strong className="text-emerald-700">{formData.selectedEmployeeIds.length}</strong> người
-            </span>
+
+            <div className="flex items-center gap-3">
+              {!isZoneRestricted && formData.zoneId && (
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={filterBySelectedZone}
+                    onChange={(e) => setFilterBySelectedZone(e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                  />
+                  <span>Chỉ hiện nhân sự thuộc phân khu</span>
+                </label>
+              )}
+              <span className="text-[11px] text-slate-500">
+                Đã chọn: <strong className="text-emerald-700">{formData.selectedEmployeeIds.length}</strong> người
+              </span>
+            </div>
           </div>
+
+          {/* Ghi chú giới hạn quyền hạn */}
+          {isZoneRestricted && (
+            <div className="flex items-center gap-2 rounded-lg bg-blue-50/80 border border-blue-200 p-2 text-xs text-blue-800">
+              <AlertCircle className="h-4 w-4 shrink-0 text-blue-600" />
+              <span>
+                Giới hạn quyền hạn: Bạn chỉ được phân công cho nhân sự thuộc phân khu phụ trách{' '}
+                <strong>
+                  {availableZones.find((z) => String(z.id) === String(formData.zoneId))?.name || 'đã chọn'}
+                </strong>.
+              </span>
+            </div>
+          )}
 
           {errors.assignees && (
             <p className="text-xs font-medium text-rose-600">{errors.assignees}</p>
           )}
 
           <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 p-1">
-            {activeEmployees.map((emp) => {
-              const isSelected = formData.selectedEmployeeIds.includes(emp.id);
-              const isLeader = String(emp.id) === String(formData.leaderEmployeeId);
-              const hasAccount = Boolean(emp.userId);
+            {assignableEmployees.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-400">
+                {formData.zoneId
+                  ? 'Phân khu này chưa có nhân sự nào được phân công trực thuộc. Hãy báo Giám đốc trang trại để phân công công nhân vào phân khu này.'
+                  : 'Vui lòng chọn phân khu để hiển thị danh sách nhân sự phụ trách.'}
+              </div>
+            ) : (
+              assignableEmployees.map((emp) => {
+                const isSelected = formData.selectedEmployeeIds.includes(emp.id);
+                const isLeader = String(emp.id) === String(formData.leaderEmployeeId);
+                const hasAccount = Boolean(emp.userId);
 
-              return (
-                <div
-                  key={emp.id}
-                  className={`flex items-center justify-between p-2.5 rounded-lg text-xs transition-colors ${
-                    isSelected ? 'bg-emerald-50/60' : 'hover:bg-slate-50'
-                  }`}
-                >
-                  <label className="flex items-center gap-2.5 cursor-pointer flex-1">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handleToggleEmployee(emp.id)}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-slate-900 truncate">{emp.fullName}</span>
-                        {hasAccount ? (
-                          <span className="rounded bg-blue-100 text-blue-800 text-[9px] font-bold px-1.5 py-0.2">
-                            Có App (Role 6A)
-                          </span>
-                        ) : (
-                          <span className="rounded bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.2">
-                            Thời vụ (Role 6B)
-                          </span>
-                        )}
+                return (
+                  <div
+                    key={emp.id}
+                    className={`flex items-center justify-between p-2.5 rounded-lg text-xs transition-colors ${
+                      isSelected ? 'bg-emerald-50/60' : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <label className="flex items-center gap-2.5 cursor-pointer flex-1">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleEmployee(emp.id)}
+                        className="rounded text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-900 truncate">{emp.fullName}</span>
+                          {hasAccount ? (
+                            <span className="rounded bg-blue-100 text-blue-800 text-[9px] font-bold px-1.5 py-0.2">
+                              Có App (Role 6A)
+                            </span>
+                          ) : (
+                            <span className="rounded bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.2">
+                              Lao động không tài khoản
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {emp.employeeCode} • {emp.position || 'Nhân viên'} {emp.department ? `(${emp.department})` : ''}
+                        </span>
                       </div>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {emp.employeeCode} • {emp.position || 'Nhân viên'}
-                      </span>
-                    </div>
-                  </label>
+                    </label>
 
-                  {isSelected && (
-                    <button
-                      type="button"
-                      onClick={() => setFormData({ ...formData, leaderEmployeeId: String(emp.id) })}
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all ${
-                        isLeader
-                          ? 'bg-amber-100 text-amber-900 border-amber-300 ring-1 ring-amber-400/40'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {isLeader ? '★ TRƯỞNG NHÓM (LEADER)' : 'Chọn làm Trưởng nhóm'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+                    {isSelected && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, leaderEmployeeId: String(emp.id) })}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all ${
+                          isLeader
+                            ? 'bg-amber-100 text-amber-900 border-amber-300 ring-1 ring-amber-400/40'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {isLeader ? '★ TRƯỞNG NHÓM (LEADER)' : 'Chọn làm Trưởng nhóm'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 

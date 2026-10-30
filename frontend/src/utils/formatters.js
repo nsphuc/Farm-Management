@@ -178,3 +178,14 @@ export function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c);
 }
+
+/**
+ * Format local date as YYYY-MM-DD avoiding UTC date shifts across midnight
+ */
+export function formatLocalDate(date = new Date()) {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}

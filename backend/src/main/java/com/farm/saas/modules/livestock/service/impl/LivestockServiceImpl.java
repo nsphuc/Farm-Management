@@ -16,6 +16,10 @@ import com.farm.saas.modules.geography.repository.OperationalCycleRepository;
 import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
 import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
 import com.farm.saas.modules.crop.repository.CropSeasonRepository;
+import com.farm.saas.modules.finance.entity.DebtRecord;
+import com.farm.saas.modules.finance.repository.DebtRecordRepository;
+import com.farm.saas.modules.platform.entity.Partner;
+import com.farm.saas.modules.platform.repository.PartnerRepository;
 import com.farm.saas.modules.inventory.entity.WarehouseInventory;
 import com.farm.saas.modules.inventory.entity.WarehouseInventoryTransaction;
 import com.farm.saas.modules.inventory.entity.WarehouseIssue;
@@ -74,6 +78,8 @@ public class LivestockServiceImpl implements LivestockService {
     private final WarehouseInventoryTransactionRepository warehouseInventoryTransactionRepository;
     private final CostCategoryRepository costCategoryRepository;
     private final FarmExpenseRepository farmExpenseRepository;
+    private final DebtRecordRepository debtRecordRepository;
+    private final PartnerRepository partnerRepository;
     private final BudgetService budgetService;
     private final com.farm.saas.modules.hr.service.FarmTaskService farmTaskService;
     private final UserRepository userRepository;
@@ -127,6 +133,11 @@ public class LivestockServiceImpl implements LivestockService {
             throw new BusinessException("DUPLICATE_GROUP_CODE", "Mã đàn đã tồn tại: " + groupCode);
         }
 
+        BigDecimal totalCost = request.getTotalCost();
+        if ((totalCost == null || totalCost.compareTo(BigDecimal.ZERO) <= 0) && request.getUnitPrice() != null) {
+            totalCost = request.getUnitPrice().multiply(BigDecimal.valueOf(request.getInitialQuantity()));
+        }
+
         LivestockGroup group = LivestockGroup.builder()
                 .tenantId(tenantId)
                 .farmId(farmId)
@@ -134,8 +145,15 @@ public class LivestockServiceImpl implements LivestockService {
                 .operationalCycleId(request.getOperationalCycleId())
                 .groupCode(groupCode)
                 .breedId(request.getBreedId())
+                .partnerId(request.getPartnerId())
                 .initialQuantity(request.getInitialQuantity())
                 .currentQuantity(request.getInitialQuantity())
+                .unitPrice(request.getUnitPrice())
+                .totalCost(totalCost)
+                .avgInitialWeightKg(request.getAvgInitialWeightKg())
+                .healthCertificate(request.getHealthCertificate())
+                .origin(request.getOrigin())
+                .notes(request.getNotes())
                 .entryDate(request.getEntryDate())
                 .status("ACTIVE")
                 .createdAt(Instant.now())
@@ -143,6 +161,84 @@ public class LivestockServiceImpl implements LivestockService {
                 .build();
 
         group = livestockGroupRepository.save(group);
+
+        // 1. Tự động sinh công nợ phải trả Nhà cung cấp con giống nếu có partnerId và totalCost
+        if (request.getPartnerId() != null && totalCost != null && totalCost.compareTo(BigDecimal.ZERO) > 0) {
+            Partner partner = partnerRepository.findByTenantIdAndId(tenantId, request.getPartnerId()).orElse(null);
+            int paymentTerm = (partner != null && partner.getPaymentTermDays() != null) ? partner.getPaymentTermDays() : 30;
+            LocalDate dueDate = request.getEntryDate().plusDays(paymentTerm);
+
+            DebtRecord debt = DebtRecord.builder()
+                    .tenantId(tenantId)
+                    .farmId(farmId)
+                    .partnerId(request.getPartnerId())
+                    .debtType("PAYABLE")
+                    .totalDebt(totalCost)
+                    .paidAmount(BigDecimal.ZERO)
+                    .remainingDebt(totalCost)
+                    .dueDate(dueDate)
+                    .status("ACTIVE")
+                    .createdAt(Instant.now())
+                    .createdBy(currentUserId)
+                    .build();
+            debtRecordRepository.save(debt);
+            log.info("Auto-created payable debt record for livestock group {} to supplier {}", group.getGroupCode(), request.getPartnerId());
+        }
+
+        // 2. Tự động ghi nhận chi phí đầu vào con giống (FarmExpense) gắn với đàn nuôi
+        if (totalCost != null && totalCost.compareTo(BigDecimal.ZERO) > 0) {
+            CostCategory breedCostCategory = costCategoryRepository.findByTenantIdAndCostType(tenantId, "MATERIALS")
+                    .stream().filter(c -> "BREED_COST".equalsIgnoreCase(c.getCode())).findFirst()
+                    .orElseGet(() -> costCategoryRepository.findByTenantIdAndCostType(tenantId, "MATERIALS")
+                            .stream().findFirst()
+                            .orElseGet(() -> {
+                                CostCategory newCat = CostCategory.builder()
+                                        .tenantId(tenantId)
+                                        .name("Chi phí Mua Con giống")
+                                        .code("BREED_COST")
+                                        .costType("MATERIALS")
+                                        .createdAt(Instant.now())
+                                        .createdBy(currentUserId)
+                                        .build();
+                                return costCategoryRepository.save(newCat);
+                            }));
+
+            FarmExpense expense = FarmExpense.builder()
+                    .tenantId(tenantId)
+                    .farmId(farmId)
+                    .livestockGroupId(group.getId())
+                    .costCategoryId(breedCostCategory.getId())
+                    .expenseCode("EXP-BREED-" + group.getGroupCode())
+                    .expenseSource("BREED_PURCHASE")
+                    .referenceId(group.getId())
+                    .expenseDate(request.getEntryDate())
+                    .amount(totalCost)
+                    .unitCostEligible(true)
+                    .status("CONFIRMED")
+                    .notes("Chi phí mua con giống ban đầu đàn " + group.getGroupCode() + " (" + group.getInitialQuantity() + " con)")
+                    .createdAt(Instant.now())
+                    .createdBy(currentUserId)
+                    .build();
+            farmExpenseRepository.save(expense);
+            log.info("Auto-created farm expense for livestock group {}", group.getGroupCode());
+        }
+
+        // 3. Tự động ghi nhận trọng lượng ban đầu vào LivestockWeightLog nếu có avgInitialWeightKg
+        if (request.getAvgInitialWeightKg() != null && request.getAvgInitialWeightKg().compareTo(BigDecimal.ZERO) > 0) {
+            LivestockWeightLog initialWeight = LivestockWeightLog.builder()
+                    .tenantId(tenantId)
+                    .farmId(farmId)
+                    .targetType("GROUP")
+                    .groupId(group.getId())
+                    .recordDate(request.getEntryDate())
+                    .weightKg(request.getAvgInitialWeightKg())
+                    .recordedByUserId(currentUserId)
+                    .notes("Trọng lượng bình quân nhập đàn ban đầu (" + group.getInitialQuantity() + " con)")
+                    .createdAt(Instant.now())
+                    .build();
+            livestockWeightLogRepository.save(initialWeight);
+            log.info("Auto-logged initial average weight for livestock group {}", group.getGroupCode());
+        }
 
         // Đồng bộ zone_locations sang OCCUPIED
         if (request.getLocationId() != null) {
@@ -863,6 +959,11 @@ public class LivestockServiceImpl implements LivestockService {
             breedName = livestockBreedRepository.findById(group.getBreedId()).map(b -> b.getBreedName()).orElse(null);
         }
 
+        String partnerName = null;
+        if (group.getPartnerId() != null) {
+            partnerName = partnerRepository.findById(group.getPartnerId()).map(Partner::getName).orElse(null);
+        }
+
         BigDecimal totalExpenses = farmExpenseRepository.sumConfirmedExpensesByLivestockGroupId(group.getId());
         if (totalExpenses == null) {
             totalExpenses = BigDecimal.ZERO;
@@ -881,8 +982,16 @@ public class LivestockServiceImpl implements LivestockService {
                 .groupCode(group.getGroupCode())
                 .breedId(group.getBreedId())
                 .breedName(breedName)
+                .partnerId(group.getPartnerId())
+                .partnerName(partnerName)
                 .initialQuantity(group.getInitialQuantity())
                 .currentQuantity(group.getCurrentQuantity())
+                .unitPrice(group.getUnitPrice())
+                .totalCost(group.getTotalCost())
+                .avgInitialWeightKg(group.getAvgInitialWeightKg())
+                .healthCertificate(group.getHealthCertificate())
+                .origin(group.getOrigin())
+                .notes(group.getNotes())
                 .entryDate(group.getEntryDate())
                 .status(group.getStatus())
                 .activeWithdrawalEndDate(activeWithdrawalEndDate)

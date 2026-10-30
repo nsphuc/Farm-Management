@@ -136,8 +136,18 @@ export function FarmManagerDailyOverview({
   // Lấy thủ kho trang trại
   const warehouseKeeperAssignment = assignments.find((a) => a.roleInFarm === 'WAREHOUSE_KEEPER');
   const warehouseKeeperEmployee = employees.find(
-    (e) => e.position === 'WAREHOUSE_KEEPER' || e.id === warehouseKeeperAssignment?.employeeId
+    (e) =>
+      (warehouseKeeperAssignment?.employeeId && Number(e.id) === Number(warehouseKeeperAssignment.employeeId)) ||
+      (warehouseKeeperAssignment?.userId && Number(e.userId) === Number(warehouseKeeperAssignment.userId)) ||
+      (warehouseKeeperAssignment?.employeeCode && e.employeeCode === warehouseKeeperAssignment.employeeCode) ||
+      e.position === 'WAREHOUSE_KEEPER'
   );
+  const warehouseKeeperName =
+    warehouseKeeperAssignment?.userFullName ||
+    warehouseKeeperAssignment?.employeeFullName ||
+    warehouseKeeperEmployee?.fullName ||
+    warehouseKeeperAssignment?.username ||
+    'Chưa phân công';
 
   return (
     <div className="space-y-6">
@@ -352,19 +362,42 @@ export function FarmManagerDailyOverview({
               // Tìm Trưởng phân khu
               const zoneLeadAssignment = assignments.find(
                 (a) =>
-                  a.zoneId === zone.id &&
-                  ['ZONE_MANAGER', 'TECHNICAL_LEAD', 'AGRONOMIST', 'VETERINARIAN'].includes(a.roleInFarm)
+                  Number(a.zoneId) === Number(zone.id) &&
+                  ['ZONE_MANAGER', 'ZONE_LEADER', 'TECHNICAL_LEAD', 'AGRONOMIST', 'VETERINARIAN'].includes(a.roleInFarm)
+              );
+              const zoneLeadEmployee = employees.find(
+                (e) =>
+                  (zoneLeadAssignment?.employeeId && Number(e.id) === Number(zoneLeadAssignment.employeeId)) ||
+                  (zoneLeadAssignment?.userId && Number(e.userId) === Number(zoneLeadAssignment.userId)) ||
+                  (zoneLeadAssignment?.employeeCode && e.employeeCode === zoneLeadAssignment.employeeCode)
+              );
+              const zoneLeadFromEmp = employees.find(
+                (e) =>
+                  ['ZONE_MANAGER', 'ZONE_LEADER'].includes(e.position) &&
+                  e.department &&
+                  zone.name &&
+                  e.department.toLowerCase().includes(zone.name.toLowerCase())
               );
               const zoneLeadName =
+                zoneLeadAssignment?.userFullName ||
+                zoneLeadEmployee?.fullName ||
+                zoneLeadFromEmp?.fullName ||
                 zoneLeadAssignment?.employeeFullName ||
+                zoneLeadAssignment?.username ||
                 zone.managerFullName ||
-                employees.find((e) => e.userId === zone.managerUserId)?.fullName ||
                 'Chưa phân công';
 
               // Đếm số nhân viên thuộc phân khu
-              const zoneEmployees = employees.filter(
-                (e) => e.zoneId === zone.id || assignments.some((a) => a.zoneId === zone.id && a.employeeId === e.id)
-              );
+              const zoneEmployees = employees.filter((e) => {
+                if (e.department && zone.name && e.department.toLowerCase().includes(zone.name.toLowerCase())) return true;
+                return assignments.some(
+                  (a) =>
+                    Number(a.zoneId) === Number(zone.id) &&
+                    ((a.employeeId && Number(a.employeeId) === Number(e.id)) ||
+                     (a.userId && Number(a.userId) === Number(e.userId)) ||
+                     (a.employeeCode && e.employeeCode === a.employeeCode))
+                );
+              });
               const zoneAttendedCount = zoneEmployees.filter((e) => attendedEmployeeIds.has(e.id)).length;
 
               // Đếm công việc của phân khu
@@ -464,7 +497,7 @@ export function FarmManagerDailyOverview({
               <p className="text-xs text-slate-500 mt-0.5">
                 Thủ kho phụ trách:{' '}
                 <strong className="text-slate-900">
-                  {warehouseKeeperEmployee?.fullName || warehouseKeeperAssignment?.employeeFullName || 'Lê Thị Thủ Kho'}
+                  {warehouseKeeperName}
                 </strong>{' '}
                 • Theo dõi tồn kho vật tư, phân bón, thuốc BVTV và thành phẩm
               </p>

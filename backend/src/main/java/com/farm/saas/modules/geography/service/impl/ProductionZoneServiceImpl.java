@@ -18,6 +18,8 @@ import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
 import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
 import com.farm.saas.modules.geography.service.ProductionZoneService;
+import com.farm.saas.modules.masterdata.entity.Warehouse;
+import com.farm.saas.modules.masterdata.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -40,6 +42,7 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
     private final FarmRepository farmRepository;
     private final ProductionZoneRepository productionZoneRepository;
     private final ZoneLocationRepository zoneLocationRepository;
+    private final WarehouseRepository warehouseRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
     private final com.farm.saas.modules.notification.service.NotificationService notificationService;
@@ -305,10 +308,16 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_LOCATION_STATUS", "Trạng thái vị trí không hợp lệ.");
         }
 
+        if (request.getWarehouseId() != null) {
+            warehouseRepository.findByFarmIdAndId(farmId, request.getWarehouseId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Kho bãi", request.getWarehouseId()));
+        }
+
         ZoneLocation location = ZoneLocation.builder()
                 .tenantId(farm.getTenantId())
                 .farmId(farmId)
                 .zoneId(zoneId)
+                .warehouseId(request.getWarehouseId())
                 .code(code)
                 .name(request.getName().trim())
                 .description(request.getDescription())
@@ -348,6 +357,11 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
         location.setDescription(request.getDescription());
         location.setAreaM2(request.getAreaM2());
         location.setCapacity(request.getCapacity());
+        if (request.getWarehouseId() != null) {
+            warehouseRepository.findByFarmIdAndId(farmId, request.getWarehouseId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Kho bãi", request.getWarehouseId()));
+            location.setWarehouseId(request.getWarehouseId());
+        }
         if (request.getStatus() != null) {
             String status = request.getStatus().toUpperCase();
             if (!VALID_LOCATION_STATUSES.contains(status)) {
@@ -430,12 +444,21 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
     }
 
     private ZoneLocationResponse toLocationResponse(ZoneLocation loc, String zoneName) {
+        String warehouseName = null;
+        if (loc.getWarehouseId() != null) {
+            warehouseName = warehouseRepository.findById(loc.getWarehouseId())
+                    .map(Warehouse::getName)
+                    .orElse(null);
+        }
+
         return ZoneLocationResponse.builder()
                 .id(loc.getId())
                 .tenantId(loc.getTenantId())
                 .farmId(loc.getFarmId())
                 .zoneId(loc.getZoneId())
                 .zoneName(zoneName)
+                .warehouseId(loc.getWarehouseId())
+                .warehouseName(warehouseName)
                 .code(loc.getCode())
                 .name(loc.getName())
                 .description(loc.getDescription())

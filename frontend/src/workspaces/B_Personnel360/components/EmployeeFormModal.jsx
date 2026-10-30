@@ -8,9 +8,11 @@ import {
   Building2,
   Info,
   Crown,
+  RotateCcw,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 import { FormField, Input, Select, Switch, CodeInput } from '@/components/ui/FormControls';
 import { hrService } from '@/services/modules/hrService';
 import { geographyService } from '@/services/modules/geographyService';
@@ -18,6 +20,7 @@ import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { toast } from '@/store/useToastStore';
 
 const CONTRACT_TYPES = [
   { value: 'FULL_TIME', label: 'Toàn thời gian (FULL_TIME)' },
@@ -159,6 +162,38 @@ export function EmployeeFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generalError, setGeneralError] = useState(null);
 
+  // State cho chức năng Cấp lại mật khẩu (Reset Password)
+  const [resetPasswordInput, setResetPasswordInput] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetPasswordResult, setResetPasswordResult] = useState(null);
+
+  const handleResetPassword = async () => {
+    if (!employee?.userId) return;
+    const newPass = resetPasswordInput?.trim() || 'Farm@123456';
+    try {
+      setIsResettingPassword(true);
+      setResetPasswordResult(null);
+      const res = await hrService.resetUserPassword(employee.userId, newPass);
+      const finalPass = res?.tempPassword || res?.temporaryPassword || newPass;
+      setResetPasswordResult({
+        success: true,
+        message: res?.message || 'Đã cấp lại mật khẩu thành công!',
+        tempPassword: finalPass,
+      });
+      toast.success(`Đã cấp lại mật khẩu cho ${employee.fullName}! Mật khẩu mới: ${finalPass}`);
+    } catch (err) {
+      console.error('Reset password error:', err);
+      const errorMsg = err.response?.data?.message || err.message || 'Lỗi khi cấp lại mật khẩu';
+      setResetPasswordResult({
+        success: false,
+        message: errorMsg,
+      });
+      toast.error('Không thể cấp lại mật khẩu: ' + errorMsg);
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
   // Nạp danh sách phân khu của trang trại
   useEffect(() => {
     const selectedFarmId = formData.farmId || (activeFarmId !== 'ALL' ? activeFarmId : '');
@@ -282,6 +317,9 @@ export function EmployeeFormModal({
     }
     setErrors({});
     setGeneralError(null);
+    setResetPasswordInput('');
+    setIsResettingPassword(false);
+    setResetPasswordResult(null);
   }, [isOpen, employee]);
 
   // Tự động gán farm đầu tiên khi danh sách trang trại tải xong (chỉ áp dụng cho Quản lý trại nếu chưa có farmId)
@@ -983,6 +1021,188 @@ export function EmployeeFormModal({
                         value={formData.initialPassword}
                         onChange={(e) => handleChange('initialPassword', e.target.value)}
                         placeholder="Password@123"
+                      />
+                    </FormField>
+
+                    <FormField label="Vai Trò SaaS (Role)" required>
+                      <Select
+                        value={formData.selectedRole}
+                        onChange={(e) => handleChange('selectedRole', e.target.value)}
+                        options={SAAS_ROLES.filter((r) => r.value !== 'ROLE_FARM_MANAGER')}
+                      />
+                    </FormField>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Khối 4: DÀNH CHO CHẾ ĐỘ SỬA (isEditing) - HIỂN THỊ TÀI KHOẢN VÀ CẤP LẠI MẬT KHẨU THUỘC QUYỀN OWNER / FARM MANAGER */}
+        {isEditing && (owner || farmManager) && (
+          <div className="space-y-3.5 pt-2 border-t border-slate-200">
+            <div className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-emerald-600" />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                Tài Khoản Đăng Nhập & Bảo Mật
+              </h4>
+            </div>
+
+            {employee?.userId ? (
+              // 1. NHÂN SỰ ĐÃ CÓ TÀI KHOẢN TRÊN HỆ THỐNG
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3.5 animate-in fade-in">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-emerald-200/70">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-xs">
+                      <ShieldCheck className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block">
+                        Tài Khoản Hệ Thống Đang Liên Kết
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Mã User ID: <strong className="font-mono text-slate-800">#{employee.userId}</strong>
+                      </span>
+                    </div>
+                  </div>
+                  <StatusBadge status={employee.userStatus || 'ACTIVE'} size="sm" />
+                </div>
+
+                {/* Lưới hiển thị chi tiết tài khoản */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-slate-500 block text-[11px] mb-0.5">Tên đăng nhập (Username)</span>
+                    <span className="font-mono font-bold text-slate-900 text-xs truncate block" title={employee.username || employee.phone || employee.employeeCode}>
+                      {employee.username || employee.phone || employee.employeeCode}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-slate-500 block text-[11px] mb-0.5">Vai trò hệ thống (Role)</span>
+                    <span className="font-bold text-blue-700 text-xs truncate block">
+                      {employee.userRole || (employee.userRoles?.length > 0 ? employee.userRoles.join(', ') : employee.position) || 'ROLE_FIELD_STAFF'}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-slate-500 block text-[11px] mb-0.5">Trạng thái tài khoản</span>
+                    <span className={`font-bold text-xs truncate block ${employee.userStatus === 'LOCKED' ? 'text-rose-600' : 'text-emerald-700'}`}>
+                      {employee.userStatus === 'LOCKED' ? '🔒 Đang bị khóa' : '✅ Đang hoạt động'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Khối Cấp Lại Mật Khẩu (Reset Password) */}
+                <div className="rounded-xl border border-blue-200 bg-white p-4 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block flex items-center gap-1.5">
+                        <KeyRound className="h-3.5 w-3.5 text-blue-600" />
+                        <span>Cấp Lại Mật Khẩu (Reset Password)</span>
+                      </span>
+                      <span className="text-[11px] text-slate-500 mt-0.5 block">
+                        Thiết lập mật khẩu mới cho nhân sự. Hệ thống sẽ bật cờ bắt buộc đổi mật khẩu ở lần đăng nhập tới.
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                      mustChangePassword = TRUE
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                    <div className="flex-1">
+                      <Input
+                        value={resetPasswordInput}
+                        onChange={(e) => setResetPasswordInput(e.target.value)}
+                        placeholder="Mật khẩu mới (để trống sẽ dùng mặc định: Farm@123456)"
+                        className="text-xs font-mono"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="md"
+                      className="shrink-0 bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100 font-bold"
+                      icon={<RotateCcw className="h-3.5 w-3.5 text-blue-600" />}
+                      isLoading={isResettingPassword}
+                      onClick={handleResetPassword}
+                    >
+                      Cấp Lại Mật Khẩu
+                    </Button>
+                  </div>
+
+                  {/* Thông báo kết quả Cấp lại mật khẩu */}
+                  {resetPasswordResult && (
+                    <div
+                      className={`p-3 rounded-xl border text-xs animate-in fade-in ${
+                        resetPasswordResult.success
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-1">
+                          <span className="font-bold block">{resetPasswordResult.message}</span>
+                          {resetPasswordResult.tempPassword && (
+                            <div className="flex items-center gap-2 text-[11px] mt-1 flex-wrap">
+                              <span>Mật khẩu mới cấp:</span>
+                              <span className="font-mono font-bold bg-white px-2 py-0.5 rounded border border-emerald-300 text-emerald-800">
+                                {resetPasswordResult.tempPassword}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(resetPasswordResult.tempPassword);
+                                  toast.success('Đã sao chép mật khẩu mới vào bộ nhớ tạm!');
+                                }}
+                                className="text-[10px] text-blue-600 hover:underline font-bold"
+                              >
+                                [Sao chép]
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              // 2. NHÂN SỰ CHƯA CÓ TÀI KHOẢN (Lao động phổ thông / thời vụ)
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Info className="h-4 w-4 text-amber-600" />
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 block">
+                        Nhân sự chưa có tài khoản đăng nhập Web
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Lao động phổ thông / thời vụ. Bật công tắc bên phải để cấp tài khoản truy cập.
+                      </span>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={formData.enableProvisioning}
+                    onChange={(checked) => handleChange('enableProvisioning', checked)}
+                  />
+                </div>
+
+                {formData.enableProvisioning && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-amber-200/60 animate-in fade-in duration-150">
+                    <FormField label="Tên Đăng Nhập (Username)" required error={errors.username}>
+                      <Input
+                        value={formData.username}
+                        onChange={(e) => handleChange('username', e.target.value)}
+                        placeholder="Gợi ý: SĐT hoặc mã NV"
+                      />
+                    </FormField>
+
+                    <FormField label="Mật Khẩu Khởi Tạo" required error={errors.initialPassword}>
+                      <Input
+                        value={formData.initialPassword}
+                        onChange={(e) => handleChange('initialPassword', e.target.value)}
+                        placeholder="Farm@123456"
                       />
                     </FormField>
 

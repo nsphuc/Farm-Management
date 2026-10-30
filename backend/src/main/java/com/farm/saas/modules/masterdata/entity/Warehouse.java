@@ -25,6 +25,9 @@ public class Warehouse {
     @Column(name = "farm_id", nullable = false)
     private Long farmId;
 
+    @Column(name = "zone_id")
+    private Long zoneId;
+
     @Column(name = "code", nullable = false, length = 50)
     private String code;
 

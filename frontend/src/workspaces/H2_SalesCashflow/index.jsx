@@ -204,7 +204,7 @@ export function SalesCashflowWorkspace() {
       {/* ======================================================== */}
       {/* 3. TAB ĐIỀU HƯỚNG                                        */}
       {/* ======================================================== */}
-      <div className="flex space-x-2 border-b border-slate-200 text-xs font-semibold overflow-x-auto">
+      <div className="flex space-x-2 border-b border-slate-200 text-xs font-semibold overflow-x-auto no-scrollbar">
         {owner ? (
           // Tabs dành cho Chủ Đầu Tư (Owner)
           [

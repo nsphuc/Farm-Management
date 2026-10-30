@@ -6,6 +6,7 @@ import { FormField, Input, Select } from '@/components/ui/FormControls';
 import { farmingService } from '@/services/modules/farmingService';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { geographyService } from '@/services/modules/geographyService';
+import { partnerService } from '@/services/modules/partnerService';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { toast } from '@/store/useToastStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
@@ -29,6 +30,12 @@ export function LivestockGroupModal({
     initialQuantity: '',
     currentQuantity: '',
     avgInitialWeightKg: '',
+    partnerId: '',
+    unitPrice: '',
+    totalCost: '',
+    healthCertificate: '',
+    origin: '',
+    notes: '',
   });
 
   const [zones, setZones] = useState([]);
@@ -36,6 +43,7 @@ export function LivestockGroupModal({
   const [isLoadingLocations, setIsLoadingLocations] = useState(false);
   const [cycles, setCycles] = useState([]);
   const [breeds, setBreeds] = useState([]);
+  const [partners, setPartners] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -52,11 +60,12 @@ export function LivestockGroupModal({
 
     const loadMetadata = async () => {
       try {
-        const [zonesRes, cyclesRes, breedsRes, assignmentsRes] = await Promise.all([
+        const [zonesRes, cyclesRes, breedsRes, assignmentsRes, partnersRes] = await Promise.all([
           geographyService.getZones(farmId).catch(() => []),
           geographyService.getCycles(farmId).catch(() => []),
           masterDataService.getLivestockBreeds().catch(() => []),
           geographyService.getAssignments(farmId).catch(() => []),
+          partnerService.getPartners().catch(() => []),
         ]);
 
         const rawZones = Array.isArray(zonesRes) ? zonesRes : (zonesRes?.content || []);
@@ -74,6 +83,10 @@ export function LivestockGroupModal({
 
         const rawAssign = Array.isArray(assignmentsRes) ? assignmentsRes : (assignmentsRes?.content || []);
         setAssignments(rawAssign);
+
+        const rawPartners = Array.isArray(partnersRes) ? partnersRes : (partnersRes?.content || []);
+        const suppliers = rawPartners.filter((p) => !p.partnerType || p.partnerType === 'SUPPLIER' || p.partnerType === 'AGENT');
+        setPartners(suppliers.length > 0 ? suppliers : rawPartners);
       } catch (err) {
         console.error('Lỗi khi nạp danh mục chăn nuôi:', err);
       }
@@ -116,6 +129,12 @@ export function LivestockGroupModal({
         initialQuantity: editingGroup.initialQuantity ? String(editingGroup.initialQuantity) : '',
         currentQuantity: editingGroup.currentQuantity ? String(editingGroup.currentQuantity) : '',
         avgInitialWeightKg: editingGroup.avgInitialWeightKg ? String(editingGroup.avgInitialWeightKg) : '',
+        partnerId: editingGroup.partnerId ? String(editingGroup.partnerId) : '',
+        unitPrice: editingGroup.unitPrice ? String(editingGroup.unitPrice) : '',
+        totalCost: editingGroup.totalCost ? String(editingGroup.totalCost) : '',
+        healthCertificate: editingGroup.healthCertificate || '',
+        origin: editingGroup.origin || '',
+        notes: editingGroup.notes || '',
       });
       if (editingGroup.zoneId) {
         loadLocationsForZone(editingGroup.zoneId);
@@ -131,6 +150,12 @@ export function LivestockGroupModal({
         initialQuantity: '',
         currentQuantity: '',
         avgInitialWeightKg: '',
+        partnerId: '',
+        unitPrice: '',
+        totalCost: '',
+        healthCertificate: '',
+        origin: '',
+        notes: '',
       });
       setLocations([]);
     }
@@ -142,7 +167,7 @@ export function LivestockGroupModal({
     if (!zoneId) return 'Chưa có trưởng khu';
     const numId = Number(zoneId);
     const assign = assignments.find(
-      (a) => a.zoneId === numId && a.roleInFarm === 'ZONE_MANAGER' && a.isActive !== false
+      (a) => Number(a.zoneId) === numId && a.roleInFarm === 'ZONE_MANAGER' && a.isActive !== false
     );
     if (!assign) return 'Chưa có trưởng khu';
     return assign.userFullName || assign.username || 'Trưởng khu';
@@ -192,11 +217,18 @@ export function LivestockGroupModal({
           operationalCycleId: formData.operationalCycleId ? Number(formData.operationalCycleId) : null,
           groupCode: formData.groupCode.trim(),
           breedId: Number(formData.breedId),
+          partnerId: formData.partnerId ? Number(formData.partnerId) : null,
           initialQuantity: Number(formData.initialQuantity),
+          unitPrice: formData.unitPrice ? Number(formData.unitPrice) : null,
+          totalCost: formData.totalCost ? Number(formData.totalCost) : null,
+          avgInitialWeightKg: formData.avgInitialWeightKg ? Number(formData.avgInitialWeightKg) : null,
+          healthCertificate: formData.healthCertificate?.trim() || null,
+          origin: formData.origin?.trim() || null,
+          notes: formData.notes?.trim() || null,
           entryDate: formData.entryDate,
         };
         await farmingService.createLivestockGroup(farmId, payload);
-        toast.success(`Khởi tạo đàn nuôi ${payload.groupCode} thành công! Dữ liệu đã chuyển sang bàn làm việc của Bác sĩ thú y / Trưởng khu.`);
+        toast.success(`Khởi tạo đàn nuôi ${payload.groupCode} thành công! Đã tự động cập nhật công nợ và chi phí đàn.`);
       }
 
       // Thông báo đồng bộ dữ liệu liên Workspace (WS-E <-> WS-A)
@@ -285,11 +317,19 @@ export function LivestockGroupModal({
               disabled={Boolean(editingGroup)}
             >
               <option value="">-- Chọn giống gia súc / gia cầm --</option>
-              {breeds.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.species})
-                </option>
-              ))}
+              {breeds.map((b) => {
+                const speciesText =
+                  b.species === 'SWINE' ? 'Heo/Lợn' :
+                  b.species === 'CATTLE' ? 'Bò' :
+                  b.species === 'POULTRY' ? 'Gia cầm' :
+                  b.species === 'GOAT' ? 'Dê' :
+                  b.species === 'SHEEP' ? 'Cừu' : b.species;
+                return (
+                  <option key={b.id} value={b.id}>
+                    {b.breedName || b.name} ({speciesText})
+                  </option>
+                );
+              })}
             </Select>
           </FormField>
 
@@ -426,6 +466,120 @@ export function LivestockGroupModal({
             </FormField>
           )}
         </div>
+
+        {/* Thông tin Mua Con Giống & Nguồn Gốc */}
+        {!editingGroup ? (
+          <div className="bg-amber-50/60 p-3.5 rounded-xl border border-amber-200/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-amber-900 flex items-center gap-1.5 text-xs">
+                <span>🏷️</span> Thông Tin Mua Con Giống & Đối Tác Cung Cấp
+              </span>
+              <span className="text-[10px] text-amber-700 font-medium">
+                (Tùy chọn - Tự động ghi nhận Công nợ & Chi phí)
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <FormField label="Nhà cung cấp con giống" hint="Đối tác cung cấp lợn/bò/gà giống">
+                <Select
+                  name="partnerId"
+                  value={formData.partnerId}
+                  onChange={(e) => setFormData({ ...formData, partnerId: e.target.value })}
+                >
+                  <option value="">-- Mua ngoài / Chưa gắn NCC --</option>
+                  {partners.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.code || 'NCC'})
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+
+              <FormField label="Đơn giá mua (đ/con)">
+                <Input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  placeholder="Ví dụ: 1200000"
+                  name="unitPrice"
+                  value={formData.unitPrice}
+                  onChange={(e) => {
+                    const price = e.target.value;
+                    const qty = Number(formData.initialQuantity) || 0;
+                    const total = price && qty ? String(Number(price) * qty) : formData.totalCost;
+                    setFormData({ ...formData, unitPrice: price, totalCost: total });
+                  }}
+                  className="font-mono text-right"
+                />
+              </FormField>
+
+              <FormField label="Tổng tiền mua giống (đ)">
+                <Input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  placeholder="Tự tính = Đơn giá x Số lượng"
+                  name="totalCost"
+                  value={formData.totalCost}
+                  onChange={(e) => setFormData({ ...formData, totalCost: e.target.value })}
+                  className="font-mono text-right font-bold text-amber-900"
+                />
+              </FormField>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FormField label="Số Giấy kiểm dịch thú y" hint="Chứng nhận kiểm dịch khi vận chuyển">
+                <Input
+                  name="healthCertificate"
+                  placeholder="Ví dụ: KD-2026-8899/TY"
+                  value={formData.healthCertificate}
+                  onChange={(e) => setFormData({ ...formData, healthCertificate: e.target.value })}
+                  className="font-mono"
+                />
+              </FormField>
+
+              <FormField label="Xuất xứ / Trại giống gốc" hint="Nguồn gốc bố mẹ, vùng nuôi">
+                <Input
+                  name="origin"
+                  placeholder="Ví dụ: Trại giống CP Đồng Nai F1"
+                  value={formData.origin}
+                  onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
+                />
+              </FormField>
+            </div>
+
+            {formData.partnerId && Number(formData.totalCost) > 0 && (
+              <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg p-2 font-medium flex items-center gap-1.5">
+                <span>✅</span>
+                <span>
+                  Hệ thống sẽ <strong>tự động tạo khoản Công nợ phải trả</strong> cho {partners.find(p => String(p.id) === String(formData.partnerId))?.name || 'Nhà cung cấp'} với số tiền <strong>{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(formData.totalCost))}</strong> và hạch toán vào <strong>Chi phí con giống ban đầu</strong> của đàn nuôi.
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          (editingGroup.partnerName || editingGroup.totalCost || editingGroup.healthCertificate) && (
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-slate-700 space-y-1.5">
+              <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                <span>🏷️</span> Nguồn Gốc & Thông Tin Mua Giống
+              </span>
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                {editingGroup.partnerName && (
+                  <div>NCC: <span className="font-semibold">{editingGroup.partnerName}</span></div>
+                )}
+                {editingGroup.totalCost && (
+                  <div>Tiền mua giống: <span className="font-semibold text-emerald-700">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(editingGroup.totalCost))}</span></div>
+                )}
+                {editingGroup.healthCertificate && (
+                  <div>Số kiểm dịch: <span className="font-mono">{editingGroup.healthCertificate}</span></div>
+                )}
+                {editingGroup.origin && (
+                  <div>Xuất xứ: <span>{editingGroup.origin}</span></div>
+                )}
+              </div>
+            </div>
+          )
+        )}
 
         {/* Ghi chú chuyển tiếp */}
         <div className="flex items-start gap-2.5 bg-blue-50/70 p-3 rounded-xl border border-blue-200 text-blue-900 text-[11px] leading-relaxed">

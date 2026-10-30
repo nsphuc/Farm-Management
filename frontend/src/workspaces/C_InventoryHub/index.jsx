@@ -693,7 +693,7 @@ export function InventoryHubWorkspace() {
             <Warehouse className="h-6 w-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-black text-slate-900 tracking-tight">
                 WS-C: {technicalLead ? 'Tra Cứu Tồn Kho Vật Tư' : 'Giám Sát Kho Vận & Quản Trị Tồn Kho'}
               </h1>
@@ -722,7 +722,7 @@ export function InventoryHubWorkspace() {
         </div>
 
         {/* NÚT TẠO PHIẾU DÀNH CHO MAKER (ROLE_WAREHOUSE_STAFF) VÀ ROLE_FARM_MANAGER */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {activeTab === 'RECEIPTS' && (
             <Can permission="PERM_INVENTORY_RECEIPT" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
               <Button
@@ -964,7 +964,7 @@ export function InventoryHubWorkspace() {
       {/* ======================================================== */}
       {/* 5. ĐIỀU HƯỚNG 5 TABS THEO DÕI CHI TIẾT (READ-ONLY)       */}
       {/* ======================================================== */}
-      <div className="flex border-b border-slate-200 overflow-x-auto space-x-2">
+      <div className="flex border-b border-slate-200 overflow-x-auto space-x-2 no-scrollbar">
         <button
           type="button"
           onClick={() => setActiveTab('STOCK')}

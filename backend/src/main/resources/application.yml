@@ -41,3 +41,10 @@ springdoc:
     enabled: true
     operations-sorter: method
     tags-sorter: alpha
+
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+  api-key: ${CLOUDINARY_API_KEY:}
+  api-secret: ${CLOUDINARY_API_SECRET:}
+  upload-preset: ${CLOUDINARY_UPLOAD_PRESET:}
+  folder: ${CLOUDINARY_FOLDER:farm_saas/attendance}

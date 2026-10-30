@@ -63,6 +63,7 @@ export function PersonalTaskKanban({
   farmId,
   zones = [],
   employees = [],
+  assignments = [],
   isTechnicalLead = false,
   isWarehouseKeeper = false,
   isZoneManager = false,
@@ -741,6 +742,7 @@ export function PersonalTaskKanban({
         farmId={farmId}
         zones={zones}
         employees={employees}
+        assignments={assignments}
         initialData={initialTaskData}
         editingTask={editingTask}
       />

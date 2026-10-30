@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, MapPin, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
+import { Camera, MapPin, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck, Loader2, Upload, Image as ImageIcon } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
@@ -7,7 +7,8 @@ import { calculateHaversineDistance, formatDateTime } from '@/utils/formatters';
 
 /**
  * SelfieCameraModal Component (Mục 2.2 File 09 & Workspace G File 08)
- * - Mở trực tiếp Camera trước (Selfie)
+ * - Mở Camera trước (Selfie) hoặc camera mặc định
+ * - Fallback tải ảnh từ thiết bị khi PC/Laptop không có camera hoặc bị chặn quyền
  * - Lấy tọa độ GPS trình duyệt
  * - Tính khoảng cách Haversine so với tâm trang trại và kiểm tra hàng rào Geofence
  * - Đóng dấu Watermark thời gian + tọa độ lên ảnh Canvas và nén WebP trước khi xuất file
@@ -21,6 +22,7 @@ export function SelfieCameraModal({
   const { activeFarm } = useActiveFarmStore();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const [stream, setStream] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null); // Data URL
@@ -56,21 +58,43 @@ export function SelfieCameraModal({
 
   const startCamera = async () => {
     setCameraError(null);
+    let mediaStream = null;
+
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setCameraError('Trình duyệt không hỗ trợ truy cập Camera trực tiếp. Vui lòng sử dụng tính năng tải ảnh từ máy bên dưới.');
+      return;
+    }
+
+    // Lần 1: Ưu tiên camera trước (Selfie)
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
+      mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'user', // Ưu tiên camera trước (Selfie)
+          facingMode: 'user',
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
         audio: false,
       });
+    } catch (err1) {
+      console.warn('Không thể mở camera facingMode user, đang thử camera mặc định...', err1);
+      // Lần 2: Thử mở camera bất kỳ (webcam PC/laptop thường không có facingMode 'user')
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      } catch (err2) {
+        console.warn('Không thể mở camera mặc định:', err2);
+      }
+    }
+
+    if (mediaStream) {
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
-    } catch (err) {
-      setCameraError('Không thể mở Camera trước. Vui lòng cấp quyền truy cập Camera cho trình duyệt.');
+    } else {
+      setCameraError('Chưa kết nối được tới camera (thiết bị không có webcam hoặc chưa cấp quyền trong trình duyệt). Bạn có thể bấm nút "Tải ảnh từ máy / Chụp ngoài" bên dưới để hoàn tất chấm công.');
     }
   };
 
@@ -136,24 +160,26 @@ export function SelfieCameraModal({
   };
 
   /**
-   * Chụp ảnh và đóng watermark lên Canvas
+   * Đóng dấu Watermark thời gian & toạ độ GPS lên Canvas rồi nén WebP
    */
-  const handleCapture = () => {
-    if (!videoRef.current) return;
-    setIsProcessing(true);
-
-    const video = videoRef.current;
+  const drawWatermarkAndFinalize = (sourceCanvasOrImage, isMirror = false) => {
     const canvas = canvasRef.current || document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    const width = sourceCanvasOrImage.videoWidth || sourceCanvasOrImage.naturalWidth || sourceCanvasOrImage.width || 1280;
+    const height = sourceCanvasOrImage.videoHeight || sourceCanvasOrImage.naturalHeight || sourceCanvasOrImage.height || 720;
+    canvas.width = width;
+    canvas.height = height;
 
     const ctx = canvas.getContext('2d');
-    // Vẽ khung hình từ video (lật gương để đúng chiều tự nhiên của selfie)
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    ctx.restore();
+    if (isMirror) {
+      // Lật gương để đúng chiều tự nhiên của selfie khi chụp qua webcam
+      ctx.save();
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(sourceCanvasOrImage, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sourceCanvasOrImage, 0, 0, canvas.width, canvas.height);
+    }
 
     // Đóng dấu Watermark thời gian & tọa độ GPS ở góc dưới
     const now = new Date();
@@ -164,7 +190,7 @@ export function SelfieCameraModal({
     const distStr = locationState.distanceM !== null ? `${locationState.distanceM}m` : 'N/A';
 
     // Vẽ thanh nền mờ đen bảo đảm độ tương phản cao cho chữ
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
     ctx.fillRect(0, canvas.height - 90, canvas.width, 90);
 
     ctx.fillStyle = '#ffffff';
@@ -193,6 +219,38 @@ export function SelfieCameraModal({
       'image/webp',
       0.85
     );
+  };
+
+  /**
+   * Chụp ảnh trực tiếp từ webcam
+   */
+  const handleCapture = () => {
+    if (!videoRef.current) return;
+    setIsProcessing(true);
+    drawWatermarkAndFinalize(videoRef.current, true);
+  };
+
+  /**
+   * Tải ảnh từ máy / Chụp ngoài hệ thống (Fallback hoàn hảo)
+   */
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessing(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        drawWatermarkAndFinalize(img, false);
+      };
+      img.onerror = () => {
+        setIsProcessing(false);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleRetake = () => {
@@ -276,19 +334,39 @@ export function SelfieCameraModal({
           )}
         </div>
 
+        {/* Hidden File Input for Image Upload Fallback */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="user"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+
         {/* Camera Viewport or Captured Result Preview */}
-        <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black flex items-center justify-center shadow-inner">
-          {cameraError ? (
-            <div className="p-6 text-center text-xs text-rose-400">
-              <AlertTriangle className="mx-auto h-8 w-8 mb-2 text-rose-500" />
-              {cameraError}
-            </div>
-          ) : capturedImage ? (
+        <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-slate-950 flex items-center justify-center shadow-inner border border-slate-800">
+          {capturedImage ? (
             <img
               src={capturedImage}
               alt="Selfie Check-in"
               className="h-full w-full object-cover"
             />
+          ) : cameraError ? (
+            <div className="p-6 text-center max-w-md">
+              <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-amber-400" />
+              <p className="text-xs text-amber-200/90 mb-4 leading-relaxed font-medium">
+                {cameraError}
+              </p>
+              <Button
+                variant="primary"
+                icon={Upload}
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-emerald-600 hover:bg-emerald-500 shadow-md"
+              >
+                Tải ảnh từ máy / Chụp bằng camera ngoài
+              </Button>
+            </div>
           ) : (
             <>
               <video
@@ -300,14 +378,15 @@ export function SelfieCameraModal({
               />
               {/* Selfie Frame Guide */}
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="h-56 w-44 rounded-full border-2 border-dashed border-white/60" />
+                <div className="h-56 w-44 rounded-full border-2 border-dashed border-emerald-400/60 shadow-xs" />
               </div>
             </>
           )}
 
           {isProcessing && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-xs text-white">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/75 backdrop-blur-xs text-white">
+              <Loader2 className="h-9 w-9 animate-spin text-emerald-400 mb-2" />
+              <span className="text-xs font-medium tracking-wide">Đang xử lý ảnh & đóng watermark GPS...</span>
             </div>
           )}
         </div>
@@ -324,7 +403,7 @@ export function SelfieCameraModal({
             {capturedImage ? (
               <>
                 <Button variant="outline" icon={RefreshCw} onClick={handleRetake}>
-                  Chụp lại
+                  Chụp / Chọn lại
                 </Button>
                 <Button
                   variant="primary"
@@ -335,15 +414,25 @@ export function SelfieCameraModal({
                 </Button>
               </>
             ) : (
-              <Button
-                variant="primary"
-                icon={Camera}
-                size="lg"
-                disabled={Boolean(cameraError || isProcessing)}
-                onClick={handleCapture}
-              >
-                Chụp ảnh Selfie
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  icon={Upload}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Chọn file ảnh có sẵn trên thiết bị"
+                >
+                  Tải ảnh từ máy
+                </Button>
+                <Button
+                  variant="primary"
+                  icon={Camera}
+                  size="lg"
+                  disabled={Boolean(cameraError || isProcessing)}
+                  onClick={handleCapture}
+                >
+                  Chụp ảnh Selfie
+                </Button>
+              </>
             )}
           </div>
         </div>

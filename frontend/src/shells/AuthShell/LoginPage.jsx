@@ -54,6 +54,8 @@ export function LoginPage() {
       // 2. Đồng bộ ngữ cảnh trang trại
       if (userInfo?.accessibleFarms?.length) {
         syncFromAccessibleFarms(userInfo.accessibleFarms);
+      } else {
+        useActiveFarmStore.getState().clearActiveContext();
       }
 
       // 3. Kiểm tra cưỡng chế đổi mật khẩu lần đầu (First-Login Guard)

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { DynamicSidebar } from '@/components/layout/DynamicSidebar';
+import { MobileBottomNav } from '@/components/layout/MobileBottomNav';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
@@ -77,9 +78,9 @@ export function TenantAppShell() {
         {/* Banner Vận Hành Dành Riêng Cho Từng Nhóm Role */}
         {/* Role 2: Giám Đốc / Quản lý 1 Trang trại (Bắt buộc chấm công GPS + Selfie) */}
         {isFarmManager() && !location.pathname.includes('/my-dashboard') && (
-          <div className="flex items-center justify-between border-b border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-2 text-xs text-blue-900 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 sm:px-4 py-2 text-xs text-blue-900 gap-2 shadow-2xs">
             <div className="flex items-center gap-2">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
                 <Camera className="h-3 w-3" />
               </span>
               <span>
@@ -90,7 +91,7 @@ export function TenantAppShell() {
             <button
               type="button"
               onClick={() => navigate('/app/my-dashboard')}
-              className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 font-semibold text-white hover:bg-blue-700 transition-colors shadow-2xs"
+              className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 font-semibold text-white hover:bg-blue-700 transition-colors shadow-2xs shrink-0 self-end sm:self-auto"
             >
               <span>Chấm công GPS</span>
               <ChevronRight className="h-3 w-3" />
@@ -100,9 +101,9 @@ export function TenantAppShell() {
 
         {/* Role 3B: Trưởng Phân Khu / Tổ Trưởng Hiện Trường Banner */}
         {isZoneManager && isZoneManager() && !location.pathname.includes('/my-dashboard') && (
-          <div className="flex items-center justify-between border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs text-sky-900 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-sky-200 bg-sky-50 px-3 sm:px-4 py-2 text-xs text-sky-900 gap-2 shadow-2xs">
             <div className="flex items-center gap-2">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-600 text-white">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white">
                 <MapPin className="h-3 w-3" />
               </span>
               <span>
@@ -113,7 +114,7 @@ export function TenantAppShell() {
             <button
               type="button"
               onClick={() => navigate('/app/my-dashboard')}
-              className="flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1 font-semibold text-white hover:bg-sky-700 transition-colors shadow-2xs"
+              className="flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1 font-semibold text-white hover:bg-sky-700 transition-colors shadow-2xs shrink-0 self-end sm:self-auto"
             >
               <span>Vào Điểm Danh Tổ</span>
               <ChevronRight className="h-3 w-3" />
@@ -123,9 +124,9 @@ export function TenantAppShell() {
 
         {/* Role 6A: Nhân viên hiện trường Mobile-First Banner */}
         {isFieldWorker() && !location.pathname.includes('/my-dashboard') && (
-          <div className="flex items-center justify-between border-b border-teal-200 bg-teal-50/90 px-4 py-2 text-xs text-teal-900 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-teal-200 bg-teal-50/90 px-3 sm:px-4 py-2 text-xs text-teal-900 gap-2 shadow-2xs">
             <div className="flex items-center gap-2">
-              <Smartphone className="h-4 w-4 text-teal-600" />
+              <Smartphone className="h-4 w-4 shrink-0 text-teal-600" />
               <span>
                 <strong>Giao diện Tinh gọn Hiện trường:</strong> Bạn đang ở chế độ nhân viên nông vụ. Bàn làm việc chính là Bảng Tác Nghiệp Hàng Ngày.
               </span>
@@ -133,7 +134,7 @@ export function TenantAppShell() {
             <button
               type="button"
               onClick={() => navigate('/app/my-dashboard')}
-              className="flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 font-semibold text-white hover:bg-teal-700 transition-colors"
+              className="flex items-center gap-1 rounded-lg bg-teal-600 px-2.5 py-1 font-semibold text-white hover:bg-teal-700 transition-colors shrink-0 self-end sm:self-auto"
             >
               <span>Vào Bảng Tác Nghiệp</span>
               <ChevronRight className="h-3 w-3" />
@@ -142,13 +143,19 @@ export function TenantAppShell() {
         )}
 
         {/* Workspace Canvas Outlet được bảo vệ bởi ErrorBoundary */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 lg:p-8 pb-20 lg:pb-8">
           <ErrorBoundary>
             <div key={location.pathname} className="animate-in fade-in duration-200 ease-out">
               <Outlet />
             </div>
           </ErrorBoundary>
         </main>
+
+        {/* Mobile Bottom Navigation for handheld field devices */}
+        <MobileBottomNav
+          onOpenMenu={() => setIsMobileMenuOpen(true)}
+          onOpenScanner={() => window.dispatchEvent(new CustomEvent('open-quick-scanner'))}
+        />
       </div>
     </div>
   );

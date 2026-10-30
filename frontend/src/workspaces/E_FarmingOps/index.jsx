@@ -633,7 +633,7 @@ export function FarmingOpsWorkspace() {
             <Sprout className="h-6 w-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-black text-slate-900 tracking-tight">
                 WS-E: Kế Hoạch Mùa Vụ & Vận Hành Hiện Trường
               </h1>
@@ -686,7 +686,7 @@ export function FarmingOpsWorkspace() {
         )}
 
         {/* Nút bấm Tạo Mới của Kỹ thuật & Giám đốc trại */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {sector === 'CROP' ? (
             <Can permission="PERM_CROP_PLAN" role={["ROLE_TECHNICAL_STAFF", "ROLE_FARM_MANAGER"]}>
               <Button

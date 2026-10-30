@@ -33,6 +33,12 @@ export function TopBar({ onMobileMenuToggle }) {
 
   const roleInfo = getOperationalRoleInfo();
 
+  React.useEffect(() => {
+    const handleOpenScanner = () => setIsScannerModalOpen(true);
+    window.addEventListener('open-quick-scanner', handleOpenScanner);
+    return () => window.removeEventListener('open-quick-scanner', handleOpenScanner);
+  }, []);
+
   const handleLogout = async () => {
     try {
       if (logout) {
@@ -50,13 +56,13 @@ export function TopBar({ onMobileMenuToggle }) {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur-md sm:px-6 shadow-2xs">
+    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-3 backdrop-blur-md sm:px-6 shadow-2xs gap-2">
       {/* Left: Mobile Menu Toggle & Farm Context Switcher */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 sm:flex-initial">
         <button
           type="button"
           onClick={onMobileMenuToggle}
-          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 lg:hidden"
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 lg:hidden shrink-0"
         >
           <Menu className="h-5 w-5" />
         </button>
@@ -65,12 +71,12 @@ export function TopBar({ onMobileMenuToggle }) {
       </div>
 
       {/* Right: QuickScannerButton + NotificationBell + User Profile */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
         {/* QuickScannerButton */}
         <button
           type="button"
           onClick={() => setIsScannerModalOpen(true)}
-          className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow-2xs hover:bg-emerald-100 hover:border-emerald-300 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+          className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-2 sm:px-3 sm:py-1.5 text-xs font-semibold text-emerald-800 shadow-2xs hover:bg-emerald-100 hover:border-emerald-300 transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
           title="Quét mã vạch / QR nhanh toàn cục"
         >
           <ScanBarcode className="h-4 w-4 text-emerald-600" />

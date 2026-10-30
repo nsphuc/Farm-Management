@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { employeeService } from '@/services/modules/employeeService';
+import { geographyService } from '@/services/modules/geographyService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { DataTable } from '@/components/common/DataTable';
@@ -59,6 +60,7 @@ export function WarehousesTab() {
 
   const [warehouses, setWarehouses] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
 
@@ -69,6 +71,7 @@ export function WarehousesTab() {
     code: '',
     name: '',
     warehouseType: 'GENERAL',
+    zoneId: '',
     capacityM3: 0,
     floorAreaM2: 0,
     standardTempC: '',
@@ -104,10 +107,21 @@ export function WarehousesTab() {
     }
   };
 
+  const fetchZones = async () => {
+    if (!effectiveFarmId || effectiveFarmId === 'ALL') return;
+    try {
+      const res = await geographyService.getZones(effectiveFarmId);
+      setZones(Array.isArray(res) ? res : res?.content || []);
+    } catch (err) {
+      console.error('Failed to load zones for warehouses', err);
+    }
+  };
+
   useEffect(() => {
     if (effectiveFarmId && effectiveFarmId !== 'ALL') {
       fetchWarehouses();
       fetchEmployees();
+      fetchZones();
     }
   }, [effectiveFarmId]);
 
@@ -120,6 +134,7 @@ export function WarehousesTab() {
         code: item.code || '',
         name: item.name || '',
         warehouseType: item.warehouseType || 'GENERAL',
+        zoneId: item.zoneId ? String(item.zoneId) : '',
         capacityM3: item.capacityM3 ?? 0,
         floorAreaM2: item.floorAreaM2 ?? 0,
         standardTempC: item.standardTempC ?? '',
@@ -133,6 +148,7 @@ export function WarehousesTab() {
         code: generateEntityCode(CODE_PREFIXES.WAREHOUSE),
         name: '',
         warehouseType: 'GENERAL',
+        zoneId: '',
         capacityM3: 0,
         floorAreaM2: 0,
         standardTempC: '',
@@ -173,6 +189,7 @@ export function WarehousesTab() {
       const payload = {
         ...formData,
         code: formData.code.toUpperCase().trim(),
+        zoneId: formData.zoneId ? Number(formData.zoneId) : null,
         capacityM3: formData.capacityM3 !== '' ? Number(formData.capacityM3) : null,
         floorAreaM2: formData.floorAreaM2 !== '' ? Number(formData.floorAreaM2) : null,
         standardTempC: formData.standardTempC !== '' ? Number(formData.standardTempC) : null,
@@ -256,6 +273,19 @@ export function WarehousesTab() {
           </span>
         );
       },
+    },
+    {
+      key: 'zoneName',
+      title: 'Phân Khu Mặt Bằng (WS-A)',
+      render: (item) =>
+        item.zoneName ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <MapPin className="w-3 h-3 text-emerald-600" />
+            {item.zoneName}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400 italic">Toàn trang trại (Chưa gán)</span>
+        ),
     },
     {
       key: 'capacity',
@@ -439,11 +469,41 @@ export function WarehousesTab() {
               />
             </FormField>
 
+            <FormField label="Phân Khu Trực Thuộc (Mặt Bằng WS-A)" error={fieldErrors.zoneId} hint="Chọn phân khu kho tọa lạc (VD: Nhà Kho & Sơ Chế C1)">
+              <Select
+                value={formData.zoneId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, zoneId: e.target.value }))}
+                options={[
+                  { value: '', label: '-- Toàn trang trại (Không gán phân khu) --' },
+                  ...zones.map((z) => ({
+                    value: String(z.id),
+                    label: `${z.name} (${z.code || `#${z.id}`})`,
+                  })),
+                ]}
+              />
+            </FormField>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <FormField label="Trạng Thái" required error={fieldErrors.status}>
               <Select
                 value={formData.status}
                 onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
                 options={WAREHOUSE_STATUSES}
+              />
+            </FormField>
+
+            <FormField label="Người Quản Lý Kho (Thủ kho phụ trách)" error={fieldErrors.managerUserId}>
+              <Select
+                value={formData.managerUserId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, managerUserId: e.target.value }))}
+                options={[
+                  { value: '', label: '-- Chọn thủ kho phụ trách --' },
+                  ...employees.map((emp) => ({
+                    value: String(emp.userId || emp.id),
+                    label: `${emp.fullName || emp.name} (${emp.employeeCode || emp.code || 'NV'})`,
+                  })),
+                ]}
               />
             </FormField>
           </div>

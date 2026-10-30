@@ -11,7 +11,9 @@ import com.farm.saas.modules.finance.entity.FarmExpense;
 import com.farm.saas.modules.finance.repository.DebtRecordRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
 import com.farm.saas.modules.finance.service.BudgetService;
+import com.farm.saas.modules.geography.entity.ZoneLocation;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
 import com.farm.saas.modules.inventory.dto.request.*;
 import com.farm.saas.modules.inventory.dto.response.*;
 import com.farm.saas.modules.inventory.entity.*;
@@ -71,6 +73,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     private final CostCategoryRepository costCategoryRepository;
     private final BudgetService budgetService;
     private final NotificationService notificationService;
+    private final ZoneLocationRepository zoneLocationRepository;
 
     private void notifyFarmManager(Long farmId, Long tenantId, String title, String message, String refType, Long refId, String actionUrl) {
         if (notificationService == null || farmId == null) return;
@@ -88,6 +91,69 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         Long currentUserId = SecurityUtils.getCurrentUserId();
         if (!createdByUserId.equals(currentUserId)) {
             notificationService.sendNotification(tenantId, createdByUserId, title, message, "SYSTEM", refType, refId, actionUrl);
+        }
+    }
+
+    private void validateLocationCapacity(Long warehouseId, Long farmId, Map<String, BigDecimal> binQtyMap, String actionDescription) {
+        if (binQtyMap == null || binQtyMap.isEmpty()) return;
+        for (Map.Entry<String, BigDecimal> entry : binQtyMap.entrySet()) {
+            String binCode = entry.getKey();
+            BigDecimal reqQty = entry.getValue();
+            if (!StringUtils.hasText(binCode) || reqQty == null || reqQty.compareTo(BigDecimal.ZERO) <= 0) continue;
+            Optional<ZoneLocation> locOpt = zoneLocationRepository.findByWarehouseIdAndCode(warehouseId, binCode.trim());
+            if (locOpt.isEmpty() && farmId != null) {
+                locOpt = zoneLocationRepository.findByFarmIdAndCode(farmId, binCode.trim());
+            }
+            if (locOpt.isPresent()) {
+                ZoneLocation loc = locOpt.get();
+                if (loc.getCapacity() != null && reqQty.compareTo(BigDecimal.valueOf(loc.getCapacity())) > 0) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "INSUFFICIENT_BIN_CAPACITY",
+                            "Kệ [" + binCode + "] không đủ sức chứa " + actionDescription + "! Sức chứa hiện tại: "
+                                    + loc.getCapacity() + ", số lượng yêu cầu: " + reqQty.stripTrailingZeros().toPlainString());
+                }
+            }
+        }
+    }
+
+    private void deductLocationCapacity(Long warehouseId, Long farmId, String binCode, BigDecimal quantity) {
+        if (!StringUtils.hasText(binCode) || quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) return;
+        Optional<ZoneLocation> locOpt = zoneLocationRepository.findByWarehouseIdAndCode(warehouseId, binCode.trim());
+        if (locOpt.isEmpty() && farmId != null) {
+            locOpt = zoneLocationRepository.findByFarmIdAndCode(farmId, binCode.trim());
+        }
+        if (locOpt.isPresent()) {
+            ZoneLocation loc = locOpt.get();
+            if (loc.getCapacity() != null) {
+                int newCap = Math.max(0, loc.getCapacity() - quantity.intValue());
+                loc.setCapacity(newCap);
+                if (newCap <= 0) {
+                    loc.setStatus("OCCUPIED");
+                }
+                loc.setUpdatedAt(Instant.now());
+                loc.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                zoneLocationRepository.save(loc);
+            }
+        }
+    }
+
+    private void restoreLocationCapacity(Long warehouseId, Long farmId, String binCode, BigDecimal quantity) {
+        if (!StringUtils.hasText(binCode) || quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) return;
+        Optional<ZoneLocation> locOpt = zoneLocationRepository.findByWarehouseIdAndCode(warehouseId, binCode.trim());
+        if (locOpt.isEmpty() && farmId != null) {
+            locOpt = zoneLocationRepository.findByFarmIdAndCode(farmId, binCode.trim());
+        }
+        if (locOpt.isPresent()) {
+            ZoneLocation loc = locOpt.get();
+            if (loc.getCapacity() != null) {
+                int newCap = loc.getCapacity() + quantity.intValue();
+                loc.setCapacity(newCap);
+                if ("OCCUPIED".equalsIgnoreCase(loc.getStatus())) {
+                    loc.setStatus("ACTIVE");
+                }
+                loc.setUpdatedAt(Instant.now());
+                loc.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                zoneLocationRepository.save(loc);
+            }
         }
     }
 
@@ -290,6 +356,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         BigDecimal totalAmount = BigDecimal.ZERO;
         List<WarehouseReceiptItem> itemsToSave = new ArrayList<>();
+        Map<String, BigDecimal> binQtyMap = new HashMap<>();
 
         for (CreateWarehouseReceiptRequest.ReceiptItemRequest itemReq : request.getItems()) {
             BigDecimal factor = (itemReq.getConversionFactor() != null && itemReq.getConversionFactor().compareTo(BigDecimal.ZERO) > 0)
@@ -314,6 +381,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
             totalAmount = totalAmount.add(totalPrice);
 
+            if (StringUtils.hasText(itemReq.getStorageBinCode())) {
+                binQtyMap.merge(itemReq.getStorageBinCode().trim(), qty, BigDecimal::add);
+            }
+
             WarehouseReceiptItem item = WarehouseReceiptItem.builder()
                     .tenantId(tenantId)
                     .materialId(itemReq.getMaterialId())
@@ -331,6 +402,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .build();
             itemsToSave.add(item);
         }
+
+        validateLocationCapacity(request.getWarehouseId(), farmId, binQtyMap, "để lập phiếu nhập kho");
 
         WarehouseReceipt receipt = WarehouseReceipt.builder()
                 .tenantId(tenantId)
@@ -435,6 +508,14 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         items.sort(Comparator.comparing(WarehouseReceiptItem::getMaterialId)
                 .thenComparing(WarehouseReceiptItem::getBatchNumber));
 
+        Map<String, BigDecimal> receiptBinQtyMap = new HashMap<>();
+        for (WarehouseReceiptItem item : items) {
+            if (StringUtils.hasText(item.getStorageBinCode())) {
+                receiptBinQtyMap.merge(item.getStorageBinCode().trim(), item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO, BigDecimal::add);
+            }
+        }
+        validateLocationCapacity(receipt.getWarehouseId(), farmId, receiptBinQtyMap, "để hoàn tất nhập kho");
+
         for (WarehouseReceiptItem item : items) {
             // Khóa bi quan dòng warehouse_inventory
             Optional<WarehouseInventory> invOpt = inventoryRepository
@@ -502,6 +583,9 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             transactionRepository.save(transaction);
+
+            // Cập nhật giảm sức chứa của vị trí kệ
+            deductLocationCapacity(receipt.getWarehouseId(), farmId, item.getStorageBinCode(), item.getQuantity());
         }
 
         // Luồng 2: Nếu là nhập mua PURCHASE -> tự động sinh công nợ phải trả trong debt_records (#66)
@@ -794,6 +878,9 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             transactionRepository.save(transaction);
+
+            // Phục hồi lại sức chứa vị trí kệ tương ứng khi xuất kho
+            restoreLocationCapacity(issue.getWarehouseId(), farmId, inventory.getStorageBinCode(), item.getQuantity());
         }
 
         issue.setStatus("COMPLETED");
@@ -939,6 +1026,14 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         if (transferRepository.existsByTenantIdAndTransferCode(tenantId, code)) {
             throw new ApiException(HttpStatus.CONFLICT, "TRANSFER_CODE_ALREADY_EXISTS", "Mã phiếu điều chuyển đã tồn tại: " + code);
         }
+
+        Map<String, BigDecimal> toBinQtyMap = new HashMap<>();
+        for (CreateWarehouseTransferRequest.TransferItemRequest itReq : request.getItems()) {
+            if (StringUtils.hasText(itReq.getToBinCode())) {
+                toBinQtyMap.merge(itReq.getToBinCode().trim(), itReq.getQuantity() != null ? itReq.getQuantity() : BigDecimal.ZERO, BigDecimal::add);
+            }
+        }
+        validateLocationCapacity(request.getToWarehouseId(), targetFarmId, toBinQtyMap, "để điều chuyển đến");
 
         WarehouseTransfer transfer = WarehouseTransfer.builder()
                 .tenantId(tenantId)
@@ -1087,6 +1182,9 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             transactionRepository.save(transaction);
+
+            // Phục hồi sức chứa vị trí kệ tại kho xuất
+            restoreLocationCapacity(transfer.getFromWarehouseId(), transfer.getFromFarmId(), fromInv.getStorageBinCode(), item.getQuantity());
         }
 
         transfer.setStatus("IN_TRANSIT");
@@ -1128,6 +1226,14 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         List<WarehouseTransferItem> items = transferItemRepository.findByTransferId(transfer.getId());
         items.sort(Comparator.comparing(WarehouseTransferItem::getMaterialId)
                 .thenComparing(WarehouseTransferItem::getToBatchNumber));
+
+        Map<String, BigDecimal> toBinQtyMap = new HashMap<>();
+        for (WarehouseTransferItem item : items) {
+            if (StringUtils.hasText(item.getToBinCode())) {
+                toBinQtyMap.merge(item.getToBinCode().trim(), item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO, BigDecimal::add);
+            }
+        }
+        validateLocationCapacity(transfer.getToWarehouseId(), transfer.getToFarmId(), toBinQtyMap, "để nhận chuyển kho");
 
         for (WarehouseTransferItem item : items) {
             // Khóa hoặc tạo mới tại kho đích
@@ -1190,6 +1296,9 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             transactionRepository.save(transaction);
+
+            // Cập nhật giảm sức chứa của vị trí kệ tại kho đích
+            deductLocationCapacity(transfer.getToWarehouseId(), transfer.getToFarmId(), item.getToBinCode(), item.getQuantity());
         }
 
         transfer.setStatus("COMPLETED");

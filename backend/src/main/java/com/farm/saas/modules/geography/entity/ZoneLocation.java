@@ -28,6 +28,9 @@ public class ZoneLocation {
     @Column(name = "zone_id", nullable = false)
     private Long zoneId;
 
+    @Column(name = "warehouse_id")
+    private Long warehouseId;
+
     @Column(name = "code", nullable = false, length = 50)
     private String code;
 

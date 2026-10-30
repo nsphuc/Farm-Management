@@ -128,6 +128,7 @@ export function CreateIssueModal({
       materialId: '',
       materialName: '',
       batchNumber: '',
+      storageBinCode: '',
       availableQuantity: 0,
       standardUnit: '',
       quantity: 1,
@@ -137,6 +138,15 @@ export function CreateIssueModal({
       availableBatches: [],
     };
   }
+
+  // Đổi kho xuất hàng: tự động làm mới danh sách dòng xuất để tránh nhầm lẫn tồn kho
+  const handleWarehouseChange = (newWhId) => {
+    setFormData((prev) => ({
+      ...prev,
+      warehouseId: newWhId,
+      items: [createDefaultIssueItem()],
+    }));
+  };
 
   // Lấy danh sách các loại vật tư duy nhất có sẵn trong kho
   const uniqueMaterialsInStock = React.useMemo(() => {
@@ -178,6 +188,7 @@ export function CreateIssueModal({
           materialId: materialIdStr,
           materialName: defaultBatch.materialName,
           batchNumber: defaultBatch.batchNumber,
+          storageBinCode: defaultBatch.storageBinCode || '',
           standardUnit: defaultBatch.standardUnit || 'KG',
           availableQuantity: availQty,
           availableBatches: batches,
@@ -192,6 +203,7 @@ export function CreateIssueModal({
           materialId: materialIdStr,
           materialName: '',
           batchNumber: '',
+          storageBinCode: '',
           availableBatches: [],
           availableQuantity: 0,
           quantity: 0,
@@ -216,6 +228,7 @@ export function CreateIssueModal({
         newItems[index] = {
           ...item,
           batchNumber,
+          storageBinCode: selectedBatch.storageBinCode || '',
           availableQuantity: availQty,
           unitPrice: unitCost,
           quantity: currentQty,
@@ -387,7 +400,7 @@ export function CreateIssueModal({
             <FormField label="Kho Xuất Hàng *" error={errors.warehouseId}>
               <Select
                 value={formData.warehouseId}
-                onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+                onChange={(e) => handleWarehouseChange(e.target.value)}
                 required
               >
                 <option value="">-- Chọn kho xuất hàng --</option>
@@ -521,6 +534,7 @@ export function CreateIssueModal({
                   <tr>
                     <th className="py-2 px-2.5 min-w-[180px]">Mặt Hàng Vật Tư (Có Tồn) *</th>
                     <th className="py-2 px-2 min-w-[200px]">Số Lô FEFO (Hạn Dùng) *</th>
+                    <th className="py-2 px-2 min-w-[90px]">Kệ Xuất</th>
                     <th className="py-2 px-2 min-w-[90px] text-right">Tồn Khả Dụng</th>
                     <th className="py-2 px-2 min-w-[90px] text-right">SL Xuất *</th>
                     <th className="py-2 px-2 min-w-[100px] text-right">Đơn Giá Vốn (₫)</th>
@@ -560,10 +574,21 @@ export function CreateIssueModal({
                           <option value="">-- Chọn lô xuất (FEFO) --</option>
                           {item.availableBatches.map((b) => (
                             <option key={b.batchNumber} value={b.batchNumber}>
-                              Lô {b.batchNumber} (Khả dụng: {formatNumber(b.availableQuantity ?? b.quantityOnHand)} • Hạn: {formatDate(b.expiryDate)})
+                              Lô {b.batchNumber} {b.storageBinCode ? `[Kệ: ${b.storageBinCode}]` : ''} (Khả dụng: {formatNumber(b.availableQuantity ?? b.quantityOnHand)} • Hạn: {formatDate(b.expiryDate)})
                             </option>
                           ))}
                         </select>
+                      </td>
+
+                      {/* Vị trí kệ xuất */}
+                      <td className="py-2 px-2">
+                        {item.storageBinCode ? (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono font-bold text-[11px] bg-purple-50 text-purple-700 border border-purple-200">
+                            📍 {item.storageBinCode}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 italic">Chưa gán</span>
+                        )}
                       </td>
 
                       {/* Tồn khả dụng */}

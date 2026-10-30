@@ -35,6 +35,15 @@
   background: #94a3b8;
 }
 
+/* Hide scrollbars for smooth mobile touch sliding tabs */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Print styling for ESC/POS label printing */
 @media print {
   body * {

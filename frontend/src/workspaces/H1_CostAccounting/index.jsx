@@ -144,7 +144,7 @@ export function CostAccountingWorkspace() {
       {/* ======================================================== */}
       {/* 4. THANH ĐIỀU HƯỚNG 3 TABS DÀNH CHO FARM MANAGER / OWNER */}
       {/* ======================================================== */}
-      <div className="flex border-b border-slate-200 overflow-x-auto space-x-2">
+      <div className="flex border-b border-slate-200 overflow-x-auto space-x-2 no-scrollbar">
         <button
           type="button"
           onClick={() => setActiveTab('EXPENSES')}

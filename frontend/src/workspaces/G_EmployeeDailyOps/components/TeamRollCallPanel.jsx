@@ -58,36 +58,41 @@ export function TeamRollCallPanel({
   // Mặc định chọn ca đầu tiên nếu chưa chọn
   const currentShiftId = selectedShiftId || (shifts[0]?.id ? String(shifts[0].id) : '');
 
-  // Lọc danh sách nhân viên theo vai trò và ưu tiên lao động thời vụ / không tài khoản
+  // Lọc danh sách nhân viên: CHỈ HIỂN THỊ LAO ĐỘNG KHÔNG CÓ TÀI KHOẢN (Ẩn toàn bộ nhân sự có tài khoản)
   const filteredEmployees = useMemo(() => {
-    // 1. Chỉ lấy nhân viên thuộc farm hiện tại
-    const inFarm = employees.filter(
-      (e) => !activeFarm?.id || e.farmId === activeFarm.id || !e.farmId
-    );
+    // 1. Chỉ lấy nhân viên thuộc farm hiện tại và KHÔNG CÓ TÀI KHOẢN (userId == null hoặc position == 'SEASONAL_NO_ACCOUNT')
+    const noAccountEmployees = employees.filter((e) => {
+      const matchFarm = !activeFarm?.id || Number(e.farmId) === Number(activeFarm.id) || !e.farmId;
+      const isNoAccount = e.userId == null || e.position === 'SEASONAL_NO_ACCOUNT';
+      const isActive = e.status ? e.status === 'ACTIVE' || e.status === 'ON_LEAVE' : true;
+      return matchFarm && isNoAccount && isActive;
+    });
 
-    // 2. Lọc theo chuyên môn:
-    // - Role 4 (Thủ kho): Lọc nhân sự kho vận + lao động không tài khoản
-    // - Role 3 / Trưởng phân khu (Zone Manager / Trưởng kỹ thuật): Lọc nhân sự kỹ thuật / đồng ruộng / phân khu + lao động không tài khoản
-    // - Role 2 (Farm Manager): Xem toàn bộ nhân sự trang trại
-    let scoped = inFarm;
+    // 2. Lọc theo chuyên môn bộ phận:
+    // - Role 4 (Thủ kho): Lọc nhân sự kho vận / bốc xếp
+    // - Role 3 / Trưởng phân khu (Zone Manager / Trưởng kỹ thuật): Lọc nhân sự kỹ thuật / đồng ruộng / phân khu
+    // - Role 2 (Farm Manager): Xem toàn bộ lao động không có tài khoản của trang trại
+    let scoped = noAccountEmployees;
     if (warehouseKeeper && !farmManager) {
-      scoped = inFarm.filter((e) => {
+      scoped = noAccountEmployees.filter((e) => {
         const pos = (e.position || '').toUpperCase();
         const dept = (e.department || '').toLowerCase();
         return (
-          e.userId === null ||
           pos === 'SEASONAL_NO_ACCOUNT' ||
+          pos === 'FIELD_WORKER' ||
           pos.includes('WAREHOUSE') ||
-          dept.includes('kho')
+          dept.includes('kho') ||
+          dept.includes('hiện trường') ||
+          dept.includes('sản xuất')
         );
       });
     } else if ((technicalLead || zoneManager) && !farmManager) {
-      scoped = inFarm.filter((e) => {
+      scoped = noAccountEmployees.filter((e) => {
         const pos = (e.position || '').toUpperCase();
         const dept = (e.department || '').toLowerCase();
         return (
-          e.userId === null ||
           pos === 'SEASONAL_NO_ACCOUNT' ||
+          pos === 'FIELD_WORKER' ||
           pos.includes('TECH') ||
           pos.includes('ZONE') ||
           pos.includes('FIELD') ||
@@ -95,17 +100,13 @@ export function TeamRollCallPanel({
           pos.includes('VET') ||
           dept.includes('kỹ thuật') ||
           dept.includes('sản xuất') ||
-          dept.includes('hiện trường')
+          dept.includes('hiện trường') ||
+          dept.includes('phân khu')
         );
       });
     }
 
-    // 3. Sắp xếp: Ưu tiên người KHÔNG CÓ TÀI KHOẢN (userId == null) lên đầu bảng
-    return [...scoped].sort((a, b) => {
-      const aNoAcc = a.userId == null || a.position === 'SEASONAL_NO_ACCOUNT' ? 0 : 1;
-      const bNoAcc = b.userId == null || b.position === 'SEASONAL_NO_ACCOUNT' ? 0 : 1;
-      return aNoAcc - bNoAcc;
-    });
+    return scoped;
   }, [employees, activeFarm, warehouseKeeper, technicalLead, zoneManager, farmManager]);
 
   // Trạng thái điểm danh hôm nay của từng nhân viên
@@ -297,7 +298,7 @@ export function TeamRollCallPanel({
             <strong className="text-emerald-700 font-bold">
               {selectedIds.length} / {filteredEmployees.length}
             </strong>{' '}
-            nhân sự
+            lao động không tài khoản
           </span>
         </div>
 
@@ -316,7 +317,7 @@ export function TeamRollCallPanel({
       <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
         {filteredEmployees.length === 0 ? (
           <div className="p-8 text-center text-xs text-slate-400">
-            Chưa có nhân viên nào phù hợp trong bộ phận của bạn tại trang trại này
+            Không có nhân viên thời vụ / lao động không có tài khoản nào thuộc bộ phận này tại trang trại
           </div>
         ) : (
           filteredEmployees.map((emp) => {

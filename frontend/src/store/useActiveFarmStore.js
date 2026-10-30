@@ -258,13 +258,19 @@ export const useActiveFarmStore = create((set, get) => ({
         const isOwner = authStore?.isOwner ? authStore.isOwner() : false;
 
         if (isFm || (isLocked && !isOwner)) {
+          const userAccessibleFarmIds = (authStore?.userInfo?.accessibleFarms || []).map((f) =>
+            Number(f.farmId || f.id)
+          );
+
           const appointedFarm =
             farmList.find(
               (f) =>
                 f.isManager ||
                 f.assignedRole === 'FARM_MANAGER' ||
                 Number(f.managerUserId) === Number(authStore?.userInfo?.id)
-            ) || farmList[0];
+            ) ||
+            farmList.find((f) => userAccessibleFarmIds.includes(Number(f.id || f.farmId))) ||
+            farmList[0];
 
           if (appointedFarm) {
             const appointedId = Number(appointedFarm.id || appointedFarm.farmId);

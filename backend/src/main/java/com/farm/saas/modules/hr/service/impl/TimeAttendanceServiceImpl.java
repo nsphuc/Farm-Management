@@ -58,6 +58,9 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.farm.saas.modules.notification.service.NotificationService notificationService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.common.storage.CloudinaryService cloudinaryService;
+
     public TimeAttendanceServiceImpl(TimeAttendanceRepository timeAttendanceRepository,
                                     EmployeeRepository employeeRepository,
                                     WorkShiftRepository workShiftRepository,
@@ -104,18 +107,32 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
                 .orElseThrow(() -> new ResourceNotFoundException("WorkShift", "id", request.getShiftId()));
 
         // 1. Geofence Check using Haversine
+        boolean isOfficeStaff = isOfficeStaffRole(currentUser, employee, farm.getId());
         double farmLat = farm.getLatitude() != null ? farm.getLatitude().doubleValue() : 0.0;
         double farmLon = farm.getLongitude() != null ? farm.getLongitude().doubleValue() : 0.0;
-        double distanceM = GeoDistanceUtils.calculateDistanceMeters(
-                request.getLatitude().doubleValue(),
-                request.getLongitude().doubleValue(),
-                farmLat,
-                farmLon
-        );
+
+        java.math.BigDecimal reqLat = request.getLatitude();
+        java.math.BigDecimal reqLon = request.getLongitude();
+        if ((reqLat == null || reqLon == null || (reqLat.doubleValue() == 0 && reqLon.doubleValue() == 0)) && isOfficeStaff) {
+            reqLat = farm.getLatitude() != null ? farm.getLatitude() : java.math.BigDecimal.ZERO;
+            reqLon = farm.getLongitude() != null ? farm.getLongitude() : java.math.BigDecimal.ZERO;
+            request.setLatitude(reqLat);
+            request.setLongitude(reqLon);
+        }
+
+        double distanceM = 0.0;
+        if (reqLat != null && reqLon != null && (reqLat.doubleValue() != 0 || reqLon.doubleValue() != 0)) {
+            distanceM = GeoDistanceUtils.calculateDistanceMeters(
+                    reqLat.doubleValue(),
+                    reqLon.doubleValue(),
+                    farmLat,
+                    farmLon
+            );
+        }
 
         double radiusM = farm.getGeofenceRadiusM() != null ? farm.getGeofenceRadiusM() : 200.0;
         boolean withinGeofence = distanceM <= radiusM;
-        if (!withinGeofence) {
+        if (!withinGeofence && !isOfficeStaff) {
             log.warn("GPS_OUTSIDE_GEOFENCE: employee {} distance {}m > radius {}m for farm {}", employee.getId(), distanceM, radiusM, farm.getId());
             throw new BusinessException("GPS_OUTSIDE_GEOFENCE",
                     String.format("Tọa độ chấm công nằm ngoài phạm vi trang trại (Khoảng cách: %.1fm > Cho phép: %.1fm)", distanceM, radiusM));
@@ -136,6 +153,11 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
         int lateMinutes = (int) Math.max(0, diffMinutes - grace);
         String status = lateMinutes > 0 ? "LATE" : "VALID";
 
+        String resolvedPhotoUrl = request.getPhotoUrl();
+        if (cloudinaryService != null && resolvedPhotoUrl != null && !resolvedPhotoUrl.isBlank()) {
+            resolvedPhotoUrl = cloudinaryService.uploadImage(resolvedPhotoUrl, "farm_saas/attendance/checkin");
+        }
+
         TimeAttendance attendance = TimeAttendance.builder()
                 .tenantId(tenantId)
                 .farmId(farm.getId())
@@ -146,7 +168,7 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
                 .gpsLatitude(request.getLatitude())
                 .gpsLongitude(request.getLongitude())
                 .gpsDistanceM(BigDecimal.valueOf(distanceM).setScale(2, RoundingMode.HALF_UP))
-                .checkInPhotoUrl(request.getPhotoUrl())
+                .checkInPhotoUrl(resolvedPhotoUrl)
                 .workingHours(BigDecimal.ZERO)
                 .lateMinutes(lateMinutes)
                 .earlyLeaveMinutes(0)
@@ -205,12 +227,26 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
 
         double farmLat = farm.getLatitude() != null ? farm.getLatitude().doubleValue() : 0.0;
         double farmLon = farm.getLongitude() != null ? farm.getLongitude().doubleValue() : 0.0;
-        double distanceM = GeoDistanceUtils.calculateDistanceMeters(
-                request.getLatitude().doubleValue(),
-                request.getLongitude().doubleValue(),
-                farmLat,
-                farmLon
-        );
+
+        boolean isOfficeStaff = isOfficeStaffRole(currentUser, employee, farm.getId());
+        java.math.BigDecimal outLat = request.getLatitude();
+        java.math.BigDecimal outLon = request.getLongitude();
+        if ((outLat == null || outLon == null || (outLat.doubleValue() == 0 && outLon.doubleValue() == 0)) && isOfficeStaff) {
+            outLat = farm.getLatitude() != null ? farm.getLatitude() : java.math.BigDecimal.ZERO;
+            outLon = farm.getLongitude() != null ? farm.getLongitude() : java.math.BigDecimal.ZERO;
+            request.setLatitude(outLat);
+            request.setLongitude(outLon);
+        }
+
+        double distanceM = 0.0;
+        if (outLat != null && outLon != null && (outLat.doubleValue() != 0 || outLon.doubleValue() != 0)) {
+            distanceM = GeoDistanceUtils.calculateDistanceMeters(
+                    outLat.doubleValue(),
+                    outLon.doubleValue(),
+                    farmLat,
+                    farmLon
+            );
+        }
 
         // Calculate working hours & early leave minutes
         long totalMinutes = ChronoUnit.MINUTES.between(attendance.getCheckInTime(), checkOutInstant);
@@ -222,11 +258,16 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
         long earlyDiff = ChronoUnit.MINUTES.between(outTime, shift.getEndTime());
         int earlyLeaveMinutes = (int) Math.max(0, earlyDiff);
 
+        String resolvedOutPhotoUrl = request.getPhotoUrl();
+        if (cloudinaryService != null && resolvedOutPhotoUrl != null && !resolvedOutPhotoUrl.isBlank()) {
+            resolvedOutPhotoUrl = cloudinaryService.uploadImage(resolvedOutPhotoUrl, "farm_saas/attendance/checkout");
+        }
+
         attendance.setCheckOutTime(checkOutInstant);
         attendance.setCheckOutLatitude(request.getLatitude());
         attendance.setCheckOutLongitude(request.getLongitude());
         attendance.setCheckOutDistanceM(BigDecimal.valueOf(distanceM).setScale(2, RoundingMode.HALF_UP));
-        attendance.setCheckOutPhotoUrl(request.getPhotoUrl());
+        attendance.setCheckOutPhotoUrl(resolvedOutPhotoUrl);
         attendance.setWorkingHours(workingHours);
         attendance.setEarlyLeaveMinutes(earlyLeaveMinutes);
         if (request.getNotes() != null) {
@@ -705,5 +746,46 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
                 .createdAt(a.getCreatedAt())
                 .updatedAt(a.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * Nhận diện nhân sự thuộc khối văn phòng / kho bãi (Kế toán, Thủ kho)
+     * Nhóm nhân sự này làm việc trong nhà kín, văn phòng từ xa hoặc văn phòng kho,
+     * được phép sử dụng chế độ Web Check-in bỏ qua ràng buộc GPS Geofence ngoài đồng ruộng.
+     */
+    private boolean isOfficeStaffRole(CustomUserDetails currentUser, Employee employee, Long farmId) {
+        if (currentUser != null) {
+            if (currentUser.hasRole("ROLE_FARM_MANAGER") ||
+                currentUser.hasRole("ROLE_ACCOUNTANT") ||
+                currentUser.hasRole("ROLE_WAREHOUSE_STAFF") ||
+                currentUser.hasRole("ROLE_WAREHOUSE_KEEPER")) {
+                return true;
+            }
+        }
+        if (employee != null) {
+            String pos = employee.getPosition();
+            if (pos != null) {
+                String p = pos.toUpperCase();
+                if (p.contains("FARM MANAGER") || p.contains("GIÁM ĐỐC") || p.contains("QUẢN LÝ") ||
+                    p.contains("ACCOUNTANT") || p.contains("KẾ TOÁN") || p.contains("THỦ KHO") || p.contains("WAREHOUSE") || p.contains("VĂN PHÒNG") || p.contains("OFFICE")) {
+                    return true;
+                }
+            }
+        }
+        if (farmAssignmentRepository != null && farmId != null) {
+            Long uid = (currentUser != null) ? currentUser.getId() : (employee != null ? employee.getUserId() : null);
+            if (uid != null) {
+                try {
+                    List<com.farm.saas.modules.geography.entity.FarmAssignment> assignments = farmAssignmentRepository.findByFarmIdAndIsActiveTrue(farmId);
+                    boolean match = assignments.stream().anyMatch(a ->
+                            a.getUserId().equals(uid) && ("FARM_MANAGER".equalsIgnoreCase(a.getRoleInFarm()) || "ACCOUNTANT".equalsIgnoreCase(a.getRoleInFarm()) || "WAREHOUSE_KEEPER".equalsIgnoreCase(a.getRoleInFarm()))
+                    );
+                    if (match) return true;
+                } catch (Exception ex) {
+                    log.warn("Failed checking office role in assignments: {}", ex.getMessage());
+                }
+            }
+        }
+        return false;
     }
 }

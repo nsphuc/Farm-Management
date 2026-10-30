@@ -428,6 +428,9 @@ public class AuthServiceImpl implements AuthService {
             accessibleFarmIds.add(access.getFarmId());
         }
 
+        userRoles.stream().map(UserRole::getFarmId).filter(Objects::nonNull).forEach(accessibleFarmIds::add);
+        employeeRepository.findByUserId(user.getId()).map(Employee::getFarmId).filter(Objects::nonNull).ifPresent(accessibleFarmIds::add);
+
         List<Farm> managedFarms = farmRepository.findByManagerUserId(user.getId());
         for (Farm mf : managedFarms) {
             accessibleFarmIds.add(mf.getId());

@@ -20,7 +20,7 @@ import { Input, Select } from '@/components/ui/FormControls';
 import { Modal } from '@/components/ui/Modal';
 import { AttendanceAdjustModal } from './AttendanceAdjustModal';
 import { hrService } from '@/services/modules/hrService';
-import { formatNumber, formatDate, formatDateTime } from '@/utils/formatters';
+import { formatNumber, formatDate, formatDateTime, formatLocalDate } from '@/utils/formatters';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 function formatTime(instantStr) {
@@ -32,7 +32,7 @@ function formatTime(instantStr) {
 
 export function AttendanceAdjustTab({ farmId, geofenceRadiusM = 300 }) {
   const { notifyDataChanged, syncTrigger } = useActiveFarmStore();
-  const [workDate, setWorkDate] = useState(new Date().toISOString().split('T')[0]);
+  const [workDate, setWorkDate] = useState(formatLocalDate());
   const [attendances, setAttendances] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');

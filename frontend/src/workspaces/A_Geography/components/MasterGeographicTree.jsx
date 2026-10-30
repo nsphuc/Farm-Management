@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Plus,
   Edit2,
+  Warehouse,
 } from 'lucide-react';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -38,6 +39,8 @@ export function MasterGeographicTree({
   onAddZone,
   onEditFarm,
   onAddLocation,
+  onAddWarehouse,
+  onEditWarehouse,
   onEditZone,
   onEditLocation,
   expandedNodeKeys,
@@ -69,6 +72,9 @@ export function MasterGeographicTree({
     } else if (type === 'ZONE') {
       if (parentFarm) setActiveFarmId(parentFarm.id, farms);
       setActiveZoneId(item.id);
+    } else if (type === 'WAREHOUSE') {
+      if (parentFarm) setActiveFarmId(parentFarm.id, farms);
+      if (parentZone) setActiveZoneId(parentZone.id);
     }
 
     onSelectNode?.({
@@ -136,7 +142,7 @@ export function MasterGeographicTree({
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-2 gap-2 text-[11px]">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
           <select
             value={farmTypeFilter}
             onChange={(e) => setFarmTypeFilter(e.target.value)}
@@ -302,18 +308,33 @@ export function MasterGeographicTree({
                               <div className="hidden group-hover:flex items-center gap-0.5">
                                 <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
                                   {zone.status === 'ACTIVE' && (
-                                    <button
-                                      type="button"
-                                      title={locationActionLabel}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        onAddLocation?.(farm, zone);
-                                      }}
-                                      className="p-1 rounded text-blue-700 bg-blue-50 hover:bg-blue-100 ring-1 ring-blue-500/20 transition-all flex items-center gap-0.5 text-[10px] font-bold"
-                                    >
-                                      <Plus className="h-2.5 w-2.5" />
-                                      <span className="hidden sm:inline">Vị trí</span>
-                                    </button>
+                                    zone.zoneType === 'STORAGE' ? (
+                                      <button
+                                        type="button"
+                                        title="Thêm kho bãi vào phân khu này"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onAddWarehouse?.(farm, zone);
+                                        }}
+                                        className="p-1 rounded text-amber-800 bg-amber-50 hover:bg-amber-100 ring-1 ring-amber-500/20 transition-all flex items-center gap-0.5 text-[10px] font-bold"
+                                      >
+                                        <Plus className="h-2.5 w-2.5" />
+                                        <span className="hidden sm:inline">Kho</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        title={locationActionLabel}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onAddLocation?.(farm, zone);
+                                        }}
+                                        className="p-1 rounded text-blue-700 bg-blue-50 hover:bg-blue-100 ring-1 ring-blue-500/20 transition-all flex items-center gap-0.5 text-[10px] font-bold"
+                                      >
+                                        <Plus className="h-2.5 w-2.5" />
+                                        <span className="hidden sm:inline">Vị trí</span>
+                                      </button>
+                                    )
                                   )}
                                   <button
                                     type="button"
@@ -331,58 +352,164 @@ export function MasterGeographicTree({
                             </div>
                           </div>
 
-                          {/* Node Tầng 3: Locations */}
-                          {isZoneExpanded && zone.locations && zone.locations.length > 0 && (
-                            <div className="pl-5 space-y-0.5 border-l border-blue-100 ml-3">
-                              {zone.locations.map((loc) => {
-                                const isLocSelected =
-                                  selectedNode?.type === 'LOCATION' &&
-                                  selectedNode?.item?.id === loc.id;
+                          {/* Node Tầng 2.5: Warehouses trong Zone (nếu có) */}
+                          {isZoneExpanded && zone.warehouses && zone.warehouses.length > 0 && (
+                            <div className="pl-4 space-y-1 border-l border-amber-200 ml-3 mb-1">
+                              {zone.warehouses.map((wh) => {
+                                const isWhSelected =
+                                  selectedNode?.type === 'WAREHOUSE' && selectedNode?.item?.id === wh.id;
+                                const whShelves = (zone.locations || []).filter(
+                                  (loc) => Number(loc.warehouseId) === Number(wh.id)
+                                );
+
                                 return (
-                                  <div
-                                    key={loc.id}
-                                    onClick={() => handleSelect('LOCATION', loc, farm, zone)}
-                                    className={`group flex items-center justify-between rounded-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
-                                      isLocSelected
-                                        ? 'bg-purple-50 text-purple-900 font-bold'
-                                        : 'text-slate-500 hover:bg-slate-50'
-                                    }`}
-                                  >
-                                    <div className="flex items-center gap-1.5 truncate">
-                                      <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
-                                      <span className="truncate">{loc.name}</span>
-                                      {loc.areaM2 != null && (
-                                        <span className="text-[9px] font-mono text-emerald-600 bg-emerald-50 px-1 rounded shrink-0">
-                                          {loc.areaM2}m²
+                                  <div key={`wh-${wh.id}`} className="space-y-0.5">
+                                    <div
+                                      onClick={() => handleSelect('WAREHOUSE', wh, farm, zone)}
+                                      className={`group flex items-center justify-between rounded-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
+                                        isWhSelected
+                                          ? 'bg-amber-100/90 text-amber-950 font-bold ring-1 ring-amber-500/40 shadow-2xs'
+                                          : 'text-amber-900 bg-amber-50/50 hover:bg-amber-100/60'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-1.5 truncate">
+                                        <Warehouse className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                        <span className="truncate font-semibold">{wh.name}</span>
+                                        <span className="font-mono text-[9px] text-amber-800 bg-amber-100 px-1 rounded shrink-0">
+                                          {wh.code}
                                         </span>
-                                      )}
-                                      {loc.capacity != null && (
-                                        <span className="text-[9px] font-mono text-amber-700 bg-amber-50 px-1 rounded shrink-0">
-                                          {loc.capacity} con
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <span className="text-[9px] text-slate-500">
+                                          {whShelves.length} kệ
                                         </span>
-                                      )}
+                                        <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                                          <button
+                                            type="button"
+                                            title="Thêm kệ vào kho này"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onAddLocation?.(farm, zone, wh.id);
+                                            }}
+                                            className="hidden group-hover:inline-flex p-0.5 rounded text-emerald-700 hover:bg-emerald-100"
+                                          >
+                                            <Plus className="h-2.5 w-2.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            title="Chỉnh sửa thông số kho bãi"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              onEditWarehouse?.(farm, zone, wh);
+                                            }}
+                                            className="hidden group-hover:inline-flex p-0.5 rounded text-slate-500 hover:bg-amber-200"
+                                          >
+                                            <Edit2 className="h-2.5 w-2.5" />
+                                          </button>
+                                        </Can>
+                                        <span className="rounded bg-amber-200/70 px-1 py-0.2 text-[9px] font-bold text-amber-900">
+                                          Kho
+                                        </span>
+                                      </div>
                                     </div>
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <StatusBadge status={loc.status} size="xs" />
-                                      <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
-                                        <button
-                                          type="button"
-                                          title="Sửa thông tin vị trí"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            onEditLocation?.(farm, zone, loc);
-                                          }}
-                                          className="hidden group-hover:inline-flex p-0.5 text-slate-400 hover:text-purple-700 hover:bg-purple-100 rounded transition-all"
-                                        >
-                                          <Edit2 className="h-2.5 w-2.5" />
-                                        </button>
-                                      </Can>
-                                    </div>
+
+                                    {/* Kệ con thuộc kho này */}
+                                    {whShelves.length > 0 && (
+                                      <div className="pl-4 space-y-0.5 border-l border-amber-100 ml-2">
+                                        {whShelves.map((loc) => {
+                                          const isLocSelected =
+                                            selectedNode?.type === 'LOCATION' &&
+                                            selectedNode?.item?.id === loc.id;
+                                          return (
+                                            <div
+                                              key={loc.id}
+                                              onClick={() => handleSelect('LOCATION', loc, farm, zone)}
+                                              className={`group flex items-center justify-between rounded px-1.5 py-0.5 text-[10px] cursor-pointer transition-colors ${
+                                                isLocSelected
+                                                  ? 'bg-purple-100 text-purple-900 font-bold'
+                                                  : 'text-slate-600 hover:bg-slate-100'
+                                              }`}
+                                            >
+                                              <div className="flex items-center gap-1 truncate">
+                                                <MapPin className="h-2.5 w-2.5 text-purple-600 shrink-0" />
+                                                <span className="truncate">{loc.name}</span>
+                                              </div>
+                                              <span className="font-mono text-[9px] text-slate-400">
+                                                {loc.code}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
                             </div>
                           )}
+
+                          {/* Node Tầng 3: Locations (Đối với phân khu STORAGE: chỉ hiện vị trí chưa gán kho; Đối với phân khu khác: hiện tất cả) */}
+                          {isZoneExpanded &&
+                            (() => {
+                              const displayedLocations = (zone.locations || []).filter((loc) =>
+                                zone.zoneType === 'STORAGE' && (zone.warehouses || []).length > 0
+                                  ? !loc.warehouseId
+                                  : true
+                              );
+                              if (displayedLocations.length === 0) return null;
+
+                              return (
+                                <div className="pl-5 space-y-0.5 border-l border-blue-100 ml-3">
+                                  {displayedLocations.map((loc) => {
+                                    const isLocSelected =
+                                      selectedNode?.type === 'LOCATION' &&
+                                      selectedNode?.item?.id === loc.id;
+                                    return (
+                                      <div
+                                        key={loc.id}
+                                        onClick={() => handleSelect('LOCATION', loc, farm, zone)}
+                                        className={`group flex items-center justify-between rounded-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
+                                          isLocSelected
+                                            ? 'bg-purple-50 text-purple-900 font-bold'
+                                            : 'text-slate-500 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-1.5 truncate">
+                                          <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
+                                          <span className="truncate">{loc.name}</span>
+                                          {loc.areaM2 != null && (
+                                            <span className="text-[9px] font-mono text-emerald-600 bg-emerald-50 px-1 rounded shrink-0">
+                                              {loc.areaM2}m²
+                                            </span>
+                                          )}
+                                          {loc.capacity != null && (
+                                            <span className="text-[9px] font-mono text-amber-700 bg-amber-50 px-1 rounded shrink-0">
+                                              {loc.capacity} con
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <StatusBadge status={loc.status} size="xs" />
+                                          <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                                            <button
+                                              type="button"
+                                              title="Sửa thông tin vị trí"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                onEditLocation?.(farm, zone, loc);
+                                              }}
+                                              className="hidden group-hover:inline-flex p-0.5 text-slate-400 hover:text-purple-700 hover:bg-purple-100 rounded transition-all"
+                                            >
+                                              <Edit2 className="h-2.5 w-2.5" />
+                                            </button>
+                                          </Can>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })()}
                         </div>
                       );
                     })}

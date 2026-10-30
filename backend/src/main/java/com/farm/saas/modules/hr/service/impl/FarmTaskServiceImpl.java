@@ -1,11 +1,15 @@
 package com.farm.saas.modules.hr.service.impl;
 
+import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.common.security.CustomUserDetails;
 import org.springframework.security.access.AccessDeniedException;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.geography.entity.Farm;
+import com.farm.saas.modules.geography.entity.ProductionZone;
+import com.farm.saas.modules.geography.entity.FarmAssignment;
+import com.farm.saas.modules.geography.repository.FarmAssignmentRepository;
 import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
 import com.farm.saas.modules.hr.dto.request.CreateFarmTaskRequest;
@@ -78,6 +82,103 @@ public class FarmTaskServiceImpl implements FarmTaskService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.farm.saas.common.security.FarmSecurityEvaluator farmSecurity;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private FarmAssignmentRepository farmAssignmentRepository;
+
+    private java.util.Set<Long> resolveFarmManagerUserIds(Farm farm) {
+        java.util.Set<Long> managerIds = new java.util.HashSet<>();
+        if (farm != null) {
+            if (farm.getManagerUserId() != null) {
+                managerIds.add(farm.getManagerUserId());
+            }
+            if (farmAssignmentRepository != null) {
+                try {
+                    farmAssignmentRepository.findByFarmIdAndIsActiveTrue(farm.getId())
+                            .stream()
+                            .filter(a -> "FARM_MANAGER".equalsIgnoreCase(a.getRoleInFarm()) && a.getUserId() != null && a.getUserId() > 0)
+                            .forEach(a -> managerIds.add(a.getUserId()));
+                } catch (Exception ex) {
+                    log.warn("Failed resolving farm manager assignments: {}", ex.getMessage());
+                }
+            }
+        }
+        return managerIds;
+    }
+
+    /**
+     * Xác thực phân quyền phân khu:
+     * Nếu user là Zone Manager (không phải Super Admin, Farm Owner hoặc Farm Manager):
+     * 1. Bắt buộc phải chọn zoneId và zoneId phải thuộc các phân khu do họ phụ trách.
+     * 2. Mọi nhân viên được phân công phải thuộc phân khu đó.
+     */
+    private void validateZoneManagerScope(Long farmId, Long zoneId, Long assignedToEmployeeId, List<CreateFarmTaskRequest.TaskAssigneeItemRequest> assignees) {
+        if (farmSecurity == null || farmId == null) {
+            return;
+        }
+        if (farmSecurity.isFarmManagerOrOwner(farmId)) {
+            return; // Toàn quyền cấp Farm
+        }
+
+        Set<Long> managedZoneIds = farmSecurity.getManagedZoneIds(farmId);
+        if (farmSecurity.isZoneManager(farmId) || !managedZoneIds.isEmpty()) {
+            if (managedZoneIds.isEmpty()) {
+                throw new AccessDeniedException("Bạn chưa được phân công phụ trách phân khu nào tại trang trại này để giao việc.");
+            }
+            if (zoneId == null || !managedZoneIds.contains(zoneId)) {
+                throw new AccessDeniedException("Bạn chỉ có quyền giao việc tại các phân khu mà bạn được phân công phụ trách.");
+            }
+
+            Set<Long> assigneeEmpIds = new HashSet<>();
+            if (assignedToEmployeeId != null) {
+                assigneeEmpIds.add(assignedToEmployeeId);
+            }
+            if (assignees != null) {
+                for (CreateFarmTaskRequest.TaskAssigneeItemRequest aReq : assignees) {
+                    if (aReq.getEmployeeId() != null) {
+                        assigneeEmpIds.add(aReq.getEmployeeId());
+                    }
+                }
+            }
+
+            Long currentUserId = SecurityUtils.getCurrentUserId();
+            for (Long empId : assigneeEmpIds) {
+                Employee emp = employeeRepository.findById(empId)
+                        .filter(e -> Objects.equals(e.getFarmId(), farmId))
+                        .orElseThrow(() -> new BusinessException("EMPLOYEE_NOT_FOUND", "Không tìm thấy nhân sự có id=" + empId + " trong trang trại này"));
+
+                boolean belongsToZone = false;
+                if (emp.getUserId() != null && emp.getUserId().equals(currentUserId)) {
+                    belongsToZone = true;
+                }
+
+                if (!belongsToZone && farmAssignmentRepository != null && emp.getUserId() != null) {
+                    List<FarmAssignment> activeAssignments = farmAssignmentRepository.findByFarmIdAndIsActiveTrue(farmId);
+                    boolean hasAssignAtZone = activeAssignments.stream().anyMatch(a ->
+                            a.getUserId().equals(emp.getUserId()) && Objects.equals(a.getZoneId(), zoneId)
+                    );
+                    if (hasAssignAtZone) {
+                        belongsToZone = true;
+                    }
+                }
+
+                if (!belongsToZone && emp.getDepartment() != null) {
+                    ProductionZone pZone = zoneRepository.findById(zoneId).orElse(null);
+                    if (pZone != null) {
+                        String dept = emp.getDepartment().trim().toLowerCase();
+                        String zName = pZone.getName().trim().toLowerCase();
+                        if (dept.contains(zName) || zName.contains(dept)) {
+                            belongsToZone = true;
+                        }
+                    }
+                }
+
+                if (!belongsToZone) {
+                    throw new AccessDeniedException("Nhân viên [" + emp.getFullName() + "] không thuộc phân khu bạn phụ trách. Bạn chỉ được phân công cho nhân sự trong phân khu của mình.");
+                }
+            }
+        }
+    }
+
 
     @Override
     @Transactional
@@ -88,6 +189,8 @@ public class FarmTaskServiceImpl implements FarmTaskService {
         Farm farm = farmRepository.findById(farmId)
                 .filter(f -> tenantId == null || f.getTenantId().equals(tenantId))
                 .orElseThrow(() -> new ResourceNotFoundException("Farm", "id", farmId));
+
+        validateZoneManagerScope(farmId, request.getZoneId(), request.getAssignedToEmployeeId(), request.getAssignees());
 
         FarmTask task = FarmTask.builder()
                 .tenantId(farm.getTenantId())
@@ -157,6 +260,24 @@ public class FarmTaskServiceImpl implements FarmTaskService {
                             "/app/my-dashboard"
                     );
                 }
+
+                // Gửi thông báo công việc phát sinh tới Farm Manager (nếu người tạo task không phải là Farm Manager)
+                java.util.Set<Long> managerIds = resolveFarmManagerUserIds(farm);
+                for (Long mId : managerIds) {
+                    if (!mId.equals(currentUserId)) {
+                        notificationService.sendNotification(
+                                task.getTenantId(),
+                                mId,
+                                "Công việc phát sinh mới: " + task.getTaskTitle(),
+                                String.format("Công việc phát sinh [%s] vừa được tạo tại trang trại. Mức ưu tiên: %s.",
+                                        task.getTaskTitle(), task.getPriority() != null ? task.getPriority() : "Bình thường"),
+                                "TASK",
+                                "FARM_TASK",
+                                task.getId(),
+                                "/app/my-dashboard"
+                        );
+                    }
+                }
             } catch (Exception ex) {
                 log.warn("Failed to send task assignment notification: {}", ex.getMessage());
             }
@@ -195,6 +316,8 @@ public class FarmTaskServiceImpl implements FarmTaskService {
         if (farmSecurity != null && !farmSecurity.canAccessFarm(task.getFarmId())) {
             throw new AccessDeniedException("Không có quyền chỉnh sửa nhiệm vụ trên trang trại này.");
         }
+
+        validateZoneManagerScope(task.getFarmId(), request.getZoneId(), request.getAssignedToEmployeeId(), request.getAssignees());
 
         if ("DONE".equalsIgnoreCase(task.getStatus())) {
             throw new com.farm.saas.common.exception.BusinessException("TASK_ALREADY_DONE", "Nhiệm vụ đã hoàn thành (DONE) không thể chỉnh sửa.");
@@ -329,8 +452,11 @@ public class FarmTaskServiceImpl implements FarmTaskService {
                     recipientUserIds.add(task.getAssignedByUserId());
                 }
                 farmRepository.findById(task.getFarmId()).ifPresent(farm -> {
-                    if (farm.getManagerUserId() != null && !farm.getManagerUserId().equals(currentUserId)) {
-                        recipientUserIds.add(farm.getManagerUserId());
+                    java.util.Set<Long> mIds = resolveFarmManagerUserIds(farm);
+                    for (Long mId : mIds) {
+                        if (!mId.equals(currentUserId)) {
+                            recipientUserIds.add(mId);
+                        }
                     }
                 });
                 for (Long recipientId : recipientUserIds) {
@@ -433,6 +559,34 @@ public class FarmTaskServiceImpl implements FarmTaskService {
     @Transactional(readOnly = true)
     public Page<FarmTaskDetailResponse> getTasks(Long farmId, String taskType, String status, Boolean isRoutine, Long zoneId, Long employeeId, String search, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+
+        // 1. Xác định cấp độ phân quyền xem công việc
+        boolean isSuperAdmin = currentUser != null && (currentUser.isSuperAdmin() || currentUser.hasRole("ROLE_SUPER_ADMIN"));
+        boolean isFarmOwner = currentUser != null && currentUser.hasRole("ROLE_FARM_OWNER");
+        boolean isFarmManager = currentUser != null && (currentUser.hasRole("ROLE_FARM_MANAGER") || (farmSecurity != null && farmSecurity.isFarmManager(farmId)));
+        boolean isAccountant = currentUser != null && currentUser.hasRole("ROLE_ACCOUNTANT");
+        boolean hasFarmWideTaskAccess = isSuperAdmin || isFarmOwner || isFarmManager || isAccountant;
+
+        // 2. Kiểm tra xem người dùng có phải là Tổ trưởng phân khu (Zone Manager / Tech Lead) không
+        boolean isZoneLeader = farmSecurity != null && farmSecurity.isZoneManager(farmId);
+        Set<Long> managedZoneIds = farmSecurity != null ? farmSecurity.getManagedZoneIds(farmId) : Collections.emptySet();
+
+        // 3. Tìm thông tin nhân sự (Employee) của user đang đăng nhập
+        Optional<Employee> currentEmpOpt = currentUserId != null
+                ? employeeRepository.findByTenantIdAndUserId(tenantId, currentUserId).or(() -> employeeRepository.findByUserId(currentUserId))
+                : Optional.empty();
+        Long currentEmpId = currentEmpOpt.map(Employee::getId).orElse(null);
+
+        List<Long> myDirectTaskIds = null;
+        if (currentEmpId != null) {
+            myDirectTaskIds = farmTaskAssigneeRepository.findByEmployeeId(currentEmpId)
+                    .stream()
+                    .map(FarmTaskAssignee::getTaskId)
+                    .collect(Collectors.toList());
+        }
+        final List<Long> finalMyDirectTaskIds = myDirectTaskIds;
 
         List<Long> assigneeTaskIds = null;
         if (employeeId != null) {
@@ -450,6 +604,45 @@ public class FarmTaskServiceImpl implements FarmTaskService {
             if (tenantId != null) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
+
+            // --- KIỂM SOÁT PHẠM VI XEM CÔNG VIỆC THEO NGUYÊN TẮC: VIỆC CỦA AI NGƯỜI ĐÓ THẤY ---
+            if (!hasFarmWideTaskAccess) {
+                if (isZoneLeader || !managedZoneIds.isEmpty()) {
+                    // Tổ trưởng phân khu:
+                    // - Thấy các việc thuộc phân khu mình phụ trách (bao gồm việc của nhân sự không có tài khoản trong khu)
+                    // - Thấy các việc do chính mình giao (assignedByUserId)
+                    // - Thấy các việc giao trực tiếp cho mình
+                    List<Predicate> zoneLeaderPredicates = new ArrayList<>();
+                    if (!managedZoneIds.isEmpty()) {
+                        zoneLeaderPredicates.add(root.get("zoneId").in(managedZoneIds));
+                    }
+                    if (currentUserId != null) {
+                        zoneLeaderPredicates.add(cb.equal(root.get("assignedByUserId"), currentUserId));
+                    }
+                    if (currentEmpId != null) {
+                        Predicate assignedDirect = cb.equal(root.get("assignedToEmployeeId"), currentEmpId);
+                        if (finalMyDirectTaskIds != null && !finalMyDirectTaskIds.isEmpty()) {
+                            zoneLeaderPredicates.add(cb.or(assignedDirect, root.get("id").in(finalMyDirectTaskIds)));
+                        } else {
+                            zoneLeaderPredicates.add(assignedDirect);
+                        }
+                    }
+                    predicates.add(cb.or(zoneLeaderPredicates.toArray(new Predicate[0])));
+                } else if (currentEmpId != null) {
+                    // Nhân sự / Công nhân thông thường có tài khoản (Role 6A / Field Staff):
+                    // Việc của ai người đó thấy: Chỉ thấy việc giao cho chính mình
+                    Predicate assignedDirect = cb.equal(root.get("assignedToEmployeeId"), currentEmpId);
+                    if (finalMyDirectTaskIds != null && !finalMyDirectTaskIds.isEmpty()) {
+                        predicates.add(cb.or(assignedDirect, root.get("id").in(finalMyDirectTaskIds)));
+                    } else {
+                        predicates.add(assignedDirect);
+                    }
+                } else {
+                    // Tài khoản không có hồ sơ nhân sự và không có quyền quản lý -> không thấy công việc của người khác
+                    predicates.add(cb.disjunction());
+                }
+            }
+
             if (StringUtils.hasText(taskType)) {
                 predicates.add(cb.equal(root.get("taskType"), taskType));
             }
@@ -492,6 +685,33 @@ public class FarmTaskServiceImpl implements FarmTaskService {
     public FarmTaskDetailResponse getTaskById(Long id) {
         FarmTask task = farmTaskRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("FarmTask", "id", id));
+
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        if (currentUser != null && !currentUser.isSuperAdmin() && !currentUser.hasRole("ROLE_SUPER_ADMIN")
+                && !currentUser.hasRole("ROLE_FARM_OWNER") && !currentUser.hasRole("ROLE_FARM_MANAGER")
+                && !(farmSecurity != null && farmSecurity.isFarmManager(task.getFarmId()))
+                && !currentUser.hasRole("ROLE_ACCOUNTANT")) {
+
+            boolean isZoneLeader = farmSecurity != null && farmSecurity.isZoneManager(task.getFarmId());
+            Set<Long> managedZoneIds = farmSecurity != null ? farmSecurity.getManagedZoneIds(task.getFarmId()) : Collections.emptySet();
+            boolean isTaskInManagedZone = task.getZoneId() != null && managedZoneIds.contains(task.getZoneId());
+            boolean isAssignedByMe = task.getAssignedByUserId() != null && task.getAssignedByUserId().equals(currentUserId);
+
+            Long currentEmpId = employeeRepository.findByTenantIdAndUserId(task.getTenantId(), currentUserId)
+                    .or(() -> employeeRepository.findByUserId(currentUserId))
+                    .map(Employee::getId)
+                    .orElse(null);
+            boolean isAssignedToMe = currentEmpId != null && (
+                    Objects.equals(task.getAssignedToEmployeeId(), currentEmpId)
+                    || farmTaskAssigneeRepository.findByTaskId(task.getId()).stream().anyMatch(a -> Objects.equals(a.getEmployeeId(), currentEmpId))
+            );
+
+            if (!isZoneLeader && !isTaskInManagedZone && !isAssignedByMe && !isAssignedToMe) {
+                throw new AccessDeniedException("Bạn không có quyền xem chi tiết công việc này (việc của ai người đó thấy).");
+            }
+        }
+
         return enrichTaskResponse(task);
     }
 

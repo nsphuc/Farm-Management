@@ -8,11 +8,13 @@ import {
   Save,
   ScanBarcode,
   Layers,
+  MapPin,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
 import { BarcodeScannerInput } from '@/components/common/BarcodeScannerInput';
+import { geographyService } from '@/services/modules/geographyService';
 import { inventoryService } from '@/services/modules/inventoryService';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { partnerService } from '@/services/modules/partnerService';
@@ -37,6 +39,8 @@ export function CreateReceiptModal({
 }) {
   const [partners, setPartners] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [zoneLocations, setZoneLocations] = useState([]);
+  const [selectedZoneName, setSelectedZoneName] = useState('');
   const [isLoadingMasterData, setIsLoadingMasterData] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
@@ -84,6 +88,46 @@ export function CreateReceiptModal({
       setErrors({});
     }
   }, [isOpen, defaultWarehouseId, farmId]);
+
+  // Đồng bộ vị trí kệ (zoneLocations) từ Phân khu mặt bằng khi chọn kho nhận hàng
+  useEffect(() => {
+    if (!formData.warehouseId || !farmId) {
+      setZoneLocations([]);
+      setSelectedZoneName('');
+      return;
+    }
+    const currentWh = warehouses.find((w) => String(w.id) === String(formData.warehouseId));
+    if (currentWh?.zoneId) {
+      setSelectedZoneName(currentWh.zoneName || `Phân khu #${currentWh.zoneId}`);
+      geographyService
+        .getLocations(farmId, currentWh.zoneId)
+        .then((res) => {
+          const allLocs = Array.isArray(res) ? res : res?.content || [];
+          // CHỈ lọc các kệ thuộc kho nhận hàng này
+          const whShelves = allLocs.filter((loc) => Number(loc.warehouseId) === Number(currentWh.id));
+          setZoneLocations(whShelves);
+        })
+        .catch((err) => {
+          console.error('Lỗi tải vị trí kệ phân khu:', err);
+          setZoneLocations([]);
+        });
+    } else {
+      setZoneLocations([]);
+      setSelectedZoneName('');
+    }
+  }, [formData.warehouseId, farmId, warehouses]);
+
+  // Xử lý đổi kho nhận hàng: tự động làm sạch kệ cũ đã chọn
+  const handleWarehouseChange = (newWhId) => {
+    setFormData((prev) => ({
+      ...prev,
+      warehouseId: newWhId,
+      items: prev.items.map((it) => ({
+        ...it,
+        storageBinCode: '',
+      })),
+    }));
+  };
 
   function createDefaultItem(material = null) {
     const today = new Date();
@@ -262,6 +306,26 @@ export function CreateReceiptModal({
           break;
         }
       }
+
+      // Kiểm tra sức chứa kệ lưu trữ
+      if (!errs.items && zoneLocations && zoneLocations.length > 0) {
+        const binSums = {};
+        for (const it of formData.items) {
+          if (it.storageBinCode) {
+            const qty = Number(it.quantity) || Number(it.enteredQuantity) || 0;
+            binSums[it.storageBinCode] = (binSums[it.storageBinCode] || 0) + qty;
+          }
+        }
+        for (const [code, sumQty] of Object.entries(binSums)) {
+          const loc = zoneLocations.find((l) => l.code === code);
+          if (loc && loc.capacity !== null && loc.capacity !== undefined) {
+            if (sumQty > loc.capacity) {
+              errs.items = `Kệ [${loc.code} - ${loc.name}] không đủ sức chứa! Sức chứa còn lại: ${loc.capacity}, tổng số lượng cần nhập: ${sumQty}. Vui lòng giảm số lượng hoặc phân bổ sang kệ khác!`;
+              break;
+            }
+          }
+        }
+      }
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -357,16 +421,23 @@ export function CreateReceiptModal({
             <FormField label="Kho Nhận Hàng *" error={errors.warehouseId}>
               <Select
                 value={formData.warehouseId}
-                onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+                onChange={(e) => handleWarehouseChange(e.target.value)}
                 required
               >
                 <option value="">-- Chọn kho nhận hàng --</option>
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
-                    {w.warehouseName || w.name} ({w.warehouseCode || `#${w.id}`})
+                    {w.warehouseName || w.name} ({w.warehouseCode || w.code || `#${w.id}`})
+                    {w.zoneName ? ` • [Phân khu: ${w.zoneName}]` : ''}
                   </option>
                 ))}
               </Select>
+              {selectedZoneName && (
+                <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                  <MapPin className="w-3 h-3 text-emerald-600 inline" />
+                  <span>Phân khu: <strong>{selectedZoneName}</strong> ({zoneLocations.length} kệ thuộc kho)</span>
+                </div>
+              )}
             </FormField>
 
             <FormField label="Loại Phiếu Nhập *">
@@ -467,7 +538,9 @@ export function CreateReceiptModal({
                     <th className="py-2 px-2 min-w-[100px] text-right">Đơn Giá (₫)</th>
                     <th className="py-2 px-2 min-w-[110px] text-right">Thành Tiền (₫)</th>
                     <th className="py-2 px-2 min-w-[110px]">Hạn Dùng</th>
-                    <th className="py-2 px-2 min-w-[90px]">Vị Trí Kệ</th>
+                    <th className="py-2 px-2 min-w-[110px]">
+                      Vị Trí Kệ {selectedZoneName ? <span className="text-[10px] text-emerald-600 block font-normal">({zoneLocations.length} kệ)</span> : ''}
+                    </th>
                     <th className="py-2 px-2 w-10 text-center"></th>
                   </tr>
                 </thead>
@@ -567,13 +640,63 @@ export function CreateReceiptModal({
 
                       {/* Vị trí kệ */}
                       <td className="py-2 px-2">
-                        <input
-                          type="text"
-                          value={item.storageBinCode}
-                          onChange={(e) => handleItemValueChange(idx, 'storageBinCode', e.target.value)}
-                          placeholder="A-01"
-                          className="w-full font-mono rounded border border-slate-300 px-1.5 py-1 text-xs focus:outline-emerald-500"
-                        />
+                        {zoneLocations && zoneLocations.length > 0 ? (
+                          <>
+                            <select
+                              value={item.storageBinCode || ''}
+                              onChange={(e) => handleItemValueChange(idx, 'storageBinCode', e.target.value)}
+                              className={`w-full font-mono rounded border px-1.5 py-1 text-xs focus:outline-emerald-500 bg-white ${
+                                (() => {
+                                  if (!item.storageBinCode) return 'border-slate-300';
+                                  const loc = zoneLocations.find((l) => l.code === item.storageBinCode);
+                                  if (!loc || loc.capacity === null || loc.capacity === undefined) return 'border-slate-300';
+                                  const totalQty = formData.items
+                                    .filter((it) => it.storageBinCode === item.storageBinCode)
+                                    .reduce((acc, it) => acc + (Number(it.quantity) || Number(it.enteredQuantity) || 0), 0);
+                                  return totalQty > loc.capacity ? 'border-amber-500 bg-amber-50 text-amber-900 font-bold' : 'border-slate-300';
+                                })()
+                              }`}
+                            >
+                              <option value="">-- Chọn kệ ({zoneLocations.length}) --</option>
+                              {zoneLocations.map((loc) => {
+                                const isFull = loc.capacity !== null && loc.capacity !== undefined && loc.capacity <= 0;
+                                return (
+                                  <option key={loc.id} value={loc.code} disabled={isFull}>
+                                    {loc.code} - {loc.name} {loc.capacity !== null && loc.capacity !== undefined ? (isFull ? '(❌ ĐÃ ĐẦY - Sức chứa: 0)' : `(Còn lại: ${loc.capacity})`) : '(Không giới hạn)'}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            {(() => {
+                              if (!item.storageBinCode) return null;
+                              const loc = zoneLocations.find((l) => l.code === item.storageBinCode);
+                              if (!loc || loc.capacity === null || loc.capacity === undefined) return null;
+                              const totalQty = formData.items
+                                .filter((it) => it.storageBinCode === item.storageBinCode)
+                                .reduce((acc, it) => acc + (Number(it.quantity) || Number(it.enteredQuantity) || 0), 0);
+                              if (totalQty > loc.capacity) {
+                                return (
+                                  <div className="text-[10px] text-amber-800 bg-amber-100 border border-amber-300 rounded px-1.5 py-0.5 mt-1 font-semibold flex items-center gap-1">
+                                    <span>⚠️ Vượt sức chứa: Còn {loc.capacity}, nhập {totalQty}</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div className="text-[10px] text-emerald-700 mt-0.5 font-mono">
+                                  Sức chứa còn lại: <span className="font-bold">{loc.capacity}</span>
+                                </div>
+                              );
+                            })()}
+                          </>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.storageBinCode || ''}
+                            onChange={(e) => handleItemValueChange(idx, 'storageBinCode', e.target.value)}
+                            placeholder={formData.warehouseId ? "Kho chưa có kệ (nhập tự do)..." : "Chọn kho trước..."}
+                            className="w-full font-mono rounded border border-slate-300 px-1.5 py-1 text-xs focus:outline-emerald-500 bg-white"
+                          />
+                        )}
                       </td>
 
                       {/* Nút xóa dòng */}

@@ -24,6 +24,7 @@ public class FarmAssignmentResponse {
     private Long employeeId;
     private String username;
     private String userFullName;
+    private String employeeFullName;
     private String department;
     private String position;
     private String employeeCode;

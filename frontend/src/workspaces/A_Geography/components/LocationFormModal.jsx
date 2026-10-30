@@ -22,6 +22,7 @@ export function LocationFormModal({
   farms = [],
   initialFarmId = null,
   initialZoneId = null,
+  initialWarehouseId = null,
   editingItem = null,
   onOpenZoneModal,
   onSuccess,
@@ -67,20 +68,53 @@ export function LocationFormModal({
         nameLabel: 'Tên Ô Chuồng / Dãy Chuồng',
         namePlaceholder: 'VD: Ô chuồng số 01, Dãy chuồng heo thịt B1',
         descLabel: 'Mô Tả Quy Cách Ô Chuồng',
-        descPlaceholder: 'VD: Diện tích 30m², sức chứa 20 con, có sàn đan bê tông và máng ăn tự động',
+        descPlaceholder: 'VD: Sàn đan bê tông, máng ăn tự động, thông gió áp lực âm',
+        areaLabel: 'Diện Tích Ô Chuồng',
+        areaPlaceholder: 'VD: 30',
+        areaHint: 'Diện tích mặt sàn ô chuồng / ngăn nuôi',
+        capacityLabel: 'Sức Chứa Vật Nuôi',
+        capacityUnit: 'con',
+        capacityPlaceholder: 'VD: 20',
+        capacityHint: 'Quy mô sức chứa tối đa cho ô chuồng này (con)',
         btnSubmit: 'Tạo Ô Chuồng Mới',
       };
     }
-    if (zoneType === 'GREENHOUSE' || zoneType === 'OPEN_FIELD') {
+    if (zoneType === 'GREENHOUSE') {
       return {
         titleCreate: 'Thêm Luống / Lô Đất Canh Tác',
         titleEdit: 'Chỉnh Sửa Luống / Lô Đất Canh Tác',
         codePrefix: 'LOC-PLOT',
-        nameLabel: 'Tên Luống / Lô Đất Canh Tác',
-        namePlaceholder: 'VD: Luống Dưa Lưới 01, Lô Đất A1',
-        descLabel: 'Mô Tả Luống / Lô Đất',
-        descPlaceholder: 'VD: Chiều dài 30m, rộng 1.2m, màng phủ nông nghiệp kèm vòi tưới nhỏ giọt',
-        btnSubmit: 'Tạo Luống / Lô Đất Mới',
+        nameLabel: 'Tên Luống / Lô Canh Tác',
+        namePlaceholder: 'VD: Luống Dưa Lưới 01, Luống Rau 02',
+        descLabel: 'Mô Tả Luống / Ô Đất',
+        descPlaceholder: 'VD: Chiều dài 30m, rộng 1.2m, màng phủ nông nghiệp kèm tưới nhỏ giọt',
+        areaLabel: 'Diện Tích Canh Tác',
+        areaPlaceholder: 'VD: 50.5',
+        areaHint: 'Diện tích canh tác thực tế của luống / giàn trồng',
+        capacityLabel: 'Sức Chứa Cây Trồng',
+        capacityUnit: 'cây/gốc',
+        capacityPlaceholder: 'VD: 200',
+        capacityHint: 'Số lượng cây hoặc bầu giá thể tối đa trên luống',
+        btnSubmit: 'Tạo Luống Mới',
+      };
+    }
+    if (zoneType === 'OPEN_FIELD') {
+      return {
+        titleCreate: 'Thêm Lô Đất / Luống Canh Tác Ngoài Trời',
+        titleEdit: 'Chỉnh Sửa Lô Đất / Luống Canh Tác',
+        codePrefix: 'LOC-PLOT',
+        nameLabel: 'Tên Lô Đất / Thửa Đất',
+        namePlaceholder: 'VD: Lô Đất Ngô B1, Thửa Rau Cải A1',
+        descLabel: 'Mô Tả Lô Đất',
+        descPlaceholder: 'VD: Đất phù sa tơi xốp, hệ thống tưới phun tự động',
+        areaLabel: 'Diện Tích Lô Đất',
+        areaPlaceholder: 'VD: 500',
+        areaHint: 'Diện tích canh tác thực tế của thửa đất',
+        capacityLabel: 'Sức Chứa Cây Trồng',
+        capacityUnit: 'cây/gốc',
+        capacityPlaceholder: 'VD: 1000',
+        capacityHint: 'Số lượng cây trồng / mật độ canh tác dự kiến',
+        btnSubmit: 'Tạo Lô Đất Mới',
       };
     }
     if (zoneType === 'STORAGE') {
@@ -89,9 +123,16 @@ export function LocationFormModal({
         titleEdit: 'Chỉnh Sửa Kệ / Vị Trí Kho Lưu Trữ',
         codePrefix: 'LOC-STR',
         nameLabel: 'Tên Kệ / Vị Trí Lưu Trữ',
-        namePlaceholder: 'VD: Kệ Chứa Phân Bón K1, Dãy Giá 02',
+        namePlaceholder: 'VD: Dãy Kệ K01, Bàn Sơ Chế & Đóng Gói',
         descLabel: 'Mô Tả Vị Trí Kho',
         descPlaceholder: 'VD: Tải trọng tối đa 1.000 kg, thoáng mát, đạt chuẩn GSP',
+        areaLabel: 'Diện Tích Kệ / Mặt Sàn',
+        areaPlaceholder: 'VD: 200',
+        areaHint: 'Diện tích chiếm dụng hoặc mặt bằng khu vực kệ/bàn',
+        capacityLabel: 'Sức Chứa Lưu Trữ',
+        capacityUnit: 'kiện/thùng',
+        capacityPlaceholder: 'VD: 50',
+        capacityHint: 'Số lượng tối đa khay, kiện, pallet hoặc đơn vị lưu trữ',
         btnSubmit: 'Tạo Vị Trí Kho Mới',
       };
     }
@@ -104,6 +145,13 @@ export function LocationFormModal({
         namePlaceholder: 'VD: Ô cách ly thú y số 01, Khu kiểm dịch K1',
         descLabel: 'Mô Tả Quy Cách Ô Cách Ly',
         descPlaceholder: 'VD: Hàng rào lưới ngăn cách hoàn toàn, có hố sát trùng trước cửa',
+        areaLabel: 'Diện Tích Ô Cách Ly',
+        areaPlaceholder: 'VD: 20',
+        areaHint: 'Diện tích mặt sàn ô kiểm dịch / cách ly',
+        capacityLabel: 'Sức Chứa Cách Ly',
+        capacityUnit: 'con',
+        capacityPlaceholder: 'VD: 5',
+        capacityHint: 'Số lượng cá thể cách ly tối đa',
         btnSubmit: 'Tạo Ô Cách Ly Mới',
       };
     }
@@ -115,6 +163,13 @@ export function LocationFormModal({
       namePlaceholder: 'VD: Vị trí 01',
       descLabel: 'Mô Tả Chi Tiết Vị Trí',
       descPlaceholder: 'VD: Kích thước, quy cách, thiết bị đi kèm...',
+      areaLabel: 'Diện Tích Vị Trí',
+      areaPlaceholder: 'VD: 50',
+      areaHint: 'Diện tích thực tế của vị trí canh tác / lưu trữ',
+      capacityLabel: 'Sức Chứa Quy Đổi',
+      capacityUnit: 'đơn vị',
+      capacityPlaceholder: 'VD: 30',
+      capacityHint: 'Quy mô sức chứa tối đa của vị trí',
       btnSubmit: 'Tạo Vị Trí Mới',
     };
   }, [zoneType]);
@@ -177,6 +232,7 @@ export function LocationFormModal({
         code: editingItem.code || '',
         name: editingItem.name || '',
         description: editingItem.description || '',
+        warehouseId: editingItem.warehouseId ? String(editingItem.warehouseId) : '',
         status: editingItem.status || 'EMPTY',
         areaM2: editingItem.areaM2 != null ? String(editingItem.areaM2) : '',
         capacity: editingItem.capacity != null ? String(editingItem.capacity) : '',
@@ -186,12 +242,13 @@ export function LocationFormModal({
         code: generateEntityCode(prefix),
         name: '',
         description: '',
+        warehouseId: initialWarehouseId ? String(initialWarehouseId) : '',
         status: 'EMPTY',
         areaM2: '',
         capacity: '',
       });
     }
-  }, [isOpen, editingItem, initialFarmId, initialZoneId, activeFarmId, activeFarms, farms]);
+  }, [isOpen, editingItem, initialFarmId, initialZoneId, initialWarehouseId, activeFarmId, activeFarms, farms]);
 
   // Khi người dùng đổi Farm trong dropdown Cascading
   const handleFarmChange = (e) => {
@@ -276,17 +333,17 @@ export function LocationFormModal({
       errors.name = `${dynamicConfig.nameLabel} không được để trống`;
     }
 
-    if (zoneType === 'GREENHOUSE' && formData.areaM2 !== '' && formData.areaM2 != null) {
+    if (formData.areaM2 !== '' && formData.areaM2 != null) {
       const val = Number(formData.areaM2);
       if (isNaN(val) || val < 0) {
-        errors.areaM2 = 'Diện tích / sức chứa phải là số dương hoặc bằng 0';
+        errors.areaM2 = 'Diện tích phải là số dương hoặc bằng 0';
       }
     }
 
-    if (zoneType === 'BARN' && formData.capacity !== '' && formData.capacity != null) {
+    if (formData.capacity !== '' && formData.capacity != null) {
       const val = Number(formData.capacity);
       if (isNaN(val) || val < 0 || !Number.isInteger(val)) {
-        errors.capacity = 'Sức chứa phải là số nguyên dương hoặc bằng 0 (đơn vị con)';
+        errors.capacity = `Sức chứa phải là số nguyên dương hoặc bằng 0 (${dynamicConfig.capacityUnit})`;
       }
     }
 
@@ -307,9 +364,10 @@ export function LocationFormModal({
         code: formData.code.toUpperCase().trim(),
         name: formData.name.trim(),
         description: formData.description?.trim() || null,
+        warehouseId: formData.warehouseId ? Number(formData.warehouseId) : null,
         status: formData.status,
-        areaM2: zoneType === 'GREENHOUSE' && formData.areaM2 !== '' && formData.areaM2 != null ? Number(formData.areaM2) : null,
-        capacity: zoneType === 'BARN' && formData.capacity !== '' && formData.capacity != null ? parseInt(formData.capacity, 10) : null,
+        areaM2: formData.areaM2 !== '' && formData.areaM2 != null ? Number(formData.areaM2) : null,
+        capacity: formData.capacity !== '' && formData.capacity != null ? parseInt(formData.capacity, 10) : null,
       };
 
       let result;
@@ -440,6 +498,28 @@ export function LocationFormModal({
           </div>
         )}
 
+        {/* Kho Bãi Trực Thuộc nếu là phân khu STORAGE hoặc có kho bãi */}
+        {(zoneType === 'STORAGE' || (currentZone?.warehouses && currentZone.warehouses.length > 0)) && (
+          <FormField
+            label="Kho Bãi Trực Thuộc"
+            error={fieldErrors.warehouseId}
+            hint="Chỉ định chính xác kệ này nằm trong kho nào"
+          >
+            <Select
+              name="warehouseId"
+              value={formData.warehouseId}
+              onChange={handleChange}
+              options={[
+                { value: '', label: '-- Chọn kho bãi trực thuộc --' },
+                ...(currentZone?.warehouses || []).map((w) => ({
+                  value: String(w.id),
+                  label: `${w.name} (${w.code})`,
+                })),
+              ]}
+            />
+          </FormField>
+        )}
+
         {/* 2. Mã vị trí */}
         <FormField
           label="Mã Vị Trí / Ô Đất / Chuồng"
@@ -466,12 +546,12 @@ export function LocationFormModal({
           />
         </FormField>
 
-        {/* 3.1. Sức chứa / diện tích (m²) nếu là GREENHOUSE */}
-        {zoneType === 'GREENHOUSE' && (
+        {/* 4. Quy mô vị trí: Diện tích (m²) & Sức chứa theo ngữ cảnh phân khu */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField
-            label="Sức Chứa / Diện Tích (mét vuông)"
+            label={`${dynamicConfig.areaLabel} (m²)`}
             error={fieldErrors.areaM2}
-            hint="Nhập diện tích canh tác hoặc sức chứa quy đổi (m²) của luống / ô đất này"
+            hint={dynamicConfig.areaHint}
           >
             <div className="relative">
               <Input
@@ -481,7 +561,7 @@ export function LocationFormModal({
                 min="0"
                 value={formData.areaM2}
                 onChange={handleChange}
-                placeholder="VD: 50.5"
+                placeholder={dynamicConfig.areaPlaceholder}
                 className="pr-12 font-mono"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none select-none">
@@ -489,14 +569,11 @@ export function LocationFormModal({
               </span>
             </div>
           </FormField>
-        )}
 
-        {/* 3.2. Sức chứa (đơn vị con) nếu là BARN */}
-        {zoneType === 'BARN' && (
           <FormField
-            label="Sức Chứa (đơn vị con)"
+            label={`${dynamicConfig.capacityLabel} (${dynamicConfig.capacityUnit})`}
             error={fieldErrors.capacity}
-            hint="Nhập quy mô sức chứa số lượng vật nuôi tối đa cho ô chuồng này (con)"
+            hint={dynamicConfig.capacityHint}
           >
             <div className="relative">
               <Input
@@ -506,15 +583,15 @@ export function LocationFormModal({
                 min="0"
                 value={formData.capacity}
                 onChange={handleChange}
-                placeholder="VD: 30"
-                className="pr-12 font-mono"
+                placeholder={dynamicConfig.capacityPlaceholder}
+                className="pr-20 font-mono"
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none select-none">
-                con
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none select-none truncate max-w-[65px]">
+                {dynamicConfig.capacityUnit}
               </span>
             </div>
           </FormField>
-        )}
+        </div>
 
         {/* 4. Trạng thái vận hành */}
         <FormField label="Trạng Thái Vận Hành" required error={fieldErrors.status}>

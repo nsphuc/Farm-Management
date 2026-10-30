@@ -184,6 +184,30 @@ public class FarmSecurityEvaluator {
     }
 
     /**
+     * Lấy danh sách ID các phân khu mà user đang phụ trách làm Tổ trưởng phân khu (ZONE_MANAGER / TECHNICAL_LEAD).
+     */
+    public java.util.Set<Long> getManagedZoneIds(Long farmId) {
+        if (farmId == null || !canAccessFarm(farmId)) {
+            return java.util.Collections.emptySet();
+        }
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        if (user == null) {
+            return java.util.Collections.emptySet();
+        }
+        try {
+            java.util.List<Long> zoneIds = jdbcTemplate.query(
+                    "SELECT DISTINCT zone_id FROM farm_assignments " +
+                            "WHERE user_id = ? AND farm_id = ? AND role_in_farm IN ('ZONE_MANAGER', 'TECHNICAL_LEAD') AND zone_id IS NOT NULL AND is_active = TRUE",
+                    (rs, rowNum) -> rs.getLong(1),
+                    user.getId(), farmId);
+            return new java.util.HashSet<>(zoneIds);
+        } catch (Exception ex) {
+            log.warn("Error querying managed zones for user {} at farm {}: {}", user.getId(), farmId, ex.getMessage());
+            return java.util.Collections.emptySet();
+        }
+    }
+
+    /**
      * Enforces cascading hierarchy for role assignment.
      * Cấp 1 (Super Admin): Chỉ gán ROLE_FARM_OWNER
      * Cấp 2 (Farm Owner): Gán ROLE_FARM_MANAGER hoặc Cấp 4 trong Tenant; Cấm gán SUPER_ADMIN hoặc FARM_OWNER

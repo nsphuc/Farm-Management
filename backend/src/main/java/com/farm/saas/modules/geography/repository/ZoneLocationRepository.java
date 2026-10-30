@@ -11,4 +11,7 @@ public interface ZoneLocationRepository extends JpaRepository<ZoneLocation, Long
     java.util.List<ZoneLocation> findByFarmId(Long farmId);
     java.util.Optional<ZoneLocation> findByZoneIdAndId(Long zoneId, Long id);
     boolean existsByZoneIdAndCode(Long zoneId, String code);
+    java.util.Optional<ZoneLocation> findByWarehouseIdAndCode(Long warehouseId, String code);
+    java.util.Optional<ZoneLocation> findByFarmIdAndCode(Long farmId, String code);
+    java.util.List<ZoneLocation> findByWarehouseId(Long warehouseId);
 }
