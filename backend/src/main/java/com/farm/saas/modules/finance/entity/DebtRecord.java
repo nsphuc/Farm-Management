@@ -35,6 +35,12 @@ public class DebtRecord {
     @Column(name = "warehouse_receipt_id")
     private Long warehouseReceiptId;
 
+    @Column(name = "livestock_group_id")
+    private Long livestockGroupId;
+
+    @Column(name = "notes", length = 500)
+    private String notes;
+
     @Column(name = "debt_type", nullable = false, length = 30)
     private String debtType;
 

@@ -92,7 +92,7 @@ public class FarmSecurityEvaluator {
         if (user == null) {
             return false;
         }
-        if (user.hasRole("ROLE_FARM_MANAGER")) {
+        if (user.isSuperAdmin() || user.hasRole("ROLE_FARM_OWNER") || user.hasRole("ROLE_FARM_MANAGER")) {
             return true;
         }
         try {

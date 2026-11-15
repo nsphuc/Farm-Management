@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Clock,
   Plus,
@@ -8,9 +8,15 @@ import {
   AlertTriangle,
   Moon,
   Sun,
+  Building2,
+  Check,
+  ChevronDown,
+  MapPin,
+  X,
 } from 'lucide-react';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -21,7 +27,15 @@ import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 
 export function WorkShiftsTab() {
-  const { activeFarmId, activeFarm } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, farms, fetchFarms } = useActiveFarmStore();
+  const accessibleFarms = useAuthStore((s) => s.userInfo?.accessibleFarms) || [];
+  const farmList = farms && farms.length > 0 ? farms : accessibleFarms;
+
+  useEffect(() => {
+    if ((!farms || farms.length === 0) && typeof fetchFarms === 'function') {
+      fetchFarms();
+    }
+  }, [farms, fetchFarms]);
 
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -30,7 +44,10 @@ export function WorkShiftsTab() {
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [scopeType, setScopeType] = useState('ENTERPRISE'); // 'ENTERPRISE' (farmId=null) or 'FARM'
+  const [selectedFarmIds, setSelectedFarmIds] = useState(['ALL']);
+  const [isFarmDropdownOpen, setIsFarmDropdownOpen] = useState(false);
+  const farmDropdownRef = useRef(null);
+
   const [formData, setFormData] = useState({
     shiftCode: '',
     name: '',
@@ -43,6 +60,19 @@ export function WorkShiftsTab() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Close farm dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (farmDropdownRef.current && !farmDropdownRef.current.contains(e.target)) {
+        setIsFarmDropdownOpen(false);
+      }
+    }
+    if (isFarmDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isFarmDropdownOpen]);
 
   const fetchShifts = async () => {
     try {
@@ -94,8 +124,21 @@ export function WorkShiftsTab() {
     setEditingItem(item);
     setFieldErrors({});
     setGeneralError('');
+    setIsFarmDropdownOpen(false);
+
     if (item) {
-      setScopeType(item.farmId ? 'FARM' : 'ENTERPRISE');
+      if (!item.applicableFarms || item.applicableFarms === 'ALL' || (!item.farmId && (!item.applicableFarmIds || item.applicableFarmIds.length === 0))) {
+        setSelectedFarmIds(['ALL']);
+      } else if (item.applicableFarmIds && item.applicableFarmIds.length > 0) {
+        setSelectedFarmIds(item.applicableFarmIds.map(String));
+      } else if (item.applicableFarms) {
+        setSelectedFarmIds(item.applicableFarms.split(',').map((s) => s.trim()).filter(Boolean));
+      } else if (item.farmId) {
+        setSelectedFarmIds([String(item.farmId)]);
+      } else {
+        setSelectedFarmIds(['ALL']);
+      }
+
       // Ensure HH:mm format
       const start = item.startTime?.substring(0, 5) || '08:00';
       const end = item.endTime?.substring(0, 5) || '17:00';
@@ -109,9 +152,9 @@ export function WorkShiftsTab() {
         isOvernight: Boolean(item.isOvernight),
       });
     } else {
-      setScopeType('ENTERPRISE');
+      setSelectedFarmIds(['ALL']);
       setFormData({
-        shiftCode: generateEntityCode(CODE_PREFIXES.SHIFT),
+        shiftCode: generateEntityCode(CODE_PREFIXES.SHIFT, shifts),
         name: '',
         startTime: '08:00',
         endTime: '17:00',
@@ -121,6 +164,48 @@ export function WorkShiftsTab() {
       });
     }
     setModalOpen(true);
+  };
+
+  const handleToggleFarm = (farmIdStr) => {
+    if (farmIdStr === 'ALL') {
+      setSelectedFarmIds(['ALL']);
+      return;
+    }
+
+    setSelectedFarmIds((prev) => {
+      const current = prev.filter((id) => id !== 'ALL');
+      const targetId = String(farmIdStr);
+      let next;
+      if (current.includes(targetId)) {
+        next = current.filter((id) => id !== targetId);
+      } else {
+        next = [...current, targetId];
+      }
+
+      if (next.length === 0) {
+        return ['ALL'];
+      }
+      if (farmList.length > 0 && next.length === farmList.length) {
+        return ['ALL'];
+      }
+      return next;
+    });
+  };
+
+  const handleRemoveFarmTag = (farmIdStr, e) => {
+    e.stopPropagation();
+    handleToggleFarm(farmIdStr);
+  };
+
+  const getSelectedFarmsLabel = () => {
+    if (selectedFarmIds.includes('ALL') || selectedFarmIds.length === 0) {
+      return 'Toàn bộ trang trại (Toàn doanh nghiệp)';
+    }
+    if (selectedFarmIds.length === 1) {
+      const found = farmList.find((f) => String(f.id) === String(selectedFarmIds[0]));
+      return found ? found.name : `Trang trại #${selectedFarmIds[0]}`;
+    }
+    return `Đã chọn ${selectedFarmIds.length} trang trại`;
   };
 
   const handleSave = async (e) => {
@@ -146,9 +231,12 @@ export function WorkShiftsTab() {
       setGeneralError('');
 
       const formatTime = (t) => (t.length === 5 ? `${t}:00` : t);
+      const isAll = selectedFarmIds.includes('ALL') || selectedFarmIds.length === 0;
+      const cleanFarmIds = isAll ? [] : selectedFarmIds.filter((id) => id !== 'ALL').map(Number);
 
       const payload = {
-        farmId: scopeType === 'FARM' && activeFarmId ? activeFarmId : null,
+        farmId: isAll ? null : cleanFarmIds[0] || null,
+        applicableFarmIds: cleanFarmIds,
         shiftCode: formData.shiftCode.toUpperCase().trim(),
         name: formData.name.trim(),
         startTime: formatTime(formData.startTime),
@@ -186,6 +274,28 @@ export function WorkShiftsTab() {
   };
 
   const filteredShifts = shifts.filter((s) => {
+    // 1. Lọc theo trang trại từ TopBar
+    if (activeFarmId && activeFarmId !== 'ALL') {
+      const isAll =
+        !s.applicableFarms ||
+        s.applicableFarms === 'ALL' ||
+        (!s.farmId && (!s.applicableFarmIds || s.applicableFarmIds.length === 0));
+
+      if (!isAll) {
+        const matchesFarmId = s.farmId && String(s.farmId) === String(activeFarmId);
+        const matchesAppFarmIds = s.applicableFarmIds?.some((id) => String(id) === String(activeFarmId));
+        const matchesAppFarmsStr = s.applicableFarms
+          ?.split(',')
+          .map((p) => p.trim())
+          .includes(String(activeFarmId));
+
+        if (!matchesFarmId && !matchesAppFarmIds && !matchesAppFarmsStr) {
+          return false;
+        }
+      }
+    }
+
+    // 2. Lọc theo từ khóa tìm kiếm
     if (!search) return true;
     const q = search.toLowerCase();
     return s.name?.toLowerCase().includes(q) || s.shiftCode?.toLowerCase().includes(q);
@@ -200,14 +310,38 @@ export function WorkShiftsTab() {
     {
       key: 'name',
       title: 'Tên Ca Làm Việc',
-      render: (item) => (
-        <div>
-          <div className="font-semibold text-slate-900">{item.name}</div>
-          <div className="text-[11px] text-slate-500">
-            {item.farmId ? `Riêng trang trại #${item.farmId}` : 'Dùng chung toàn doanh nghiệp'}
+      render: (item) => {
+        const isAll =
+          !item.applicableFarms ||
+          item.applicableFarms === 'ALL' ||
+          (!item.farmId && (!item.applicableFarmIds || item.applicableFarmIds.length === 0));
+
+        return (
+          <div className="space-y-1">
+            <div className="font-semibold text-slate-900">{item.name}</div>
+            <div className="flex flex-wrap items-center gap-1">
+              {isAll ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 border border-sky-200">
+                  <Building2 className="h-3 w-3" /> Toàn bộ trang trại
+                </span>
+              ) : item.applicableFarmNames && item.applicableFarmNames.length > 0 ? (
+                item.applicableFarmNames.map((fName, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200"
+                  >
+                    <MapPin className="h-3 w-3" /> {fName}
+                  </span>
+                ))
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+                  <MapPin className="h-3 w-3" /> Riêng trang trại #{item.farmId}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: 'time',
@@ -352,46 +486,120 @@ export function WorkShiftsTab() {
             </div>
           )}
 
-          {/* Scope radio */}
-          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-2">
-            <label className="text-xs font-bold text-slate-700 block">Phạm Vi Áp Dụng Ca</label>
-            <div className="grid grid-cols-2 gap-3">
-              <label
-                className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
-                  scopeType === 'ENTERPRISE'
-                    ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-600'
-                    : 'border-slate-200 bg-white text-slate-600'
-                }`}
+          {/* Phạm vi áp dụng dropdown */}
+          <div className="space-y-1.5" ref={farmDropdownRef}>
+            <label className="text-xs font-bold text-slate-700 block">
+              Phạm Vi Áp Dụng Ca Làm Việc <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsFarmDropdownOpen(!isFarmDropdownOpen)}
+                className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm transition hover:border-slate-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               >
-                <input
-                  type="radio"
-                  name="scopeType"
-                  value="ENTERPRISE"
-                  checked={scopeType === 'ENTERPRISE'}
-                  onChange={() => setScopeType('ENTERPRISE')}
-                  className="text-emerald-600 focus:ring-emerald-500"
+                <div className="flex items-center gap-2 truncate">
+                  {selectedFarmIds.includes('ALL') ? (
+                    <Building2 className="h-4 w-4 text-sky-600 shrink-0" />
+                  ) : (
+                    <MapPin className="h-4 w-4 text-emerald-600 shrink-0" />
+                  )}
+                  <span className="truncate">{getSelectedFarmsLabel()}</span>
+                </div>
+                <ChevronDown
+                  className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${
+                    isFarmDropdownOpen ? 'rotate-180' : ''
+                  }`}
                 />
-                <span>Toàn Doanh Nghiệp (Chung)</span>
-              </label>
+              </button>
 
-              <label
-                className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all ${
-                  scopeType === 'FARM'
-                    ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-1 ring-emerald-600'
-                    : 'border-slate-200 bg-white text-slate-600'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="scopeType"
-                  value="FARM"
-                  checked={scopeType === 'FARM'}
-                  onChange={() => setScopeType('FARM')}
-                  className="text-emerald-600 focus:ring-emerald-500"
-                />
-                <span>Riêng Trang Trại Hiện Tại</span>
-              </label>
+              {isFarmDropdownOpen && (
+                <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg animate-in fade-in zoom-in-95">
+                  {/* Toàn bộ trang trại option */}
+                  <div
+                    onClick={() => handleToggleFarm('ALL')}
+                    className={`flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-semibold cursor-pointer transition-colors ${
+                      selectedFarmIds.includes('ALL')
+                        ? 'bg-sky-50 text-sky-900 font-bold'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-sky-600" />
+                      <div>
+                        <div>Toàn bộ trang trại</div>
+                        <div className="text-[10px] font-normal text-slate-500">
+                          Áp dụng chung toàn doanh nghiệp
+                        </div>
+                      </div>
+                    </div>
+                    {selectedFarmIds.includes('ALL') && (
+                      <Check className="h-4 w-4 text-sky-600" />
+                    )}
+                  </div>
+
+                  <div className="my-1 border-t border-slate-100" />
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Hoặc chọn riêng theo từng trang trại
+                  </div>
+
+                  {farmList.map((farm) => {
+                    const isSelected = selectedFarmIds.includes(String(farm.id));
+                    return (
+                      <div
+                        key={farm.id}
+                        onClick={() => handleToggleFarm(farm.id)}
+                        className={`flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-semibold cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-emerald-50 text-emerald-900 font-bold'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-emerald-600" />
+                          <div>
+                            <div>{farm.name}</div>
+                            {farm.code && (
+                              <div className="text-[10px] font-normal text-slate-500">
+                                Mã: {farm.code}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <Check className="h-4 w-4 text-emerald-600" />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+
+            {/* Selected farm pills when specific farms are selected */}
+            {!selectedFarmIds.includes('ALL') && selectedFarmIds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {selectedFarmIds.map((farmId) => {
+                  const farm = farmList.find((f) => String(f.id) === String(farmId));
+                  return (
+                    <span
+                      key={farmId}
+                      className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 border border-emerald-200"
+                    >
+                      <MapPin className="h-3 w-3 text-emerald-600" />
+                      <span>{farm ? farm.name : `Trang trại #${farmId}`}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => handleRemoveFarmTag(farmId, e)}
+                        className="ml-0.5 rounded-full p-0.5 hover:bg-emerald-100 text-emerald-600"
+                        title="Bỏ chọn"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -402,7 +610,7 @@ export function WorkShiftsTab() {
                   setFormData((prev) => ({ ...prev, shiftCode: e.target.value.toUpperCase() }))
                 }
                 onRegenerate={() =>
-                  setFormData((prev) => ({ ...prev, shiftCode: generateEntityCode(CODE_PREFIXES.SHIFT) }))
+                  setFormData((prev) => ({ ...prev, shiftCode: generateEntityCode(CODE_PREFIXES.SHIFT, shifts) }))
                 }
                 isEditMode={Boolean(editingItem)}
                 error={fieldErrors.shiftCode}

@@ -594,6 +594,7 @@ export function PartnersWorkspace() {
         isOpen={formModalOpen}
         onClose={() => setFormModalOpen(false)}
         editingItem={editingPartner}
+        existingPartners={partners}
         onSuccess={() => {
           fetchPartners();
           notifyDataChanged?.('partners');

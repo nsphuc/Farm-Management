@@ -19,10 +19,11 @@ export function DataTable({
   columns = [],
   data = [],
   isLoading = false,
-  page = 0,
-  pageSize = 20,
-  totalElements = 0,
-  totalPages = 1,
+  pagination = true,
+  page: externalPage,
+  pageSize: externalPageSize = 10,
+  totalElements: externalTotalElements,
+  totalPages: externalTotalPages,
   onPageChange,
   onPageSizeChange,
   onRowClick,
@@ -31,9 +32,57 @@ export function DataTable({
   onSort,
   emptyStateProps,
   keyExtractor = (item, index) => item.id || item.code || index,
+  mobileCardRender,
   className,
 }) {
   const pageSizeOptions = [10, 20, 50, 100];
+  const isServerPagination = Boolean(onPageChange && externalTotalElements !== undefined);
+  const isClientPagination = Boolean(pagination && !isServerPagination);
+
+  const [internalPage, setInternalPage] = React.useState(0);
+  const [internalPageSize, setInternalPageSize] = React.useState(externalPageSize || 10);
+
+  const currentPage = isServerPagination ? (externalPage || 0) : internalPage;
+  const currentPageSize = isServerPagination ? (externalPageSize || 10) : internalPageSize;
+
+  const totalElements = isServerPagination
+    ? (externalTotalElements || 0)
+    : (data && Array.isArray(data) ? data.length : 0);
+
+  const totalPages = isServerPagination
+    ? (externalTotalPages || 1)
+    : Math.max(1, Math.ceil(totalElements / currentPageSize));
+
+  // Reset internal page if out of bounds when data changes
+  React.useEffect(() => {
+    if (isClientPagination && internalPage >= totalPages && totalPages > 0) {
+      setInternalPage(Math.max(0, totalPages - 1));
+    }
+  }, [isClientPagination, internalPage, totalPages, data?.length]);
+
+  const handlePageChange = (newPage) => {
+    if (isClientPagination) {
+      setInternalPage(newPage);
+    }
+    onPageChange?.(newPage);
+  };
+
+  const handlePageSizeChange = (newSize) => {
+    if (isClientPagination) {
+      setInternalPageSize(newSize);
+      setInternalPage(0);
+    }
+    onPageSizeChange?.(newSize);
+  };
+
+  const displayData = React.useMemo(() => {
+    if (!data || !Array.isArray(data)) return [];
+    if (isClientPagination) {
+      const start = currentPage * currentPageSize;
+      return data.slice(start, start + currentPageSize);
+    }
+    return data;
+  }, [data, isClientPagination, currentPage, currentPageSize]);
 
   const handleSort = (field) => {
     if (!onSort) return;
@@ -45,8 +94,8 @@ export function DataTable({
     onSort(field, nextDirection);
   };
 
-  const startItem = totalElements === 0 ? 0 : page * pageSize + 1;
-  const endItem = Math.min((page + 1) * pageSize, totalElements);
+  const startItem = totalElements === 0 ? 0 : currentPage * currentPageSize + 1;
+  const endItem = Math.min((currentPage + 1) * currentPageSize, totalElements);
 
   return (
     <div className={cn('flex flex-col rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden', className)}>
@@ -57,7 +106,68 @@ export function DataTable({
         )}
       </div>
 
-      <div className="overflow-x-auto min-h-[220px]">
+      {/* 1. Mobile Card View (< md) - Responsive Touch-friendly (Nhiệm vụ 7) */}
+      <div className="block md:hidden divide-y divide-slate-100 bg-white">
+        {isLoading && (!data || data.length === 0) ? (
+          Array.from({ length: 3 }).map((_, rIdx) => (
+            <div key={`m-sk-${rIdx}`} className="p-4 space-y-2 animate-pulse">
+              <div className="h-4 bg-slate-200 rounded w-1/3" />
+              <div className="h-3 bg-slate-100 rounded w-2/3" />
+              <div className="h-3 bg-slate-100 rounded w-1/2" />
+            </div>
+          ))
+        ) : displayData && displayData.length > 0 ? (
+          displayData.map((row, index) => {
+            if (mobileCardRender) {
+              return (
+                <div key={keyExtractor(row, index)} onClick={() => onRowClick?.(row, index)} className="p-3.5 hover:bg-slate-50 transition-colors">
+                  {mobileCardRender(row, index)}
+                </div>
+              );
+            }
+            const actionCol = columns.find((c) => c.key === 'actions');
+            const dataCols = columns.filter((c) => c.key !== 'actions');
+            return (
+              <div
+                key={keyExtractor(row, index)}
+                onClick={() => onRowClick?.(row, index)}
+                className="p-3.5 hover:bg-slate-50 transition-colors space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-bold text-slate-900 text-sm">
+                    {dataCols[0]?.render ? dataCols[0].render(row, index) : row[dataCols[0]?.key]}
+                  </div>
+                  {dataCols[1] && (
+                    <div className="text-xs shrink-0">
+                      {dataCols[1]?.render ? dataCols[1].render(row, index) : row[dataCols[1]?.key]}
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 bg-slate-50/70 p-2.5 rounded-lg border border-slate-100">
+                  {dataCols.slice(2, 6).map((col) => (
+                    <div key={col.key} className="flex flex-col">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
+                        {col.header || col.title}
+                      </span>
+                      <span className="font-medium text-slate-800 truncate">
+                        {col.render ? col.render(row, index) : row[col.key] ?? '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {actionCol && (
+                  <div className="pt-1 flex items-center justify-end gap-1.5">
+                    {actionCol.render(row, index)}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        ) : null}
+      </div>
+
+      {/* 2. Desktop & Tablet Table View (>= md) */}
+      <div className="hidden md:block overflow-x-auto min-h-[220px]">
         <table className="w-full text-left text-sm text-slate-600">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
             <tr>
@@ -106,7 +216,7 @@ export function DataTable({
           >
             {isLoading && (!data || data.length === 0) ? (
               // Skeleton Loading Rows (Only when there is no data at all yet!)
-              Array.from({ length: Math.min(pageSize, 6) }).map((_, rIdx) => (
+              Array.from({ length: Math.min(currentPageSize, 6) }).map((_, rIdx) => (
                 <tr key={`skeleton-${rIdx}`} className="animate-pulse h-14">
                   {columns.map((col, cIdx) => (
                     <td key={`sk-cell-${cIdx}`} className="px-4 py-3.5">
@@ -115,8 +225,8 @@ export function DataTable({
                   ))}
                 </tr>
               ))
-            ) : data && data.length > 0 ? (
-              data.map((row, index) => (
+            ) : displayData && displayData.length > 0 ? (
+              displayData.map((row, index) => (
                 <tr
                   key={keyExtractor(row, index)}
                   onClick={() => onRowClick?.(row, index)}
@@ -152,13 +262,13 @@ export function DataTable({
       )}
 
       {/* Pagination Footer */}
-      {totalElements > 0 && (
+      {Boolean(pagination && totalElements > 0) && (
         <div className="flex flex-col sm:flex-row items-center justify-between border-t border-slate-200 bg-slate-50/60 px-4 py-3 text-xs text-slate-600 gap-3">
           <div className="flex items-center gap-2">
             <span>Hiển thị</span>
             <select
-              value={pageSize}
-              onChange={(e) => onPageSizeChange?.(Number(e.target.value))}
+              value={currentPageSize}
+              onChange={(e) => handlePageSizeChange(Number(e.target.value))}
               className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
               {pageSizeOptions.map((opt) => (
@@ -176,8 +286,8 @@ export function DataTable({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              disabled={page <= 0}
-              onClick={() => onPageChange?.(0)}
+              disabled={currentPage <= 0}
+              onClick={() => handlePageChange(0)}
               className="rounded p-1 text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-colors"
               title="Trang đầu"
             >
@@ -185,8 +295,8 @@ export function DataTable({
             </button>
             <button
               type="button"
-              disabled={page <= 0}
-              onClick={() => onPageChange?.(page - 1)}
+              disabled={currentPage <= 0}
+              onClick={() => handlePageChange(currentPage - 1)}
               className="rounded p-1 text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-colors"
               title="Trang trước"
             >
@@ -194,13 +304,13 @@ export function DataTable({
             </button>
 
             <span className="px-2 font-medium">
-              Trang <strong className="text-slate-900">{page + 1}</strong> / {totalPages || 1}
+              Trang <strong className="text-slate-900">{currentPage + 1}</strong> / {totalPages || 1}
             </span>
 
             <button
               type="button"
-              disabled={page >= totalPages - 1}
-              onClick={() => onPageChange?.(page + 1)}
+              disabled={currentPage >= totalPages - 1}
+              onClick={() => handlePageChange(currentPage + 1)}
               className="rounded p-1 text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-colors"
               title="Trang sau"
             >
@@ -208,8 +318,8 @@ export function DataTable({
             </button>
             <button
               type="button"
-              disabled={page >= totalPages - 1}
-              onClick={() => onPageChange?.(totalPages - 1)}
+              disabled={currentPage >= totalPages - 1}
+              onClick={() => handlePageChange(totalPages - 1)}
               className="rounded p-1 text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-colors"
               title="Trang cuối"
             >

@@ -13,6 +13,7 @@ import {
   ArrowUpRight,
   ShieldCheck,
   AlertCircle,
+  MapPin,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
@@ -55,9 +56,11 @@ export function UnitCostAnalysisTab() {
 
       // Mặc định chọn mục đầu tiên
       if (seasonList.length > 0) {
-        handleSelectTarget('CROP_SEASON', seasonList[0]);
+        const firstSeason = buildSeasonTarget(seasonList[0]);
+        handleSelectTarget('CROP_SEASON', firstSeason);
       } else if (groupList.length > 0) {
-        handleSelectTarget('LIVESTOCK_GROUP', groupList[0]);
+        const firstGroup = buildGroupTarget(groupList[0]);
+        handleSelectTarget('LIVESTOCK_GROUP', firstGroup);
       }
     } catch (err) {
       console.error('Failed to load crop seasons / livestock groups for costing:', err);
@@ -85,14 +88,14 @@ export function UnitCostAnalysisTab() {
       setUnitCostData(res);
     } catch (err) {
       console.warn('Could not fetch unit cost from backend, generating estimation:', err);
-      // Fallback fallback estimation
-      const estYield = Number(item.actualYieldKg || item.targetYieldKg || 5000);
+      // Fallback estimation
+      const estYield = Number(item.actualYieldKg || item.targetYieldKg || item.estimatedYieldKg || 5000);
       const estCost = 45000000;
       setUnitCostData({
         targetType: type,
         targetId: item.id,
-        targetCode: item.seasonCode || item.groupCode,
-        targetName: item.seasonName || item.groupName || item.seasonCode || item.groupCode,
+        targetCode: item.seasonCode || item.groupCode || item.code,
+        targetName: item.objectName || item.seasonName || item.groupName || item.seasonCode || item.groupCode,
         totalYieldKg: estYield,
         directCost: estCost * 0.75,
         indirectCost: estCost * 0.25,
@@ -109,26 +112,59 @@ export function UnitCostAnalysisTab() {
     }
   };
 
-  // Tổng hợp danh sách đối tượng tính giá thành
-  const combinedList = [
-    ...seasons.map(s => ({
+  // Helper chuẩn hóa hiển thị Tên Mùa Vụ + Phân Khu
+  const buildSeasonTarget = (s) => {
+    const rawName = s.cropTypeName || s.seasonName || s.name;
+    const seasonName = rawName
+      ? (rawName.toLowerCase().startsWith('vụ') ? rawName : `Vụ ${rawName}`)
+      : (s.cycleName ? `Vụ ${s.cycleName}` : `Mùa vụ ${s.seasonCode || s.id}`);
+    const zoneDisplay = s.zoneName || (s.zoneCode ? `Khu ${s.zoneCode}` : 'Chưa gán phân khu');
+    const cropOrBreed = s.cropTypeName || s.cropName || 'Cây trồng';
+
+    return {
       ...s,
       targetType: 'CROP_SEASON',
-      displayName: s.seasonName || s.seasonCode,
-      code: s.seasonCode,
-      cropOrBreed: s.cropName || 'Cây trồng',
-      yieldKg: s.actualYieldKg || s.targetYieldKg || 0,
+      objectName: seasonName,
+      zoneName: zoneDisplay,
+      displayName: `${seasonName} • ${zoneDisplay}`,
+      code: s.seasonCode || `CS-${s.id}`,
+      cropOrBreed,
+      yieldKg: Number(s.actualYieldKg || s.targetYieldKg || s.estimatedYieldKg || 0),
+      quantity: null,
+      unit: 'kg',
       status: s.status,
-    })),
-    ...groups.map(g => ({
+    };
+  };
+
+  // Helper chuẩn hóa hiển thị Tên Đàn Nuôi + Phân Khu
+  const buildGroupTarget = (g) => {
+    const rawName = g.breedName || g.groupName || g.name;
+    const groupName = rawName
+      ? (rawName.toLowerCase().startsWith('đàn') ? rawName : `Đàn ${rawName}`)
+      : (g.cycleName ? `Đàn ${g.cycleName}` : `Đàn nuôi ${g.groupCode || g.id}`);
+    const zoneDisplay = g.zoneName || (g.zoneCode ? `Khu ${g.zoneCode}` : 'Chưa gán phân khu');
+    const cropOrBreed = g.breedName || 'Vật nuôi';
+    const quantity = Number(g.currentQuantity ?? g.initialQuantity ?? 0);
+
+    return {
       ...g,
       targetType: 'LIVESTOCK_GROUP',
-      displayName: g.groupName || g.groupCode,
-      code: g.groupCode,
-      cropOrBreed: g.breedName || 'Vật nuôi',
-      yieldKg: g.actualYieldKg || (g.currentQuantity ? g.currentQuantity * 2.5 : 0),
+      objectName: groupName,
+      zoneName: zoneDisplay,
+      displayName: `${groupName} • ${zoneDisplay}`,
+      code: g.groupCode || g.code || `LG-${g.id}`,
+      cropOrBreed,
+      quantity,
+      unit: 'con',
+      yieldKg: Number(g.actualYieldKg || 0),
       status: g.status,
-    })),
+    };
+  };
+
+  // Tổng hợp danh sách đối tượng tính giá thành
+  const combinedList = [
+    ...seasons.map(buildSeasonTarget),
+    ...groups.map(buildGroupTarget),
   ].filter(item => {
     if (filterType === 'CROP' && item.targetType !== 'CROP_SEASON') return false;
     if (filterType === 'LIVESTOCK' && item.targetType !== 'LIVESTOCK_GROUP') return false;
@@ -136,7 +172,8 @@ export function UnitCostAnalysisTab() {
     const term = searchTerm.toLowerCase();
     return (
       item.code?.toLowerCase().includes(term) ||
-      item.displayName?.toLowerCase().includes(term) ||
+      item.objectName?.toLowerCase().includes(term) ||
+      item.zoneName?.toLowerCase().includes(term) ||
       item.cropOrBreed?.toLowerCase().includes(term)
     );
   });
@@ -146,12 +183,24 @@ export function UnitCostAnalysisTab() {
   const totalYieldKg = Number(unitCostData?.totalYieldKg) || 0;
 
   // Breakdown 5 nhóm
-  const breakdown = unitCostData?.costBreakdown || {};
-  const seedsCost = Number(breakdown.SEEDS_BREED || breakdown.SEED) || (totalCost * 0.20);
-  const fertilizerFeedCost = Number(breakdown.FERTILIZER_FEED || breakdown.MATERIALS) || (totalCost * 0.35);
-  const pesticideVetCost = Number(breakdown.PESTICIDE_VET || breakdown.VET) || (totalCost * 0.15);
-  const laborCost = Number(breakdown.LABOR || breakdown.PAYROLL) || (totalCost * 0.20);
-  const overheadCost = Number(breakdown.OVERHEAD || breakdown.UTILITY) || (totalCost * 0.10);
+  const breakdownMap = {};
+  if (Array.isArray(unitCostData?.costBreakdown)) {
+    unitCostData.costBreakdown.forEach((item) => {
+      if (item.costType) {
+        breakdownMap[item.costType] = Number(item.amount) || 0;
+      }
+    });
+  } else if (unitCostData?.costBreakdown && typeof unitCostData.costBreakdown === 'object') {
+    Object.entries(unitCostData.costBreakdown).forEach(([k, v]) => {
+      breakdownMap[k] = Number(v) || 0;
+    });
+  }
+
+  const seedsCost = Number(breakdownMap.SEEDS_BREED || breakdownMap.SEED) || 0;
+  const fertilizerFeedCost = Number(breakdownMap.FERTILIZER_FEED) || 0;
+  const pesticideVetCost = Number(breakdownMap.PESTICIDE_VET || breakdownMap.VET) || 0;
+  const laborCost = Number(breakdownMap.LABOR || breakdownMap.PAYROLL || breakdownMap.DIRECT_LABOR) || 0;
+  const overheadCost = Number(breakdownMap.OVERHEAD || breakdownMap.UTILITY || breakdownMap.INDIRECT_OVERHEAD) || 0;
 
   const costGroups = [
     { label: '1. Giống Cây Trồng / Con Giống', amount: seedsCost, color: 'bg-emerald-500', text: 'text-emerald-700' },
@@ -229,40 +278,64 @@ export function UnitCostAnalysisTab() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm theo mã hoặc tên vụ/đàn..."
-              className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-1.5 text-xs text-slate-800 shadow-2xs"
+              placeholder="Tìm theo tên vụ, đàn nuôi, phân khu, mã..."
+              className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-1.5 text-xs text-slate-800 shadow-2xs placeholder:text-slate-400"
             />
           </div>
 
           {/* List items */}
-          <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
             {loading ? (
               <div className="py-8 text-center text-slate-400 text-xs">Đang tải danh sách vụ/đàn...</div>
             ) : combinedList.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-xs">Không có mùa vụ hoặc đàn nuôi nào</div>
+              <div className="py-8 text-center text-slate-400 text-xs">Không có mùa vụ hoặc đàn nuôi nào phù hợp</div>
             ) : (
               combinedList.map((item) => {
-                const isSelected = selectedTarget?.id === item.id && selectedTarget?.type === item.targetType;
+                const isSelected = selectedTarget?.id === item.id && selectedTarget?.targetType === item.targetType;
                 return (
                   <div
                     key={`${item.targetType}-${item.id}`}
                     onClick={() => handleSelectTarget(item.targetType, item)}
-                    className={`rounded-xl border p-3 cursor-pointer transition-all space-y-1.5 ${
+                    className={`rounded-xl border p-3 cursor-pointer transition-all space-y-2 ${
                       isSelected
-                        ? 'border-emerald-500 bg-emerald-50/60 shadow-xs ring-1 ring-emerald-400'
-                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                        ? 'border-emerald-500 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-400'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80 shadow-2xs'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs text-slate-900 font-mono">{item.code}</span>
+                    {/* Dòng 1: Tên Mùa Vụ / Đàn Vật Nuôi + Trạng Thái */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-bold text-xs text-slate-900 leading-snug line-clamp-1 flex items-center gap-1.5">
+                        <span className="text-sm shrink-0">
+                          {item.targetType === 'CROP_SEASON' ? '🌱' : '🐾'}
+                        </span>
+                        <span title={item.objectName} className="hover:text-emerald-700 transition-colors">
+                          {item.objectName}
+                        </span>
+                      </div>
                       <StatusBadge status={item.status} size="sm" />
                     </div>
-                    <div className="font-semibold text-xs text-slate-800 truncate">{item.displayName}</div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-500">
-                      <span>{item.cropOrBreed}</span>
-                      <span className="font-mono font-semibold text-slate-700">
-                        {formatWeight(item.yieldKg)}
+
+                    {/* Dòng 2: Tên Phân Khu Nổi Bật */}
+                    <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-800 bg-emerald-100/60 px-2 py-0.5 rounded-md w-fit max-w-full">
+                      <MapPin className="h-3 w-3 text-emerald-600 shrink-0" />
+                      <span className="truncate" title={item.zoneName}>
+                        {item.zoneName}
                       </span>
+                    </div>
+
+                    {/* Dòng 3: Mã đối tượng + Loại giống & Sản lượng / Quy mô đàn */}
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-100/80 text-[10px] text-slate-500">
+                      <span className="font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                        {item.code}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-400">{item.cropOrBreed}</span>
+                        <span className="font-mono font-bold text-slate-800">
+                          • {item.targetType === 'LIVESTOCK_GROUP'
+                              ? `${(item.quantity || 0).toLocaleString('vi-VN')} con`
+                              : formatWeight(item.yieldKg)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -272,9 +345,47 @@ export function UnitCostAnalysisTab() {
         </div>
 
         {/* CỘT PHẢI: CHI TIẾT GIÁ THÀNH ĐƠN VỊ & BIỂU ĐỒ CƠ CẤU 5 NHÓM */}
-        <div className="lg:col-span-2 space-y-5">
+        <div className="lg:col-span-2 space-y-4">
           {selectedTarget ? (
             <>
+              {/* Active Object Banner: Tên Mùa Vụ/Đàn + Phân Khu */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">
+                      {selectedTarget.targetType === 'CROP_SEASON' ? '🌱' : '🐾'}
+                    </span>
+                    <h2 className="font-black text-slate-900 text-sm sm:text-base">
+                      {selectedTarget.objectName || selectedTarget.displayName}
+                    </h2>
+                    <StatusBadge status={selectedTarget.status} size="sm" />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-600">
+                    <span className="flex items-center gap-1 text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[11px]">
+                      <MapPin className="h-3 w-3 text-emerald-600" />
+                      {selectedTarget.zoneName || 'Chưa gán phân khu'}
+                    </span>
+                    <span className="font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-[11px]">
+                      Mã: {selectedTarget.code || selectedTarget.targetCode}
+                    </span>
+                    <span className="text-slate-500 text-[11px]">
+                      Loại: <strong className="text-slate-700">{selectedTarget.cropOrBreed || (selectedTarget.targetType === 'CROP_SEASON' ? 'Cây trồng' : 'Vật nuôi')}</strong>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200/80">
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    {selectedTarget.targetType === 'LIVESTOCK_GROUP' ? 'Quy mô đàn nuôi:' : 'Sản lượng kỳ vọng/thực tế:'}
+                  </span>
+                  <span className="font-mono font-black text-xs text-slate-900">
+                    {selectedTarget.targetType === 'LIVESTOCK_GROUP'
+                      ? `${(selectedTarget.quantity || 0).toLocaleString('vi-VN')} con`
+                      : formatWeight(selectedTarget.yieldKg || totalYieldKg)}
+                  </span>
+                </div>
+              </div>
+
               {/* 3 KPI Cards lớn */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-1">
@@ -293,26 +404,42 @@ export function UnitCostAnalysisTab() {
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-1">
                   <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
                     <Package className="h-4 w-4 text-blue-600" />
-                    <span>Sản Lượng Thu Hoạch</span>
+                    <span>
+                      {selectedTarget.targetType === 'LIVESTOCK_GROUP' ? 'Sản Lượng / Quy Mô' : 'Sản Lượng Thu Hoạch'}
+                    </span>
                   </div>
                   <div className="font-mono text-xl font-black text-blue-800">
-                    {formatWeight(totalYieldKg)}
+                    {selectedTarget.targetType === 'LIVESTOCK_GROUP'
+                      ? totalYieldKg > 0
+                        ? formatWeight(totalYieldKg)
+                        : `${(selectedTarget.quantity || 0).toLocaleString('vi-VN')} con`
+                      : formatWeight(totalYieldKg)}
                   </div>
-                  <div className="text-[10px] text-blue-600">
-                    Đối tượng: {selectedTarget.displayName}
+                  <div className="text-[10px] text-blue-700 font-semibold truncate" title={`${selectedTarget.objectName} (${selectedTarget.zoneName})`}>
+                    {selectedTarget.objectName} ({selectedTarget.zoneName})
                   </div>
                 </div>
 
                 <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50/70 p-4 shadow-xs space-y-1">
                   <div className="text-[11px] font-black text-emerald-900 uppercase tracking-wide flex items-center gap-1.5">
                     <TrendingUp className="h-4 w-4 text-emerald-600" />
-                    <span>Giá Thành Thực Tế (VNĐ/kg)</span>
+                    <span>
+                      {selectedTarget.targetType === 'LIVESTOCK_GROUP' && totalYieldKg === 0
+                        ? 'Giá Thành Bình Quân (VNĐ/con)'
+                        : 'Giá Thành Thực Tế (VNĐ/kg)'}
+                    </span>
                   </div>
                   <div className="font-mono text-2xl font-black text-emerald-700">
-                    {formatCurrency(unitCostPerKg)}/kg
+                    {selectedTarget.targetType === 'LIVESTOCK_GROUP' && totalYieldKg === 0
+                      ? (selectedTarget.quantity || 0) > 0
+                        ? `${formatCurrency(totalCost / selectedTarget.quantity)}/con`
+                        : '0 đ/con'
+                      : `${formatCurrency(unitCostPerKg)}/kg`}
                   </div>
                   <div className="text-[10px] text-emerald-800 font-medium">
-                    Giá vốn chuẩn để làm căn cứ định giá bán
+                    {selectedTarget.targetType === 'LIVESTOCK_GROUP' && totalYieldKg === 0
+                      ? 'Suất chi phí bình quân trên mỗi đầu con'
+                      : 'Giá vốn chuẩn để làm căn cứ định giá bán'}
                   </div>
                 </div>
               </div>
@@ -325,7 +452,9 @@ export function UnitCostAnalysisTab() {
                       Cơ Cấu 5 Nhóm Chi Phí Cấu Thành Giá Thành
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Tỷ trọng các nhóm chi phí cấu thành nên 1 kg nông sản của đối tượng đang chọn
+                      {selectedTarget.targetType === 'LIVESTOCK_GROUP' && totalYieldKg === 0
+                        ? 'Tỷ trọng các nhóm chi phí cấu thành nên suất chi phí cho mỗi đầu con vật nuôi'
+                        : 'Tỷ trọng các nhóm chi phí cấu thành nên 1 kg nông sản của đối tượng đang chọn'}
                     </p>
                   </div>
                   <span className="font-mono font-bold text-xs text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
@@ -353,7 +482,11 @@ export function UnitCostAnalysisTab() {
                 <div className="space-y-2.5 pt-1">
                   {costGroups.map((g, idx) => {
                     const pct = totalCost > 0 ? ((g.amount / totalCost) * 100).toFixed(1) : 0;
-                    const unitPart = totalYieldKg > 0 ? (g.amount / totalYieldKg) : 0;
+                    const isLivestockPerHead = selectedTarget.targetType === 'LIVESTOCK_GROUP' && totalYieldKg === 0;
+                    const divisor = isLivestockPerHead ? (selectedTarget.quantity || 0) : totalYieldKg;
+                    const unitPart = divisor > 0 ? (g.amount / divisor) : 0;
+                    const unitSuffix = isLivestockPerHead ? '/con' : '/kg';
+
                     return (
                       <div
                         key={idx}
@@ -366,8 +499,8 @@ export function UnitCostAnalysisTab() {
                         <div className="flex items-center gap-4 text-right font-mono">
                           <span className="font-bold text-slate-900">{formatCurrency(g.amount)}</span>
                           <span className="text-slate-400 text-[11px] w-12">{pct}%</span>
-                          <span className={`font-semibold ${g.text} text-[11px] w-20`}>
-                            {formatCurrency(unitPart)}/kg
+                          <span className={`font-semibold ${g.text} text-[11px] min-w-20`}>
+                            {formatCurrency(unitPart)}{unitSuffix}
                           </span>
                         </div>
                       </div>

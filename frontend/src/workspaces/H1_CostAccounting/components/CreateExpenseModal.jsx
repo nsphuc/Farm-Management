@@ -13,9 +13,11 @@ import {
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { FormField, Input, Select } from '@/components/ui/FormControls';
+import { FormField, Input, Select, CodeInput } from '@/components/ui/FormControls';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 import { financeService } from '@/services/modules/financeService';
 import { farmingService } from '@/services/modules/farmingService';
+import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { toast } from '@/store/useToastStore';
@@ -74,12 +76,7 @@ export function CreateExpenseModal({ isOpen, onClose, onSuccess, initialFarmId }
 
   // Auto-generate code
   const generateExpenseCode = () => {
-    const today = new Date();
-    const yy = String(today.getFullYear()).slice(-2);
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const random = Math.floor(10 + Math.random() * 90);
-    return `EXP-${yy}${mm}${dd}-${random}`;
+    return generateEntityCode(CODE_PREFIXES.EXPENSE);
   };
 
   // Chỉ khởi tạo form khi Modal được mở lên (isOpen thay đổi sang true)
@@ -280,26 +277,14 @@ export function CreateExpenseModal({ isOpen, onClose, onSuccess, initialFarmId }
             </Select>
           </FormField>
 
-          <FormField label="Mã Chứng Từ Chi Phí">
-            <div className="flex items-center gap-1.5">
-              <Input
-                type="text"
-                value={formData.expenseCode}
-                onChange={(e) => handleChange('expenseCode', e.target.value)}
-                placeholder="EXP-YYMMDD-XX"
-                className="w-full text-xs font-mono font-bold text-amber-900"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={() => handleChange('expenseCode', generateExpenseCode())}
-                title="Tạo mã mới"
-                className="whitespace-nowrap shrink-0 px-3"
-              >
-                Gợi Ý
-              </Button>
-            </div>
+          <FormField
+            label="Mã Chứng Từ Chi Phí"
+            hint="Mã định danh tự động tăng dần do hệ thống cấp (Chỉ đọc)"
+          >
+            <CodeInput
+              value={formData.expenseCode}
+              placeholder="EXP-001"
+            />
           </FormField>
         </div>
 
@@ -388,11 +373,17 @@ export function CreateExpenseModal({ isOpen, onClose, onSuccess, initialFarmId }
                   className="w-full text-xs"
                 >
                   <option value="">-- Không gắn mùa vụ --</option>
-                  {seasons.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.seasonCode || `Mùa #${s.id}`})
-                    </option>
-                  ))}
+                  {seasons.map((s) => {
+                    const seasonName = s.cropTypeName
+                      ? (s.cropTypeName.toLowerCase().startsWith('vụ') ? s.cropTypeName : `Vụ ${s.cropTypeName}`)
+                      : (s.seasonName || s.name || `Mùa vụ ${s.seasonCode || s.id}`);
+                    const zone = s.zoneName ? ` • ${s.zoneName}` : '';
+                    return (
+                      <option key={s.id} value={s.id}>
+                        {seasonName}{zone} [{s.seasonCode || `Mùa #${s.id}`}]
+                      </option>
+                    );
+                  })}
                 </Select>
               </FormField>
             )}
@@ -409,11 +400,17 @@ export function CreateExpenseModal({ isOpen, onClose, onSuccess, initialFarmId }
                   className="w-full text-xs"
                 >
                   <option value="">-- Không gắn đàn nuôi --</option>
-                  {livestockGroups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name} ({g.code || `Đàn #${g.id}`})
-                    </option>
-                  ))}
+                  {livestockGroups.map((g) => {
+                    const groupName = g.breedName
+                      ? (g.breedName.toLowerCase().startsWith('đàn') ? g.breedName : `Đàn ${g.breedName}`)
+                      : (g.groupName || g.name || `Đàn nuôi ${g.groupCode || g.id}`);
+                    const zone = g.zoneName ? ` • ${g.zoneName}` : '';
+                    return (
+                      <option key={g.id} value={g.id}>
+                        {groupName}{zone} [{g.groupCode || g.code || `Đàn #${g.id}`}]
+                      </option>
+                    );
+                  })}
                 </Select>
               </FormField>
             )}
@@ -431,15 +428,12 @@ export function CreateExpenseModal({ isOpen, onClose, onSuccess, initialFarmId }
             />
           </FormField>
 
-          <FormField label="URL Ảnh Chụp Hóa Đơn / Biên Lai">
-            <Input
-              type="text"
-              placeholder="https://... hoặc tải ảnh lên Cloud"
-              value={formData.receiptPhotoUrl}
-              onChange={(e) => handleChange('receiptPhotoUrl', e.target.value)}
-              className="w-full text-xs"
-            />
-          </FormField>
+          <ImageUploadField
+            value={formData.receiptPhotoUrl || ''}
+            onChange={(url) => handleChange('receiptPhotoUrl', url)}
+            label="Ảnh Chụp Hóa Đơn / Biên Lai"
+            hint="Tải ảnh hóa đơn VAT, biên nhận từ máy tính hoặc chụp ảnh chứng từ."
+          />
         </div>
 
         {/* Checkbox tính giá thành */}

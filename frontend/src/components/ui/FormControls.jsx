@@ -176,8 +176,8 @@ export const Select = React.forwardRef(
                 {placeholder}
               </option>
             )}
-            {options.map((opt) => (
-              <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+            {options.map((opt, idx) => (
+              <option key={opt.key || `${opt.value ?? ''}_${idx}`} value={opt.value} disabled={opt.disabled}>
                 {opt.label}
               </option>
             ))}
@@ -208,8 +208,8 @@ export const Select = React.forwardRef(
             {placeholder}
           </option>
         )}
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+        {options.map((opt, idx) => (
+          <option key={opt.key || `${opt.value ?? ''}_${idx}`} value={opt.value} disabled={opt.disabled}>
             {opt.label}
           </option>
         ))}
@@ -289,13 +289,10 @@ export const Switch = React.forwardRef(
 Switch.displayName = 'Switch';
 
 /**
- * Standardized CodeInput (Mục 1 Chặng Chuẩn Hóa Frontend)
- * - Create Mode:
- *   - Master entity: Input tự động điền mã, kèm nút phụ [🔄 Tự sinh] bên cạnh
- *   - Transaction entity: readOnly={true}, tự động sinh mã
- * - Edit Mode:
- *   - BẮT BUỘC: disabled={true} / readOnly={true} (nền xám bg-slate-100 cursor-not-allowed)
- *     Tuyệt đối không cho phép sửa mã định danh sau khi đã tạo!
+ * Standardized CodeInput (Tuân thủ triệt để Nhiệm vụ 3)
+ * - Tất cả các loại mã, ID phải để dạng CHỈ ĐỌC (readOnly={true}) dù thêm mới hay sửa.
+ * - Tuyệt đối không hiển thị nút gợi ý mã hay sinh mã tự động.
+ * - Mã sinh tự động lần lượt theo thứ tự tăng dần.
  */
 export const CodeInput = React.forwardRef(
   (
@@ -306,7 +303,7 @@ export const CodeInput = React.forwardRef(
       prefix = 'FRM',
       isEditMode = false,
       isTransaction = false,
-      placeholder = 'VD: FRM-2610-0001',
+      placeholder = 'Mã tự động tăng dần',
       className,
       error,
       disabled,
@@ -315,41 +312,28 @@ export const CodeInput = React.forwardRef(
     },
     ref
   ) => {
-    // In edit mode, lock completely
-    const isLocked = Boolean(isEditMode || disabled || readOnly);
-    const showRegenerateBtn = !isEditMode && !isTransaction && typeof onRegenerate === 'function';
-
     return (
-      <div className="flex items-center gap-2 w-full">
+      <div className="relative flex items-center w-full">
         <Input
           ref={ref}
           value={value}
-          onChange={onChange}
-          disabled={isLocked}
-          readOnly={isTransaction || isLocked}
+          readOnly={true}
+          disabled={false}
+          tabIndex={-1}
           placeholder={placeholder}
           error={error}
           className={cn(
-            'font-mono uppercase tracking-wider',
-            isLocked && 'bg-slate-100 text-slate-500 cursor-not-allowed select-none font-semibold',
-            isTransaction && !isLocked && 'bg-slate-50 text-slate-700 font-bold',
+            'font-mono uppercase tracking-wider font-bold cursor-not-allowed select-all pr-16',
+            'bg-slate-100/90 text-slate-800 border-slate-300 focus:ring-0 focus:border-slate-300',
             className
           )}
           {...props}
         />
-        {showRegenerateBtn && (
-          <Button
-            type="button"
-            variant="outline"
-            size="md"
-            icon={<RefreshCw className="h-4 w-4 text-emerald-600" />}
-            onClick={onRegenerate}
-            title="Tự động sinh mã mới"
-            className="shrink-0 text-xs font-semibold px-3"
-          >
-            Tự sinh
-          </Button>
-        )}
+        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-600 tracking-tight">
+            TỰ ĐỘNG
+          </span>
+        </div>
       </div>
     );
   }

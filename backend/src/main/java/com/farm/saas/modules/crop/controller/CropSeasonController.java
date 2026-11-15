@@ -46,7 +46,7 @@ public class CropSeasonController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_CROP_PLAN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_CROP_PLAN') or hasRole('ROLE_FARM_OWNER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Tạo mùa vụ mới", description = "Thiết lập kế hoạch mùa vụ mới với diện tích và giống cây trồng")
     public ResponseEntity<CropSeasonDetailResponse> createSeason(
             @PathVariable Long farmId,
@@ -55,7 +55,7 @@ public class CropSeasonController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PERM_CROP_PLAN') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_CROP_PLAN') or hasRole('ROLE_FARM_OWNER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Cập nhật mùa vụ", description = "Cập nhật ngày thu hoạch thực tế, sản lượng hoặc trạng thái mùa vụ")
     public ResponseEntity<CropSeasonDetailResponse> updateSeason(
             @PathVariable Long farmId,

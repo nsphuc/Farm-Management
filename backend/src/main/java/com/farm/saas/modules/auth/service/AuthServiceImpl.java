@@ -160,7 +160,18 @@ public class AuthServiceImpl implements AuthService {
         RefreshToken token = refreshTokenRepository.findByToken(refreshTokenStr)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Mã làm mới không hợp lệ."));
 
-        // Chống Token Replay Attack (File 05 Mục 2.1)
+        // Chống Token Replay Attack (File 05 Mục 2.1) với Grace Period 30 giây cho network concurrency
+        if (Boolean.TRUE.equals(token.getRevoked())) {
+            if (token.getReplacedByToken() != null && token.getRevokedAt() != null &&
+                    token.getRevokedAt().isAfter(Instant.now().minusSeconds(30))) {
+                RefreshToken replacement = refreshTokenRepository.findByToken(token.getReplacedByToken()).orElse(null);
+                if (replacement != null && !Boolean.TRUE.equals(replacement.getRevoked()) &&
+                        replacement.getExpiresAt().isAfter(Instant.now())) {
+                    token = replacement;
+                }
+            }
+        }
+
         if (Boolean.TRUE.equals(token.getRevoked())) {
             log.warn("DETECTED REPLAY ATTACK on refresh token {} for user {}", token.getId(), token.getUserId());
             refreshTokenRepository.revokeAllByUserId(token.getUserId(), Instant.now());
@@ -356,17 +367,6 @@ public class AuthServiceImpl implements AuthService {
                             .build();
                 }).toList();
 
-        List<String> permCodes = new ArrayList<>();
-        if (!roleIds.isEmpty()) {
-            List<Long> permIds = rolePermissionRepository.findByRoleIdIn(roleIds).stream()
-                    .map(RolePermission::getPermissionId)
-                    .distinct()
-                    .collect(Collectors.toList());
-            permCodes = permissionRepository.findAllById(permIds).stream()
-                    .map(com.farm.saas.modules.auth.entity.Permission::getCode)
-                    .collect(Collectors.toList());
-        }
-
         boolean isSuperAdmin = Boolean.TRUE.equals(user.getIsSuperAdmin()) || roles.stream().anyMatch(r -> "ROLE_SUPER_ADMIN".equals(r.getCode()));
         if (roleDtos.isEmpty() && isSuperAdmin) {
             roleDtos = List.of(UserInfoDto.RoleDto.builder()
@@ -374,6 +374,27 @@ public class AuthServiceImpl implements AuthService {
                     .name("Cấp 1: Quản trị viên nền tảng")
                     .scopeLevel("SYSTEM")
                     .build());
+        }
+
+        List<String> permCodes = new ArrayList<>();
+        if (isSuperAdmin) {
+            permCodes = permissionRepository.findAll().stream()
+                    .map(com.farm.saas.modules.auth.entity.Permission::getCode)
+                    .collect(Collectors.toList());
+        } else if (roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equals(r.getCode()))) {
+            // Farm Owner has all operational permissions within tenant (all except PERM_TENANT_MANAGE)
+            permCodes = permissionRepository.findAll().stream()
+                    .map(com.farm.saas.modules.auth.entity.Permission::getCode)
+                    .filter(c -> !"PERM_TENANT_MANAGE".equals(c))
+                    .collect(Collectors.toList());
+        } else if (!roleIds.isEmpty()) {
+            List<Long> permIds = rolePermissionRepository.findByRoleIdIn(roleIds).stream()
+                    .map(RolePermission::getPermissionId)
+                    .distinct()
+                    .collect(Collectors.toList());
+            permCodes = permissionRepository.findAllById(permIds).stream()
+                    .map(com.farm.saas.modules.auth.entity.Permission::getCode)
+                    .collect(Collectors.toList());
         }
 
         int highestTier;
@@ -440,7 +461,14 @@ public class AuthServiceImpl implements AuthService {
             accessibleFarmIds.add(fa.getFarmId());
         }
 
-        if ((isSuperAdmin || isOwnerTenantScope) && user.getTenantId() != null) {
+        if (isSuperAdmin) {
+            List<Farm> allFarms = farmRepository.findAll();
+            for (Farm f : allFarms) {
+                if (!"DELETED".equalsIgnoreCase(f.getStatus())) {
+                    accessibleFarmIds.add(f.getId());
+                }
+            }
+        } else if (isOwnerTenantScope && user.getTenantId() != null) {
             List<Farm> allTenantFarms = farmRepository.findByTenantId(user.getTenantId());
             for (Farm tf : allTenantFarms) {
                 accessibleFarmIds.add(tf.getId());
@@ -565,7 +593,7 @@ public class AuthServiceImpl implements AuthService {
                 .tenantId(user.getTenantId())
                 .username(user.getUsername())
                 .passwordHash(user.getPasswordHash())
-                .isSuperAdmin(Boolean.TRUE.equals(user.getIsSuperAdmin()))
+                .isSuperAdmin(Boolean.TRUE.equals(userInfo.getIsSuperAdmin()))
                 .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
                 .roles(roleCodes)
                 .permissions(permCodes)

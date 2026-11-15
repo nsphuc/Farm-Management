@@ -19,6 +19,7 @@ import { masterDataService } from '@/services/modules/masterDataService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { toast } from '@/store/useToastStore';
 import { formatCurrency, formatNumber, formatDate } from '@/utils/formatters';
+import { convertQuantityToCapacityUnit } from '@/utils/unitConverter';
 
 export function CreateTransferModal({
   isOpen,
@@ -351,20 +352,25 @@ export function CreateTransferModal({
         }
       }
 
-      // Kiểm tra sức chứa kệ đích
+      // Kiểm tra sức chứa kệ đích (có quy đổi đơn vị chuẩn)
       if (!errs.items && toZoneLocations && toZoneLocations.length > 0) {
         const binSums = {};
         for (const it of formData.items) {
           if (it.toBinCode) {
-            const qty = Number(it.quantity) || 0;
-            binSums[it.toBinCode] = (binSums[it.toBinCode] || 0) + qty;
+            const loc = toZoneLocations.find((l) => l.code === it.toBinCode);
+            const capUnit = loc?.capacityUnit;
+            const convertedQty = convertQuantityToCapacityUnit(it, capUnit);
+            if (convertedQty !== null && convertedQty !== undefined) {
+              binSums[it.toBinCode] = (binSums[it.toBinCode] || 0) + convertedQty;
+            }
           }
         }
         for (const [code, sumQty] of Object.entries(binSums)) {
           const loc = toZoneLocations.find((l) => l.code === code);
           if (loc && loc.capacity !== null && loc.capacity !== undefined) {
             if (sumQty > loc.capacity) {
-              errs.items = `Kệ đích [${loc.code} - ${loc.name}] không đủ sức chứa! Sức chứa còn lại: ${loc.capacity}, tổng số lượng chuyển đến: ${sumQty}. Vui lòng chọn kệ khác hoặc giảm số lượng!`;
+              const unitStr = loc.capacityUnit ? ` ${loc.capacityUnit}` : '';
+              errs.items = `Kệ đích [${loc.code} - ${loc.name}] không đủ sức chứa! Sức chứa còn lại: ${loc.capacity}${unitStr}, tổng số lượng chuyển đến: ${Number(sumQty.toFixed(2))}${unitStr}. Vui lòng chọn kệ khác hoặc giảm số lượng!`;
               break;
             }
           }
@@ -702,7 +708,7 @@ export function CreateTransferModal({
                                 const isFull = loc.capacity !== null && loc.capacity !== undefined && loc.capacity <= 0;
                                 return (
                                   <option key={loc.id} value={loc.code} disabled={isFull}>
-                                    {loc.code} - {loc.name} {loc.capacity !== null && loc.capacity !== undefined ? (isFull ? '(❌ ĐÃ ĐẦY - Sức chứa: 0)' : `(Còn lại: ${loc.capacity})`) : '(Không giới hạn)'}
+                                    {loc.code} - {loc.name} {loc.capacity !== null && loc.capacity !== undefined ? (isFull ? '(❌ ĐÃ ĐẦY - Sức chứa: 0)' : `(Còn lại: ${loc.capacity} ${loc.capacityUnit || ''})`.trim()) : '(Không giới hạn)'}
                                   </option>
                                 );
                               })}
@@ -711,19 +717,27 @@ export function CreateTransferModal({
                               if (!item.toBinCode) return null;
                               const loc = toZoneLocations.find((l) => l.code === item.toBinCode);
                               if (!loc || loc.capacity === null || loc.capacity === undefined) return null;
-                              const totalQty = formData.items
-                                .filter((it) => it.toBinCode === item.toBinCode)
-                                .reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
-                              if (totalQty > loc.capacity) {
+                              const relevantItems = formData.items.filter((it) => it.toBinCode === item.toBinCode);
+                              let totalConverted = 0;
+                              let canConvert = false;
+                              for (const it of relevantItems) {
+                                const c = convertQuantityToCapacityUnit(it, loc.capacityUnit);
+                                if (c !== null && c !== undefined) {
+                                  totalConverted += c;
+                                  canConvert = true;
+                                }
+                              }
+                              if (canConvert && totalConverted > loc.capacity) {
+                                const unitStr = loc.capacityUnit ? ` ${loc.capacityUnit}` : '';
                                 return (
                                   <div className="text-[10px] text-amber-800 bg-amber-100 border border-amber-300 rounded px-1.5 py-0.5 mt-1 font-semibold flex items-center gap-1">
-                                    <span>⚠️ Vượt sức chứa: Còn {loc.capacity}, chuyển {totalQty}</span>
+                                    <span>⚠️ Vượt sức chứa: Còn {loc.capacity}{unitStr}, chuyển {Number(totalConverted.toFixed(2))}{unitStr}</span>
                                   </div>
                                 );
                               }
                               return (
                                 <div className="text-[10px] text-blue-700 mt-0.5 font-mono">
-                                  Sức chứa còn lại: <span className="font-bold">{loc.capacity}</span>
+                                  Sức chứa còn lại: <span className="font-bold">{loc.capacity} {loc.capacityUnit || ''}</span>
                                 </div>
                               );
                             })()}

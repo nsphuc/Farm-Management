@@ -57,8 +57,8 @@ public class BudgetController {
     }
 
     @PostMapping({"/{id}/approve", "/{id}/confirm"})
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_REPORT', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.isFarmManagerOrOwner(#farmId))")
-    @Operation(summary = "Phê duyệt kế hoạch ngân sách", description = "Giám đốc trang trại hoặc Chủ đầu tư phê duyệt ngân sách chuyển sang ACTIVE")
+    @PreAuthorize("(hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @Operation(summary = "Phê duyệt kế hoạch ngân sách", description = "Đặc quyền Chủ đầu tư (Owner) phê duyệt cấp vốn ngân sách chuyển sang ACTIVE")
     public ResponseEntity<BudgetDetailResponse> approveBudget(
             @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
@@ -66,8 +66,8 @@ public class BudgetController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_REPORT', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.isFarmManagerOrOwner(#farmId))")
-    @Operation(summary = "Phê duyệt hoặc thay đổi trạng thái ngân sách", description = "Phê duyệt ngân sách (status = ACTIVE)")
+    @PreAuthorize("(hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @Operation(summary = "Phê duyệt hoặc thay đổi trạng thái ngân sách", description = "Đặc quyền Chủ đầu tư (Owner) phê duyệt ngân sách (status = ACTIVE)")
     public ResponseEntity<BudgetDetailResponse> updateBudgetStatus(
             @PathVariable(required = false) Long farmId,
             @PathVariable Long id,
@@ -76,8 +76,8 @@ public class BudgetController {
     }
 
     @PostMapping({"/{id}/reject", "/{id}/cancel"})
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_REPORT', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.isFarmManagerOrOwner(#farmId))")
-    @Operation(summary = "Từ chối kế hoạch ngân sách", description = "Chuyển trạng thái ngân sách sang REVISED (yêu cầu lập lại) hoặc CLOSED")
+    @PreAuthorize("(hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @Operation(summary = "Từ chối kế hoạch ngân sách", description = "Đặc quyền Chủ đầu tư (Owner) chuyển trạng thái ngân sách sang REVISED (yêu cầu lập lại) hoặc CLOSED")
     public ResponseEntity<BudgetDetailResponse> rejectBudget(
             @PathVariable(required = false) Long farmId,
             @PathVariable Long id,

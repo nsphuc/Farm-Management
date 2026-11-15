@@ -6,6 +6,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import lombok.*;
 
+/**
+ * Thực thể lưu trữ thông tin lô sản phẩm thành phẩm (product_batches) phục vụ kiểm định KCS và dán tem QR truy xuất nguồn gốc.
+ */
 @Getter
 @Setter
 @Builder

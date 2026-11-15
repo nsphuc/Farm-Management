@@ -15,6 +15,8 @@ public interface SalesDeliveryRepository extends JpaRepository<SalesDelivery, Lo
 
     Optional<SalesDelivery> findByTenantIdAndFarmIdAndDeliveryCode(Long tenantId, Long farmId, String deliveryCode);
 
+    boolean existsByTenantIdAndFarmIdAndDeliveryCode(Long tenantId, Long farmId, String deliveryCode);
+
     Page<SalesDelivery> findByFarmId(Long farmId, Pageable pageable);
 
     List<SalesDelivery> findBySalesOrderId(Long salesOrderId);

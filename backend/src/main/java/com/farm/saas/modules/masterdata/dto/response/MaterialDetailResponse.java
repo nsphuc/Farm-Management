@@ -22,6 +22,8 @@ public class MaterialDetailResponse {
     private String name;
     private Long categoryId;
     private String categoryName;
+    private Long cropTypeId;
+    private String cropTypeName;
     private String standardUnit;
     private String dispatchStrategy;
     private Integer expiryAlertDays;

@@ -9,3 +9,4 @@ export * from './qaService';
 export * from './financeService';
 export * from './farmingService';
 export * from './platformService';
+export * from './reportService';

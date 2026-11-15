@@ -170,15 +170,63 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleMaxUploadSizeExceeded(org.springframework.web.multipart.MaxUploadSizeExceededException ex, HttpServletRequest request) {
+        log.warn("Upload size exceeded: {} | URI: {}", ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Payload Too Large")
+                .errorCode("FILE_TOO_LARGE")
+                .message("Kích thước tệp tải lên vượt quá dung lượng tối đa cho phép (50MB).")
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
+    public ResponseEntity<ApiErrorResponse> handleMultipartException(org.springframework.web.multipart.MultipartException ex, HttpServletRequest request) {
+        log.warn("Multipart request error: {} | URI: {}", ex.getMessage(), request.getRequestURI());
+        ApiErrorResponse error = ApiErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error("Bad Request")
+                .errorCode("INVALID_MULTIPART_REQUEST")
+                .message("Yêu cầu tải tệp lên không hợp lệ hoặc thiếu thông tin phân đoạn multipart.")
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiErrorResponse> handleDataIntegrityViolation(org.springframework.dao.DataIntegrityViolationException ex, HttpServletRequest request) {
+        log.warn("Data integrity violation: {} | URI: {}", ex.getMessage(), request.getRequestURI());
+        String msg = "Dữ liệu gửi lên vi phạm ràng buộc toàn vẹn hoặc trùng lặp mã duy nhất (SKU, Mã vạch).";
+        String exMsg = ex.getMessage() != null ? ex.getMessage().toLowerCase() : "";
+        if (exMsg.contains("too long") || exMsg.contains("data truncation")) {
+            msg = "Dữ liệu nhập vào vượt quá độ dài ký tự tối đa cho phép của hệ thống.";
+        }
+        ApiErrorResponse error = ApiErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error("Data Integrity Conflict")
+                .errorCode("DATA_INTEGRITY_VIOLATION")
+                .message(msg)
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleGenericException(Exception ex, HttpServletRequest request) {
         log.error("Internal server error: ", ex);
+        String detailedMsg = ex.getMessage() != null ? ex.getMessage() : "Đã xảy ra lỗi nội bộ hệ thống. Vui lòng liên hệ quản trị viên.";
         ApiErrorResponse error = ApiErrorResponse.builder()
                 .timestamp(Instant.now())
                 .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
                 .error("Internal Server Error")
                 .errorCode("INTERNAL_SERVER_ERROR")
-                .message("Đã xảy ra lỗi nội bộ hệ thống. Vui lòng liên hệ quản trị viên.")
+                .message(detailedMsg)
                 .path(request.getRequestURI())
                 .build();
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);

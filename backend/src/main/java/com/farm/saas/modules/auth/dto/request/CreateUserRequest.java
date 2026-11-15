@@ -23,7 +23,7 @@ public class CreateUserRequest {
     private String fullName;
 
     @NotBlank(message = "Email không được để trống")
-    @Email(message = "Email không đúng định dạng")
+    @Pattern(regexp = "^[A-Za-z0-9._%+-]+@gmail\\.com$", flags = Pattern.Flag.CASE_INSENSITIVE, message = "Email phải có định dạng @gmail.com (ví dụ: quantri@gmail.com)")
     @Size(max = 150, message = "Email tối đa 150 ký tự")
     private String email;
 

@@ -13,6 +13,7 @@ import {
   PackageCheck,
   Box,
   Percent,
+  Truck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -22,7 +23,10 @@ import { toast } from '@/store/useToastStore';
 import { farmingService } from '@/services/modules/farmingService';
 import { qaService } from '@/services/modules/qaService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { inventoryService } from '@/services/modules/inventoryService';
 import { formatDate, formatNumber, formatWeight } from '@/utils/formatters';
+import { generateNextBatchCode } from '@/workspaces/F_QaTraceability';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 
 export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
   const [weightLogs, setWeightLogs] = useState([]);
@@ -32,6 +36,7 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
 
   // Modal Ghi nhận thu hoạch (Field Staff / Farm Manager)
   const [isHarvestModalOpen, setIsHarvestModalOpen] = useState(false);
+  const [warehouses, setWarehouses] = useState([]);
   const [harvestForm, setHarvestForm] = useState({
     harvestDate: new Date().toISOString().split('T')[0],
     quantity: '',
@@ -40,18 +45,21 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
     qualityGrade: 'GRADE_A',
     lossPercentage: '0',
     notes: '',
+    warehouseId: '',
+    autoCreateBatchAndReceipt: true,
   });
 
   // Modal Tiếp nhận đóng gói Lô thành phẩm (Warehouse Staff / Farm Manager)
   const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
   const [packageForm, setPackageForm] = useState({
-    batchCode: `BATCH-${Date.now().toString().slice(-6)}`,
+    batchCode: '',
     productName: item?.cropVariety || item?.breed || 'Nông sản thu hoạch',
     initialQuantity: '',
     unit: 'KG',
     qualityGrade: 'GRADE_A',
     expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     harvestDate: new Date().toISOString().split('T')[0],
+    packagingPhotoUrl: '',
     sourceHarvestRecordIds: [],
   });
 
@@ -104,6 +112,13 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
         const filtered = hList.filter((h) => !h.seasonId || h.seasonId === item.id);
         setHarvestRecords(filtered);
       }
+
+      // Nạp danh sách kho lưu trữ của nông trại
+      inventoryService.getWarehouses(farmId).then((whData) => {
+        const list = Array.isArray(whData) ? whData : (whData?.content || []);
+        const activeWh = list.filter((w) => w.status === 'ACTIVE');
+        setWarehouses(activeWh);
+      }).catch(() => {});
     } catch (err) {
       console.error('Lỗi khi tải dữ liệu tăng trưởng/thu hoạch:', err);
     } finally {
@@ -146,13 +161,19 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
         qualityGrade: harvestForm.qualityGrade === 'EXPORT' ? 'GRADE_A' : (harvestForm.qualityGrade || 'GRADE_A'),
         lossPercentage: Number(harvestForm.lossPercentage || 0),
         notes: harvestForm.notes?.trim() || '',
+        warehouseId: harvestForm.warehouseId ? Number(harvestForm.warehouseId) : null,
+        autoCreateBatchAndReceipt: harvestForm.autoCreateBatchAndReceipt,
       };
 
       await farmingService.createHarvestRecord(farmId, payload);
       toast.success(
-        isCrop
-          ? 'Đã ghi nhận sản lượng thu hoạch nông sản tại ruộng thành công!'
-          : 'Đã lập biên bản xuất chuồng / thu hoạch đàn vật nuôi thành công!'
+        harvestForm.autoCreateBatchAndReceipt
+          ? (isCrop
+              ? 'Đã ghi nhận thu hoạch, tự động tạo Lô thành phẩm KCS và Nhập kho thành phẩm thành công!'
+              : 'Đã lập biên bản xuất chuồng, tự động tạo Lô KCS và Nhập kho thành phẩm thành công!')
+          : (isCrop
+              ? 'Đã ghi nhận sản lượng thu hoạch nông sản tại ruộng thành công!'
+              : 'Đã lập biên bản xuất chuồng / thu hoạch đàn vật nuôi thành công!')
       );
       setIsHarvestModalOpen(false);
       fetchData();
@@ -163,6 +184,7 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
       store.notifyDataChanged?.('all');
       store.notifyDataChanged?.('batches');
       store.notifyDataChanged?.('seasons');
+      store.notifyDataChanged?.('inventory');
     } catch (err) {
       console.error('Lỗi ghi nhận thu hoạch:', err);
       toast.error(err.response?.data?.message || err.message || 'Lỗi ghi nhận thu hoạch');
@@ -172,15 +194,25 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
   };
 
   // Mở modal đóng gói nhanh từ một dòng biên bản thu hoạch
-  const handleOpenPackagingForRecord = (record) => {
+  const handleOpenPackagingForRecord = async (record) => {
+    let nextCode = `BATCH-${new Date().getFullYear()}-001`;
+    try {
+      const res = await qaService.getBatches(farmId, { size: 100 });
+      const batchList = res?.content || (Array.isArray(res) ? res : []);
+      nextCode = generateNextBatchCode(batchList);
+    } catch (e) {
+      console.warn('Lỗi tải danh sách lô để sinh mã tuần tự:', e);
+    }
+
     setPackageForm({
-      batchCode: `BATCH-${Date.now().toString().slice(-6)}`,
+      batchCode: nextCode,
       productName: item?.cropVariety || item?.breed || 'Nông sản thu hoạch',
       initialQuantity: String(record.quantity || record.actualYieldKg || ''),
       unit: record.unit || 'KG',
       qualityGrade: record.qualityGrade === 'EXPORT' ? 'GRADE_A' : (record.qualityGrade || 'GRADE_A'),
       expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       harvestDate: record.harvestDate || new Date().toISOString().split('T')[0],
+      packagingPhotoUrl: '',
       sourceHarvestRecordIds: [record.id],
     });
     setIsPackageModalOpen(true);
@@ -200,6 +232,7 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
         qualityGrade: packageForm.qualityGrade === 'EXPORT' ? 'GRADE_A' : packageForm.qualityGrade,
         harvestDate: packageForm.harvestDate,
         expiryDate: packageForm.expiryDate,
+        packagingPhotoUrl: packageForm.packagingPhotoUrl,
         seasonId: isCrop ? item.id : undefined,
         livestockGroupId: !isCrop ? item.id : undefined,
       };
@@ -390,7 +423,11 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
           <div>
             <h5 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-              <Apple className="h-4 w-4 text-emerald-600" />
+              {sector === 'CROP' ? (
+                <Apple className="h-4 w-4 text-emerald-600" />
+              ) : (
+                <Truck className="h-4 w-4 text-emerald-600" />
+              )}
               <span>
                 {sector === 'CROP'
                   ? 'Biên Bản Thu Hoạch Nông Sản Đã Ghi Nhận'
@@ -407,8 +444,11 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
               <Button
                 size="sm"
                 variant="success"
-                icon={<Plus className="h-3.5 w-3.5" />}
+                icon={sector === 'CROP' ? <Plus className="h-3.5 w-3.5" /> : <Truck className="h-3.5 w-3.5" />}
                 onClick={() => {
+                  const defaultWh = warehouses.find((w) => w.warehouseType === 'COLD_STORAGE') ||
+                                    warehouses.find((w) => w.warehouseType === 'HARVESTED_PRODUCE') ||
+                                    warehouses[0];
                   setHarvestForm({
                     harvestDate: new Date().toISOString().split('T')[0],
                     quantity: '',
@@ -417,6 +457,8 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
                     qualityGrade: 'GRADE_A',
                     lossPercentage: '0',
                     notes: '',
+                    warehouseId: defaultWh ? String(defaultWh.id) : '',
+                    autoCreateBatchAndReceipt: true,
                   });
                   setIsHarvestModalOpen(true);
                 }}
@@ -429,7 +471,7 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
                     : ''
                 }
               >
-                {sector === 'CROP' ? '+ Ghi Nhận Sản Lượng Thu Hoạch' : '+ Ghi Nhận Xuất Chuồng / Thu Hoạch'}
+                {sector === 'CROP' ? '+ Ghi Nhận Sản Lượng Thu Hoạch' : '+ Ghi Nhận Xuất Chuồng / Bán Đàn'}
               </Button>
             </Can>
 
@@ -452,7 +494,7 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
                   setIsPackageModalOpen(true);
                 }}
               >
-                Tiếp Nhận & Đóng Gói Lô Thành Phẩm
+                {sector === 'CROP' ? 'Tiếp Nhận Đóng Gói Lô (KCS)' : 'Tiếp Nhận Lô Xuất Bán (KCS)'}
               </Button>
             </Can>
           </div>
@@ -546,7 +588,7 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
       >
         <form onSubmit={handleCreateHarvest} className="space-y-4 text-xs">
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Ngày Thu Hoạch" required>
+            <FormField label={sector === 'LIVESTOCK' ? "Ngày Xuất Chuồng / Thu Hoạch" : "Ngày Thu Hoạch"} required>
               <Input
                 type="date"
                 value={harvestForm.harvestDate}
@@ -569,14 +611,14 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Sản Lượng Thực Thu" required>
+            <FormField label={sector === 'LIVESTOCK' ? "Số Lượng Xuất / Sản Lượng" : "Sản Lượng Thực Thu"} required>
               <Input
                 type="number"
                 step="0.01"
                 min="0.01"
-                value={harvestForm.quantity || harvestForm.actualYieldKg}
+                value={harvestForm.quantity ?? harvestForm.actualYieldKg ?? ''}
                 onChange={(e) => setHarvestForm({ ...harvestForm, quantity: e.target.value, actualYieldKg: e.target.value })}
-                placeholder="VD: 1500"
+                placeholder={sector === 'LIVESTOCK' && harvestForm.unit === 'CON' ? `Hiện tại: ${item?.currentQuantity || 20} con` : "VD: 1500"}
                 required
               />
             </FormField>
@@ -586,16 +628,26 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
                 value={harvestForm.unit}
                 onChange={(e) => setHarvestForm({ ...harvestForm, unit: e.target.value })}
               >
-                <option value="KG">Kilogram (KG)</option>
-                <option value="TAN">Tấn (TAN)</option>
-                <option value="CON">Con (CON)</option>
-                <option value="BO">Bó (BO)</option>
-                <option value="THUNG">Thùng (THUNG)</option>
+                {sector === 'LIVESTOCK' ? (
+                  <>
+                    <option value="CON">Con (CON - Vật nuôi sống xuất bán)</option>
+                    <option value="KG">Kilogram (KG - Cân thịt hơi)</option>
+                    <option value="LIT">Lít (LIT - Thu hoạch sữa tươi)</option>
+                    <option value="QUA">Quả (QUA - Thu hoạch trứng)</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="KG">Kilogram (KG)</option>
+                    <option value="TAN">Tấn (TAN)</option>
+                    <option value="THUNG">Thùng (THUNG)</option>
+                    <option value="BO">Bó (BO)</option>
+                  </>
+                )}
               </Select>
             </FormField>
           </div>
 
-          <FormField label="Tỷ Lệ Hao Hụt Dự Kiến (%)" hint="Hao hụt do cắt tỉa, dập nát khi thu hái">
+          <FormField label="Tỷ Lệ Hao Hụt Dự Kiến (%)" hint={sector === 'LIVESTOCK' ? "Hao hụt vận chuyển / phân loại" : "Hao hụt do cắt tỉa, dập nát khi thu hái"}>
             <Input
               type="number"
               step="0.1"
@@ -603,24 +655,70 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
               max="100"
               value={harvestForm.lossPercentage}
               onChange={(e) => setHarvestForm({ ...harvestForm, lossPercentage: e.target.value })}
-              placeholder="VD: 3.5"
+              placeholder="VD: 0"
             />
           </FormField>
 
-          <FormField label="Ghi Chú Đợt Thu Hoạch">
+          <FormField label={sector === 'LIVESTOCK' ? "Ghi Chú Đợt Xuất Chuồng" : "Ghi Chú Đợt Thu Hoạch"}>
             <Input
               value={harvestForm.notes}
-              placeholder="Thời tiết khi thu hoạch, nhân công, chất lượng cảm quan..."
+              placeholder={sector === 'LIVESTOCK' ? "Tên thương lái, thể trạng đàn, số xe vận chuyển..." : "Thời tiết khi thu hoạch, nhân công, chất lượng cảm quan..."}
               onChange={(e) => setHarvestForm({ ...harvestForm, notes: e.target.value })}
             />
           </FormField>
+
+          {/* Tùy chọn tự động hóa 1-Click: Tạo Lô KCS & Phiếu nhập kho */}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-emerald-900 flex items-start gap-2.5">
+            <input
+              type="checkbox"
+              id="autoCreateBatchAndReceipt"
+              checked={harvestForm.autoCreateBatchAndReceipt}
+              onChange={(e) => setHarvestForm({ ...harvestForm, autoCreateBatchAndReceipt: e.target.checked })}
+              className="mt-0.5 w-4 h-4 text-emerald-600 rounded border-emerald-300 focus:ring-emerald-500 cursor-pointer"
+            />
+            <label htmlFor="autoCreateBatchAndReceipt" className="cursor-pointer select-none">
+              <span className="font-semibold block text-emerald-950 flex items-center gap-1.5">
+                <Box className="w-4 h-4 text-emerald-600" />
+                {sector === 'LIVESTOCK' && harvestForm.unit === 'CON'
+                  ? '🏷️ Tự Động Cấp Lô KCS Xuất Chuồng (Tại Chuồng, Không Nhập Kho Vật Lý)'
+                  : '📦 Tự Động Tạo Lô Thành Phẩm KCS & Phiếu Nhập Kho (1-Click)'}
+              </span>
+              <span className="text-[11px] text-emerald-700 block mt-0.5 leading-relaxed">
+                {sector === 'LIVESTOCK' && harvestForm.unit === 'CON'
+                  ? 'Hệ thống tự động cấp mã Lô KCS (BATCH-LIVE-...) và QR truy xuất nguồn gốc gắn trực tiếp tại chuồng trại để chào bán thương lái. Đàn vật nuôi tiếp tục ở chuồng, không lập phiếu nhập kho rác.'
+                  : 'Hệ thống sẽ tự động duyệt KCS, cấp mã truy xuất QR và lập phiếu nhập kho thành phẩm tăng tồn kho bảo quản ngay lập tức.'}
+              </span>
+            </label>
+          </div>
+
+          {harvestForm.autoCreateBatchAndReceipt && sector !== 'LIVESTOCK' && warehouses.length > 0 && (
+            <FormField label="Kho Lưu Trữ Sau Thu Hoạch (Chỗ Chứa Nông Sản)" hint="Chọn kho lạnh hoặc kho bảo quản thành phẩm tại nông trại" required>
+              <Select
+                value={harvestForm.warehouseId}
+                onChange={(e) => setHarvestForm({ ...harvestForm, warehouseId: e.target.value })}
+              >
+                {warehouses
+                  .filter((w) => w.warehouseType === 'COLD_STORAGE' || w.warehouseType === 'HARVESTED_PRODUCE' || w.status === 'ACTIVE')
+                  .map((wh) => (
+                    <option key={wh.id} value={wh.id}>
+                      {wh.warehouseType === 'COLD_STORAGE' ? '❄️ [Kho Lạnh] ' : '📦 [Kho Nông Sản] '}
+                      {wh.name}
+                    </option>
+                  ))}
+              </Select>
+            </FormField>
+          )}
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
             <Button variant="ghost" type="button" onClick={() => setIsHarvestModalOpen(false)}>
               Hủy
             </Button>
             <Button variant="success" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Đang lưu...' : 'Lưu Biên Bản Thu Hoạch'}
+              {isSubmitting
+                ? 'Đang lưu...'
+                : (sector === 'LIVESTOCK'
+                    ? (harvestForm.unit === 'CON' ? 'Lưu Biên Bản & Cấp Lô Xuất Chuồng' : 'Lưu Biên Bản Thu Hoạch')
+                    : 'Lưu Biên Bản Thu Hoạch')}
             </Button>
           </div>
         </form>
@@ -635,12 +733,17 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
         size="md"
       >
         <form onSubmit={handleCreatePackageBatch} className="space-y-4 text-xs">
-          <FormField label="Mã Lô Thành Phẩm" required>
-            <Input
-              value={packageForm.batchCode}
-              onChange={(e) => setPackageForm({ ...packageForm, batchCode: e.target.value })}
-              required
-            />
+          <FormField label="Mã Lô Thành Phẩm (Tự động cấp)" required hint="Hệ thống tự động tăng tuần tự theo năm tài chính">
+            <div className="relative">
+              <Input
+                value={packageForm.batchCode}
+                readOnly
+                className="bg-slate-100 font-mono font-bold text-slate-800 cursor-not-allowed border-slate-300 pr-20"
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300 select-none">
+                Chỉ đọc
+              </span>
+            </div>
           </FormField>
 
           <FormField label="Tên Sản Phẩm Đóng Gói" required>
@@ -740,6 +843,13 @@ export function GrowthAndHarvestTab({ item, sector, farmId, onDataChanged }) {
               />
             </FormField>
           </div>
+
+          <ImageUploadField
+            value={packageForm.packagingPhotoUrl || ''}
+            onChange={(url) => setPackageForm({ ...packageForm, packagingPhotoUrl: url })}
+            label="Ảnh Chụp Kiện/Thùng Hàng Hoặc Đàn Xuất Chuồng Thực Tế (Tùy chọn)"
+            hint="Tải ảnh trực tiếp từ máy tính/điện thoại (JPG, PNG) hoặc dán URL ảnh thực tế."
+          />
 
           <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-[11px]">
             ⚠️ Lô thành phẩm mới tạo sẽ ở trạng thái <strong>PENDING_APPROVAL</strong> (Chờ duyệt KCS). Giám đốc trang trại (Checker) sẽ phê duyệt để sinh mã QR truy xuất.

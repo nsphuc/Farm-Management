@@ -11,4 +11,7 @@ public interface WarehouseIssueRepository extends JpaRepository<WarehouseIssue, 
     java.util.Optional<WarehouseIssue> findByTenantIdAndFarmIdAndIssueCode(Long tenantId, Long farmId, String issueCode);
     boolean existsByTenantIdAndFarmIdAndIssueCode(Long tenantId, Long farmId, String issueCode);
     boolean existsByWarehouseId(Long warehouseId);
+    java.util.List<WarehouseIssue> findByTaskId(Long taskId);
+    java.util.Optional<WarehouseIssue> findFirstByTaskIdAndStatusNot(Long taskId, String status);
+    boolean existsByTaskIdAndStatusNot(Long taskId, String status);
 }

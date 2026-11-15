@@ -48,4 +48,6 @@ public class CreateLivestockGroupRequest {
 
     @NotNull(message = "Ngày nhập đàn không được để trống")
     private LocalDate entryDate;
+
+    private String managementType; // 'FLOCK_HERD' | 'INDIVIDUAL_TAGGED'
 }

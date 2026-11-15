@@ -26,13 +26,13 @@ public class UpdateEnterpriseProfileRequest {
 
     private LocalDate establishedDate;
 
-    @Size(max = 500, message = "Đường dẫn logo tối đa 500 ký tự")
+    @Size(max = 5000000, message = "Đường dẫn logo hoặc dữ liệu ảnh tối đa 5MB")
     private String logoUrl;
 
     @Size(max = 30, message = "Số điện thoại tối đa 30 ký tự")
     private String contactPhone;
 
-    @Email(message = "Email liên hệ không hợp lệ")
+    @jakarta.validation.constraints.Pattern(regexp = "^$|^[A-Za-z0-9._%+-]+@gmail\\.com$", flags = jakarta.validation.constraints.Pattern.Flag.CASE_INSENSITIVE, message = "Email liên hệ phải có định dạng @gmail.com")
     @Size(max = 150, message = "Email tối đa 150 ký tự")
     private String contactEmail;
 

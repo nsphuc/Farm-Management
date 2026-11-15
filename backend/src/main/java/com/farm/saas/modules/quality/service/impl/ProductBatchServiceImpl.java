@@ -3,6 +3,7 @@ package com.farm.saas.modules.quality.service.impl;
 import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
+import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.crop.entity.CropSeason;
 import com.farm.saas.modules.crop.entity.FarmingLog;
@@ -12,7 +13,11 @@ import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.livestock.entity.LivestockGroup;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
+import com.farm.saas.modules.masterdata.entity.CropType;
+import com.farm.saas.modules.masterdata.entity.LivestockBreed;
 import com.farm.saas.modules.masterdata.entity.Warehouse;
+import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
+import com.farm.saas.modules.masterdata.repository.LivestockBreedRepository;
 import com.farm.saas.modules.masterdata.repository.WarehouseRepository;
 import com.farm.saas.modules.notification.service.NotificationService;
 import com.farm.saas.modules.platform.entity.Enterprise;
@@ -43,6 +48,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
 
+/**
+ * Triển khai dịch vụ quản lý lô sản phẩm thành phẩm (Product Batch).
+ * Xử lý toàn bộ vòng đời của lô hàng: đóng lô từ nguồn thu hoạch, kiểm định chất lượng KCS,
+ * phê duyệt Maker-Checker, tạo bản chụp truy xuất nguồn gốc bất biến (SHA-256), in tem QR và thu hồi sản phẩm.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -60,6 +70,8 @@ public class ProductBatchServiceImpl implements ProductBatchService {
     private final FarmRepository farmRepository;
     private final CropSeasonRepository cropSeasonRepository;
     private final LivestockGroupRepository livestockGroupRepository;
+    private final CropTypeRepository cropTypeRepository;
+    private final LivestockBreedRepository livestockBreedRepository;
     private final FarmingLogRepository farmingLogRepository;
     private final UserRepository userRepository;
     private final EnterpriseRepository enterpriseRepository;
@@ -67,6 +79,18 @@ public class ProductBatchServiceImpl implements ProductBatchService {
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Tạo mới một lô thành phẩm từ một hoặc nhiều nguồn thu hoạch (vụ mùa hoặc đàn vật nuôi).
+     * Kiểm tra tính hợp lệ của kho lưu trữ (chỉ chấp nhận HARVESTED_PRODUCE hoặc COLD_STORAGE đang ACTIVE),
+     * xác thực định mức sản lượng đóng góp, ghi nhận sổ cái biến động (product_batch_transactions)
+     * và gửi thông báo tới Kỹ sư KCS cùng Giám đốc trang trại.
+     *
+     * @param farmId  ID trang trại thực hiện đóng lô
+     * @param request Dữ liệu chi tiết lô thành phẩm và danh sách nguồn đóng góp
+     * @return Chi tiết lô thành phẩm vừa khởi tạo với trạng thái PENDING_APPROVAL
+     * @throws ResourceNotFoundException nếu không tìm thấy kho hoặc nguồn thu hoạch
+     * @throws BusinessException         nếu kho không hợp lệ hoặc sản lượng đóng góp không hợp lệ
+     */
     @Override
     @Transactional
     public ProductBatchDetailResponse createProductBatch(Long farmId, CreateProductBatchRequest request) {
@@ -169,6 +193,36 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         // 3. Create Product Batch
         String qualityGrade = StringUtils.hasText(request.getQualityGrade()) ? request.getQualityGrade() : "STANDARD";
 
+        String initialImageUrl = request.getPackagingPhotoUrl();
+        if (!StringUtils.hasText(initialImageUrl)) {
+            if (request.getSeasonId() != null) {
+                initialImageUrl = cropSeasonRepository.findById(request.getSeasonId())
+                        .flatMap(s -> cropTypeRepository.findById(s.getCropTypeId()))
+                        .map(CropType::getImageUrl)
+                        .orElse(null);
+            } else if (request.getLivestockGroupId() != null) {
+                initialImageUrl = livestockGroupRepository.findById(request.getLivestockGroupId())
+                        .flatMap(g -> livestockBreedRepository.findById(g.getBreedId()))
+                        .map(LivestockBreed::getImageUrl)
+                        .orElse(null);
+            } else if (request.getSourceHarvestRecordIds() != null && !request.getSourceHarvestRecordIds().isEmpty()) {
+                HarvestRecord har = harvestRecordRepository.findById(request.getSourceHarvestRecordIds().get(0)).orElse(null);
+                if (har != null) {
+                    if (har.getSeasonId() != null) {
+                        initialImageUrl = cropSeasonRepository.findById(har.getSeasonId())
+                                .flatMap(s -> cropTypeRepository.findById(s.getCropTypeId()))
+                                .map(CropType::getImageUrl)
+                                .orElse(null);
+                    } else if (har.getLivestockGroupId() != null) {
+                        initialImageUrl = livestockGroupRepository.findById(har.getLivestockGroupId())
+                                .flatMap(g -> livestockBreedRepository.findById(g.getBreedId()))
+                                .map(LivestockBreed::getImageUrl)
+                                .orElse(null);
+                    }
+                }
+            }
+        }
+
         ProductBatch batch = ProductBatch.builder()
                 .tenantId(tenantId)
                 .farmId(farmId)
@@ -186,6 +240,7 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 .reservedQuantity(BigDecimal.ZERO)
                 .unit(request.getUnit())
                 .qualityGrade(qualityGrade)
+                .qrImageUrl(StringUtils.hasText(initialImageUrl) ? initialImageUrl : null)
                 .status("PENDING_APPROVAL")
                 .createdAt(Instant.now())
                 .createdBy(currentUserId)
@@ -260,12 +315,28 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         return mapToDetailResponse(batch);
     }
 
+    /**
+     * Lấy danh sách phân trang các lô thành phẩm của một trang trại (không lọc).
+     *
+     * @param farmId   ID trang trại
+     * @param pageable Thông tin phân trang
+     * @return Trang danh sách lô sản phẩm
+     */
     @Override
     @Transactional(readOnly = true)
     public Page<ProductBatchDetailResponse> getProductBatches(Long farmId, Pageable pageable) {
         return getProductBatches(farmId, null, null, pageable);
     }
 
+    /**
+     * Lấy danh sách phân trang các lô thành phẩm có lọc theo trang thái và từ khóa tìm kiếm.
+     *
+     * @param farmId   ID trang trại (tùy chọn)
+     * @param status   Trạng thái lô cần tìm kiếm (hoặc nhóm trạng thái như MARKET_ACTIVE)
+     * @param keyword  Từ khóa tìm kiếm mã lô, tên sản phẩm hoặc mã QR
+     * @param pageable Thông tin phân trang và sắp xếp
+     * @return Trang danh sách lô sản phẩm chi tiết
+     */
     @Override
     @Transactional(readOnly = true)
     public Page<ProductBatchDetailResponse> getProductBatches(Long farmId, String status, String keyword, Pageable pageable) {
@@ -302,6 +373,14 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         return productBatchRepository.findAll(spec, pageable).map(this::mapToDetailResponse);
     }
 
+    /**
+     * Lấy chi tiết thông tin một lô thành phẩm theo ID kèm toàn bộ dữ liệu truy xuất liên quan.
+     *
+     * @param farmId ID trang trại (tùy chọn)
+     * @param id     ID của lô sản phẩm cần tra cứu
+     * @return DTO chi tiết lô thành phẩm
+     * @throws ResourceNotFoundException nếu không tìm thấy lô sản phẩm tương ứng
+     */
     @Override
     @Transactional(readOnly = true)
     public ProductBatchDetailResponse getProductBatchById(Long farmId, Long id) {
@@ -312,6 +391,18 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         return mapToDetailResponse(batch);
     }
 
+    /**
+     * Phê duyệt chất lượng KCS cho lô thành phẩm và chuyển sang trạng thái READY_TO_PRINT.
+     * Áp dụng nguyên tắc kiểm soát Maker-Checker: Người đã kiểm định KCS không được tự phê duyệt chính mình.
+     * Tự động khởi tạo mã chuỗi tem QR và 5 bản chụp truy xuất nguồn gốc bất biến (Traceability Snapshot).
+     *
+     * @param farmId  ID trang trại
+     * @param id      ID lô sản phẩm cần phê duyệt
+     * @param request Thông tin bổ sung khi phê duyệt
+     * @return Chi tiết lô sản phẩm sau khi phê duyệt thành công
+     * @throws BusinessException     nếu trạng thái lô không phải PENDING_APPROVAL hoặc kết quả KCS không đạt
+     * @throws AccessDeniedException nếu người phê duyệt trùng với người kiểm định KCS (vi phạm Maker-Checker)
+     */
     @Override
     @Transactional
     public ProductBatchDetailResponse approveBatch(Long farmId, Long id, ApproveProductBatchRequest request) {
@@ -356,6 +447,16 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         return mapToDetailResponse(batch);
     }
 
+    /**
+     * Từ chối phê duyệt lô thành phẩm khi không thỏa mãn tiêu chuẩn chất lượng.
+     * Cập nhật trạng thái lô thành REJECTED và lưu lý do từ chối.
+     *
+     * @param farmId  ID trang trại
+     * @param id      ID lô sản phẩm cần từ chối
+     * @param request Lý do từ chối
+     * @return Chi tiết lô sản phẩm sau khi từ chối
+     * @throws BusinessException nếu lô không ở trạng thái PENDING_APPROVAL
+     */
     @Override
     @Transactional
     public ProductBatchDetailResponse rejectBatch(Long farmId, Long id, RejectProductBatchRequest request) {
@@ -381,6 +482,15 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         return mapToDetailResponse(batch);
     }
 
+    /**
+     * Thu hồi khẩn cấp lô sản phẩm thành phẩm do phát hiện rủi ro an toàn thực phẩm.
+     * Cập nhật trạng thái RECALLED và kích hoạt cảnh báo khi quét QR công khai.
+     *
+     * @param farmId  ID trang trại (tùy chọn)
+     * @param id      ID lô sản phẩm cần thu hồi
+     * @param request Lý do và nội dung thu hồi khẩn cấp
+     * @return Chi tiết lô sản phẩm sau khi thu hồi
+     */
     @Override
     @Transactional
     public ProductBatchDetailResponse recallBatch(Long farmId, Long id, RecallProductBatchRequest request) {
@@ -403,6 +513,16 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         return mapToDetailResponse(batch);
     }
 
+    /**
+     * Ghi nhận lịch sử in tem nhãn QR truy xuất nguồn gốc cho lô sản phẩm thành phẩm.
+     * Tự động chuyển đổi trạng thái lô sang PRINTED nếu lô đang ở trạng thái READY_TO_PRINT.
+     *
+     * @param farmId  ID trang trại
+     * @param id      ID lô sản phẩm cần in tem
+     * @param request Thông số in ấn (số lượng tem, khổ tem, máy in)
+     * @return Chi tiết lô sản phẩm sau khi ghi nhận in tem
+     * @throws BusinessException nếu trạng thái lô không thuộc diện được phép in (READY_TO_PRINT, PRINTED, SELLING)
+     */
     @Override
     @Transactional
     public ProductBatchDetailResponse printLabel(Long farmId, Long id, PrintLabelRequest request) {
@@ -439,6 +559,20 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         return mapToDetailResponse(batch);
     }
 
+    /**
+     * Khởi tạo bản chụp truy xuất nguồn gốc bất biến (Traceability Snapshot) cho lô thành phẩm.
+     * Thu thập 5 khối dữ liệu JSON tiêu chuẩn:
+     * 1. Thông tin doanh nghiệp & hợp tác xã (Enterprise Info)
+     * 2. Chứng nhận tiêu chuẩn VietGAP (VietGAP Cert)
+     * 3. Tiến trình nhật ký canh tác thực địa (Farming Timeline)
+     * 4. Dữ liệu thu hoạch và sản lượng (Harvest Info)
+     * 5. Biên bản kiểm định chất lượng KCS (QC Inspection)
+     * Toàn bộ 5 khối dữ liệu được nối và tính mã băm SHA-256 bảo đảm tính toàn vẹn và chống làm giả.
+     *
+     * @param batch      Thực thể lô sản phẩm vừa được phê duyệt
+     * @param inspection Biên bản kiểm định KCS đạt chuẩn liên quan
+     * @throws BusinessException nếu xảy ra lỗi trong quá trình thu thập hoặc băm dữ liệu bản chụp
+     */
     private void createTraceabilitySnapshot(ProductBatch batch, QcInspection inspection) {
         try {
             Long tenantId = batch.getTenantId();
@@ -451,7 +585,9 @@ public class ProductBatchServiceImpl implements ProductBatchService {
             Map<String, Object> enterpriseJson = new LinkedHashMap<>();
             enterpriseJson.put("enterpriseName", tenant != null ? tenant.getName() : (farm != null ? farm.getName() : "Hợp Tác Xã Nông Nghiệp"));
             enterpriseJson.put("taxNumber", enterprise != null ? enterprise.getTaxNumber() : "0301234567");
-            enterpriseJson.put("address", enterprise != null ? enterprise.getHeadquarterAddress() : "Ấp Tân Nhuận Đông, Châu Thành, Đồng Tháp");
+            enterpriseJson.put("taxCode", enterprise != null ? enterprise.getTaxNumber() : "0301234567");
+            enterpriseJson.put("farmName", farm != null ? farm.getName() : "Trang Trại Trồng Trọt");
+            enterpriseJson.put("address", enterprise != null ? enterprise.getHeadquarterAddress() : "Xã Tà Nung, TP. Đà Lạt, Tỉnh Lâm Đồng");
             enterpriseJson.put("phone", enterprise != null ? enterprise.getContactPhone() : "02773888999");
             enterpriseJson.put("email", enterprise != null ? enterprise.getContactEmail() : "contact@greenfarm.vn");
             enterpriseJson.put("logoUrl", enterprise != null ? enterprise.getLogoUrl() : "https://cdn.greenfarm.vn/assets/logo.png");
@@ -504,13 +640,56 @@ public class ProductBatchServiceImpl implements ProductBatchService {
             }
 
             // 4. Harvest Info JSON
+            String harvestRecordCode = "HAR-" + batch.getBatchCode();
+            String harvestedByName = "Đỗ Minh Kỹ Sư / Tổ Trưởng Thu Hoạch";
+            Long harvestedByUserId = null;
+            String zoneName = "Phân khu chất lượng cao";
+
+            List<ProductBatchSource> sources = productBatchSourceRepository.findByProductBatchId(batch.getId());
+            for (ProductBatchSource src : sources) {
+                if (src.getHarvestRecordId() != null) {
+                    HarvestRecord hr = harvestRecordRepository.findById(src.getHarvestRecordId()).orElse(null);
+                    if (hr != null) {
+                        if (hr.getHarvestCode() != null && !hr.getHarvestCode().isBlank()) {
+                            harvestRecordCode = hr.getHarvestCode();
+                        }
+                        if (hr.getHarvestedByUserId() != null) {
+                            harvestedByUserId = hr.getHarvestedByUserId();
+                            harvestedByName = userRepository.findById(harvestedByUserId)
+                                    .map(User::getFullName)
+                                    .orElse(harvestedByName);
+                        }
+                    }
+                }
+            }
+
             Map<String, Object> harvestJson = new LinkedHashMap<>();
-            harvestJson.put("harvestRecordCode", "HAR-" + batch.getBatchCode());
+            harvestJson.put("harvestRecordCode", harvestRecordCode);
             harvestJson.put("harvestDate", batch.getHarvestDate().toString());
             harvestJson.put("farmName", farm != null ? farm.getName() : "Trang Trại Trồng Trọt");
-            harvestJson.put("zoneName", "Phân khu chất lượng cao");
+            harvestJson.put("zoneName", zoneName);
             harvestJson.put("actualHarvestYieldKg", batch.getInitialQuantity().doubleValue());
             harvestJson.put("qualityGrade", batch.getQualityGrade());
+            harvestJson.put("harvestedByName", harvestedByName);
+            harvestJson.put("harvestedByUserId", harvestedByUserId);
+
+            String snapImg = null;
+            if (batch.getSeasonId() != null) {
+                snapImg = cropSeasonRepository.findById(batch.getSeasonId())
+                        .flatMap(s -> cropTypeRepository.findById(s.getCropTypeId()))
+                        .map(CropType::getImageUrl)
+                        .orElse(null);
+            } else if (batch.getLivestockGroupId() != null) {
+                snapImg = livestockGroupRepository.findById(batch.getLivestockGroupId())
+                        .flatMap(g -> livestockBreedRepository.findById(g.getBreedId()))
+                        .map(LivestockBreed::getImageUrl)
+                        .orElse(null);
+            }
+            if (!StringUtils.hasText(snapImg)) {
+                snapImg = batch.getQrImageUrl();
+            }
+            harvestJson.put("productImageUrl", snapImg);
+            harvestJson.put("packagingPhotoUrl", snapImg);
 
             // 5. QC Inspection JSON
             Map<String, Object> qcJson = new LinkedHashMap<>();
@@ -518,6 +697,30 @@ public class ProductBatchServiceImpl implements ProductBatchService {
             qcJson.put("inspectionDate", inspection.getInspectionDate().toString());
             qcJson.put("overallVerdict", inspection.getOverallResult());
             qcJson.put("inspectorTitle", "Kỹ thuật viên KCS trưởng");
+            qcJson.put("inspectorName", inspection.getInspectorUserId() != null
+                    ? userRepository.findById(inspection.getInspectorUserId()).map(User::getFullName).orElse("Đỗ Minh Kỹ Sư")
+                    : "Đỗ Minh Kỹ Sư");
+            qcJson.put("inspectorUserId", inspection.getInspectorUserId());
+            qcJson.put("sampleSize", inspection.getSampleSize());
+            qcJson.put("sampleUnit", inspection.getSampleUnit());
+            qcJson.put("notes", inspection.getNotes());
+
+            String qcPhotoUrl = null;
+            if (inspection.getNotes() != null) {
+                String n = inspection.getNotes();
+                if (n.contains("[Photos: ")) {
+                    int start = n.indexOf("[Photos: ") + 9;
+                    int end = n.indexOf("]", start);
+                    if (end > start) {
+                        qcPhotoUrl = n.substring(start, end).trim();
+                    }
+                } else if (n.startsWith("http") || n.contains("http://") || n.contains("https://")) {
+                    int httpIdx = n.indexOf("http");
+                    int spaceIdx = n.indexOf(" ", httpIdx);
+                    qcPhotoUrl = spaceIdx > httpIdx ? n.substring(httpIdx, spaceIdx) : n.substring(httpIdx);
+                }
+            }
+            qcJson.put("photoUrl", qcPhotoUrl);
 
             List<QcInspectionItem> items = qcInspectionItemRepository.findByInspectionId(inspection.getId());
             List<Map<String, Object>> metricsList = new ArrayList<>();
@@ -570,6 +773,14 @@ public class ProductBatchServiceImpl implements ProductBatchService {
         }
     }
 
+    /**
+     * Chuyển đổi thực thể ProductBatch sang DTO chi tiết ProductBatchDetailResponse.
+     * Tự động bổ sung tên trang trại, kho lưu trữ, vụ mùa/đàn nuôi, thông tin người duyệt/từ chối/thu hồi,
+     * dữ liệu kiểm định KCS mới nhất, bản chụp truy xuất nguồn gốc và danh sách nguồn đóng góp.
+     *
+     * @param batch Thực thể lô sản phẩm thành phẩm
+     * @return DTO chi tiết đầy đủ của lô sản phẩm
+     */
     private ProductBatchDetailResponse mapToDetailResponse(ProductBatch batch) {
         String farmName = farmRepository.findById(batch.getFarmId()).map(Farm::getName).orElse(null);
         String warehouseName = null;
@@ -682,6 +893,60 @@ public class ProductBatchServiceImpl implements ProductBatchService {
                 qcJson = objectMapper.writeValueAsString(qcMap);
             } catch (Exception ex) {
                 log.warn("Failed to serialize QC inspection for batch id={}: {}", batch.getId(), ex.getMessage());
+            }
+        }
+
+        if (harvestJson == null) {
+            try {
+                String harvestCode = "HAR-" + batch.getBatchCode();
+                String harvestedByName = "Đỗ Minh Kỹ Sư / Tổ Trưởng Thu Hoạch";
+                Long harvestedByUserId = null;
+                List<ProductBatchSource> rawSources = productBatchSourceRepository.findByProductBatchId(batch.getId());
+                for (ProductBatchSource s : rawSources) {
+                    if (s.getHarvestRecordId() != null) {
+                        HarvestRecord hr = harvestRecordRepository.findById(s.getHarvestRecordId()).orElse(null);
+                        if (hr != null) {
+                            if (hr.getHarvestCode() != null && !hr.getHarvestCode().isBlank()) {
+                                harvestCode = hr.getHarvestCode();
+                            }
+                            if (hr.getHarvestedByUserId() != null) {
+                                harvestedByUserId = hr.getHarvestedByUserId();
+                                harvestedByName = userRepository.findById(harvestedByUserId)
+                                        .map(User::getFullName)
+                                        .orElse(harvestedByName);
+                            }
+                        }
+                    }
+                }
+                Map<String, Object> hMap = new LinkedHashMap<>();
+                hMap.put("harvestRecordCode", harvestCode);
+                hMap.put("harvestDate", batch.getHarvestDate() != null ? batch.getHarvestDate().toString() : null);
+                hMap.put("farmName", farmName != null ? farmName : "Trang Trại Trồng Trọt");
+                hMap.put("zoneName", "Phân khu chất lượng cao");
+                hMap.put("actualHarvestYieldKg", batch.getInitialQuantity() != null ? batch.getInitialQuantity().doubleValue() : 0.0);
+                hMap.put("qualityGrade", batch.getQualityGrade());
+                hMap.put("harvestedByName", harvestedByName);
+                hMap.put("harvestedByUserId", harvestedByUserId);
+
+                String defImg = batch.getQrImageUrl();
+                if (!StringUtils.hasText(defImg)) {
+                    if (batch.getSeasonId() != null) {
+                        defImg = cropSeasonRepository.findById(batch.getSeasonId())
+                                .flatMap(s -> cropTypeRepository.findById(s.getCropTypeId()))
+                                .map(CropType::getImageUrl)
+                                .orElse(null);
+                    } else if (batch.getLivestockGroupId() != null) {
+                        defImg = livestockGroupRepository.findById(batch.getLivestockGroupId())
+                                .flatMap(g -> livestockBreedRepository.findById(g.getBreedId()))
+                                .map(LivestockBreed::getImageUrl)
+                                .orElse(null);
+                    }
+                }
+                hMap.put("productImageUrl", defImg);
+                hMap.put("packagingPhotoUrl", defImg);
+                harvestJson = objectMapper.writeValueAsString(hMap);
+            } catch (Exception ex) {
+                log.warn("Failed to generate default harvest info json for batch id={}: {}", batch.getId(), ex.getMessage());
             }
         }
 

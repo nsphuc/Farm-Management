@@ -275,11 +275,13 @@ export function EmployeeDailyOpsWorkspace() {
 
       {/* KHỐI 3: QUẢN LÝ CÔNG VIỆC HIỆN TRƯỜNG */}
       {fieldWorker ? (
-        // GIAO DIỆN DÀNH CHO NHÂN VIÊN HIỆN TRƯỜNG CÓ TÀI KHOẢN (ROLE 6A)
+        // GIAO DIỆN DÀNH CHO NHÂN VIÊN HIỆN TRƯỜNG CÓ TÀI KHOẢN (ROLE 6A) - BẢNG ĐIỀU PHỐI KANBAN
         <WorkerDailyTasksView
           tasks={tasks}
           currentEmployee={employee}
           onRefresh={fetchTasks}
+          zones={zones}
+          shifts={shifts}
         />
       ) : canSuperviseTasks ? (
         // GIAO DIỆN DÀNH CHO FARM MANAGER (ROLE 2), TRƯỞNG KỸ THUẬT (ROLE 3) & THỦ KHO (ROLE 4): 2 TABS RÕ RỆT
@@ -340,7 +342,7 @@ export function EmployeeDailyOpsWorkspace() {
               isWarehouseKeeper={warehouseKeeper}
               isZoneManager={zoneManager}
               canManageTasks={true}
-              onRefresh={fetchTasks}
+              onRefresh={handleRefreshAll}
             />
           )}
         </div>
@@ -353,7 +355,7 @@ export function EmployeeDailyOpsWorkspace() {
           employees={employees}
           assignments={assignments}
           canManageTasks={false}
-          onRefresh={fetchTasks}
+          onRefresh={handleRefreshAll}
         />
       )}
 

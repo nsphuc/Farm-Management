@@ -24,9 +24,12 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -103,8 +106,10 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
         CropType ct = CropType.builder()
                 .tenantId(tenantId)
                 .name(request.getName().trim())
+                .imageUrl(StringUtils.hasText(request.getImageUrl()) ? request.getImageUrl().trim() : null)
                 .varietyCode(code)
                 .growthDaysStandard(request.getGrowthDaysStandard())
+                .cropCategory(StringUtils.hasText(request.getCropCategory()) ? request.getCropCategory().trim().toUpperCase() : "ANNUAL")
                 .waterNeedM3Day(request.getWaterNeedM3Day())
                 .optimalTempMin(request.getOptimalTempMin())
                 .optimalTempMax(request.getOptimalTempMax())
@@ -142,8 +147,12 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
         }
 
         ct.setName(request.getName().trim());
+        if (request.getImageUrl() != null) ct.setImageUrl(request.getImageUrl().trim());
         if (request.getVarietyCode() != null) ct.setVarietyCode(request.getVarietyCode().trim().toUpperCase());
         ct.setGrowthDaysStandard(request.getGrowthDaysStandard());
+        if (StringUtils.hasText(request.getCropCategory())) {
+            ct.setCropCategory(request.getCropCategory().trim().toUpperCase());
+        }
         ct.setWaterNeedM3Day(request.getWaterNeedM3Day());
         ct.setOptimalTempMin(request.getOptimalTempMin());
         ct.setOptimalTempMax(request.getOptimalTempMax());
@@ -229,12 +238,19 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
                     "Loài vật nuôi không hợp lệ. Cho phép: " + VALID_SPECIES);
         }
 
+        String mgmtType = request.getManagementType();
+        if (!StringUtils.hasText(mgmtType)) {
+            mgmtType = "POULTRY".equalsIgnoreCase(species) ? "FLOCK_HERD" : "INDIVIDUAL_TAGGED";
+        }
+
         LivestockBreed breed = LivestockBreed.builder()
                 .tenantId(tenantId)
                 .species(species)
                 .breedName(request.getBreedName().trim())
+                .imageUrl(StringUtils.hasText(request.getImageUrl()) ? request.getImageUrl().trim() : null)
                 .standardGrowthDays(request.getStandardGrowthDays())
                 .targetWeightKg(request.getTargetWeightKg())
+                .managementType(mgmtType)
                 .createdAt(Instant.now())
                 .createdBy(SecurityUtils.getCurrentUserId())
                 .build();
@@ -270,8 +286,10 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
         }
 
         breed.setBreedName(request.getBreedName().trim());
+        if (request.getImageUrl() != null) breed.setImageUrl(request.getImageUrl().trim());
         if (request.getStandardGrowthDays() != null) breed.setStandardGrowthDays(request.getStandardGrowthDays());
         if (request.getTargetWeightKg() != null) breed.setTargetWeightKg(request.getTargetWeightKg());
+        if (StringUtils.hasText(request.getManagementType())) breed.setManagementType(request.getManagementType());
         breed.setUpdatedAt(Instant.now());
         breed.setUpdatedBy(SecurityUtils.getCurrentUserId());
 
@@ -462,8 +480,26 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
             throw new ApiException(HttpStatus.CONFLICT, "SHIFT_CODE_ALREADY_EXISTS", "Mã ca làm việc đã tồn tại.");
         }
 
+        Long farmId = request.getFarmId();
+        String applicableFarms = null;
+        if (request.getApplicableFarmIds() != null && !request.getApplicableFarmIds().isEmpty()) {
+            applicableFarms = request.getApplicableFarmIds().stream()
+                    .filter(Objects::nonNull)
+                    .map(String::valueOf)
+                    .collect(Collectors.joining(","));
+            if (farmId == null && !request.getApplicableFarmIds().isEmpty()) {
+                farmId = request.getApplicableFarmIds().get(0);
+            }
+        } else if (farmId != null) {
+            applicableFarms = String.valueOf(farmId);
+        } else {
+            applicableFarms = "ALL";
+        }
+
         WorkShift shift = WorkShift.builder()
                 .tenantId(tenantId)
+                .farmId(farmId)
+                .applicableFarms(applicableFarms)
                 .name(request.getName().trim())
                 .shiftCode(code)
                 .startTime(request.getStartTime())
@@ -503,6 +539,21 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
         shift.setBreakMinutes(request.getBreakMinutes());
         shift.setGraceLateMinutes(request.getGraceLateMinutes());
         if (request.getIsOvernight() != null) shift.setIsOvernight(request.getIsOvernight());
+        if (request.getApplicableFarmIds() != null) {
+            if (request.getApplicableFarmIds().isEmpty()) {
+                shift.setFarmId(null);
+                shift.setApplicableFarms("ALL");
+            } else {
+                shift.setApplicableFarms(request.getApplicableFarmIds().stream()
+                        .filter(Objects::nonNull)
+                        .map(String::valueOf)
+                        .collect(Collectors.joining(",")));
+                shift.setFarmId(request.getApplicableFarmIds().get(0));
+            }
+        } else if (request.getFarmId() != null) {
+            shift.setFarmId(request.getFarmId());
+            shift.setApplicableFarms(String.valueOf(request.getFarmId()));
+        }
         shift.setUpdatedAt(Instant.now());
         shift.setUpdatedBy(SecurityUtils.getCurrentUserId());
 
@@ -581,9 +632,21 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
                 .code(code)
                 .name(request.getName().trim())
                 .costType(costType)
+                .description(request.getDescription() != null ? request.getDescription().trim() : null)
                 .createdAt(Instant.now())
                 .createdBy(SecurityUtils.getCurrentUserId())
                 .build();
+
+        if (request.getApplicableFarmIds() != null && !request.getApplicableFarmIds().isEmpty()) {
+            cc.setApplicableFarms(request.getApplicableFarmIds().stream().map(String::valueOf).collect(Collectors.joining(",")));
+            cc.setFarmId(request.getApplicableFarmIds().get(0));
+        } else if (request.getFarmId() != null) {
+            cc.setApplicableFarms(String.valueOf(request.getFarmId()));
+            cc.setFarmId(request.getFarmId());
+        } else {
+            cc.setApplicableFarms("ALL");
+            cc.setFarmId(null);
+        }
 
         CostCategory saved = costCategoryRepository.save(cc);
 
@@ -615,6 +678,17 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
 
         cc.setName(request.getName().trim());
         cc.setCostType(costType);
+        cc.setDescription(request.getDescription() != null ? request.getDescription().trim() : null);
+        if (request.getApplicableFarmIds() != null && !request.getApplicableFarmIds().isEmpty()) {
+            cc.setApplicableFarms(request.getApplicableFarmIds().stream().map(String::valueOf).collect(Collectors.joining(",")));
+            cc.setFarmId(request.getApplicableFarmIds().get(0));
+        } else if (request.getFarmId() != null) {
+            cc.setApplicableFarms(String.valueOf(request.getFarmId()));
+            cc.setFarmId(request.getFarmId());
+        } else {
+            cc.setApplicableFarms("ALL");
+            cc.setFarmId(null);
+        }
         cc.setUpdatedAt(Instant.now());
         cc.setUpdatedBy(SecurityUtils.getCurrentUserId());
 
@@ -662,8 +736,10 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
                 .id(ct.getId())
                 .tenantId(ct.getTenantId())
                 .name(ct.getName())
+                .imageUrl(ct.getImageUrl())
                 .varietyCode(ct.getVarietyCode())
                 .growthDaysStandard(ct.getGrowthDaysStandard())
+                .cropCategory(ct.getCropCategory())
                 .waterNeedM3Day(ct.getWaterNeedM3Day())
                 .optimalTempMin(ct.getOptimalTempMin())
                 .optimalTempMax(ct.getOptimalTempMax())
@@ -672,13 +748,19 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
     }
 
     private LivestockBreedResponse toBreedResponse(LivestockBreed b) {
+        String mgmtType = b.getManagementType();
+        if (!StringUtils.hasText(mgmtType)) {
+            mgmtType = "POULTRY".equalsIgnoreCase(b.getSpecies()) ? "FLOCK_HERD" : "INDIVIDUAL_TAGGED";
+        }
         return LivestockBreedResponse.builder()
                 .id(b.getId())
                 .tenantId(b.getTenantId())
                 .species(b.getSpecies())
                 .breedName(b.getBreedName())
+                .imageUrl(b.getImageUrl())
                 .standardGrowthDays(b.getStandardGrowthDays())
                 .targetWeightKg(b.getTargetWeightKg())
+                .managementType(mgmtType)
                 .createdAt(b.getCreatedAt())
                 .build();
     }
@@ -716,10 +798,30 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
     }
 
     private WorkShiftResponse toShiftResponse(WorkShift s) {
+        List<Long> farmIds = new ArrayList<>();
+        List<String> farmNames = new ArrayList<>();
+        String appFarms = s.getApplicableFarms();
+
+        if (appFarms == null || appFarms.isBlank() || "ALL".equalsIgnoreCase(appFarms)) {
+            farmNames.add("Toàn bộ trang trại");
+        } else {
+            String[] parts = appFarms.split(",");
+            for (String p : parts) {
+                try {
+                    Long fId = Long.parseLong(p.trim());
+                    farmIds.add(fId);
+                    farmRepository.findById(fId).ifPresent(f -> farmNames.add(f.getName()));
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
         return WorkShiftResponse.builder()
                 .id(s.getId())
                 .tenantId(s.getTenantId())
                 .farmId(s.getFarmId())
+                .applicableFarms(s.getApplicableFarms())
+                .applicableFarmIds(farmIds)
+                .applicableFarmNames(farmNames)
                 .name(s.getName())
                 .shiftCode(s.getShiftCode())
                 .startTime(s.getStartTime())
@@ -732,12 +834,34 @@ public class MasterCatalogServiceImpl implements MasterCatalogService {
     }
 
     private CostCategoryResponse toCostCategoryResponse(CostCategory cc) {
+        List<Long> farmIds = new ArrayList<>();
+        List<String> farmNames = new ArrayList<>();
+        String appFarms = cc.getApplicableFarms();
+
+        if (appFarms == null || appFarms.isBlank() || "ALL".equalsIgnoreCase(appFarms)) {
+            farmNames.add("Toàn bộ trang trại");
+        } else {
+            String[] parts = appFarms.split(",");
+            for (String p : parts) {
+                try {
+                    Long fId = Long.parseLong(p.trim());
+                    farmIds.add(fId);
+                    farmRepository.findById(fId).ifPresent(f -> farmNames.add(f.getName()));
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
         return CostCategoryResponse.builder()
                 .id(cc.getId())
                 .tenantId(cc.getTenantId())
+                .farmId(cc.getFarmId())
+                .applicableFarms(cc.getApplicableFarms())
+                .applicableFarmIds(farmIds)
+                .applicableFarmNames(farmNames)
                 .code(cc.getCode())
                 .name(cc.getName())
                 .costType(cc.getCostType())
+                .description(cc.getDescription())
                 .createdAt(cc.getCreatedAt())
                 .build();
     }

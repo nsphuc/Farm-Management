@@ -6,6 +6,9 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.*;
 
+/**
+ * DTO yêu cầu ghi nhận thông số in ấn tem nhãn QR truy xuất nguồn gốc.
+ */
 @Getter
 @Setter
 @Builder

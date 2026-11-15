@@ -122,6 +122,12 @@ export const farmingService = {
     return res.data;
   },
 
+  batchCreateLivestockIndividuals: async (farmId, data) => {
+    const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
+    const res = await apiClient.post(API_ENDPOINTS.OPERATIONS.LIVESTOCK_INDIVIDUALS_BATCH(targetFarmId), data);
+    return res.data;
+  },
+
   updateLivestockIndividual: async (farmId, id, data) => {
     const targetFarmId = typeof farmId === 'object' && farmId !== null ? farmId.farmId : farmId;
     const res = await apiClient.put(API_ENDPOINTS.OPERATIONS.LIVESTOCK_INDIVIDUAL_DETAIL(targetFarmId, id), data);

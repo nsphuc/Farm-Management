@@ -18,7 +18,9 @@ public class LivestockBreedResponse {
     private Long tenantId;
     private String species;
     private String breedName;
+    private String imageUrl;
     private Integer standardGrowthDays;
     private BigDecimal targetWeightKg;
+    private String managementType;
     private Instant createdAt;
 }

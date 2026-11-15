@@ -21,16 +21,23 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { SmartEmptyState } from '@/components/common/SmartEmptyState';
+import { DataTable } from '@/components/common/DataTable';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { formatDate } from '@/utils/formatters';
 
 export function CyclesAndFarmSettingsTab() {
-  const { activeFarmId, activeFarm, farms } = useActiveFarmStore();
+  const { activeFarmId, activeFarm, farms, fetchFarms } = useActiveFarmStore();
   const accessibleFarms = useAuthStore((s) => s.userInfo?.accessibleFarms) || [];
   const farmList = farms && farms.length > 0 ? farms : accessibleFarms;
   const [selectedFarmId, setSelectedFarmId] = useState(null);
+
+  useEffect(() => {
+    if ((!farms || farms.length === 0) && typeof fetchFarms === 'function') {
+      fetchFarms();
+    }
+  }, [farms, fetchFarms]);
 
   const effectiveFarmId = (activeFarmId && activeFarmId !== 'ALL')
     ? activeFarmId
@@ -234,6 +241,61 @@ export function CyclesAndFarmSettingsTab() {
 
   const currentFarmObj = farmList.find((f) => String(f.id || f.farmId) === String(effectiveFarmId)) || activeFarm;
 
+  const cycleColumns = [
+    {
+      key: 'name',
+      title: 'Tên Chu Kỳ / Niên Vụ',
+      render: (c) => <span className="font-semibold text-slate-900">{c.name}</span>,
+    },
+    {
+      key: 'fiscalYear',
+      title: 'Năm Tài Chính',
+      render: (c) => <span className="font-mono text-slate-700">{c.fiscalYear}</span>,
+    },
+    {
+      key: 'startDate',
+      title: 'Ngày Bắt Đầu',
+      render: (c) => <span className="text-slate-600">{formatDate(c.startDate)}</span>,
+    },
+    {
+      key: 'endDate',
+      title: 'Ngày Kết Thúc',
+      render: (c) => <span className="text-slate-600">{formatDate(c.endDate)}</span>,
+    },
+    {
+      key: 'status',
+      title: 'Trạng Thái',
+      render: (c) => <StatusBadge status={c.status} size="sm" />,
+    },
+    {
+      key: 'actions',
+      title: 'Thao tác',
+      className: 'text-right',
+      render: (c) => (
+        <div className="flex items-center justify-end gap-1">
+          <Can permission="PERM_FARM_UPDATE">
+            <button
+              type="button"
+              onClick={() => handleOpenCycleModal(c)}
+              className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+              title="Sửa chu kỳ"
+            >
+              <Edit2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteCycle(c)}
+              className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors ml-1"
+              title="Xóa chu kỳ"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </Can>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-8 animate-in fade-in duration-200">
       {/* Selector nội bộ khi thanh TopBar đang chọn Tất cả trang trại ('ALL') */}
@@ -285,64 +347,19 @@ export function CyclesAndFarmSettingsTab() {
           </Can>
         </div>
 
-        {cyclesLoading ? (
-          <div className="flex h-32 items-center justify-center text-xs text-slate-400">
-            <RefreshCw className="h-4 w-4 animate-spin mr-2 text-emerald-600" />
-            Đang tải danh sách chu kỳ...
-          </div>
-        ) : cycles.length === 0 ? (
-          <div className="text-center py-8 text-xs text-slate-400">
-            Chưa có chu kỳ vận hành nào cho trang trại này. Nhấn "+ Thêm Chu Kỳ" để tạo mới.
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-2.5">Tên Chu Kỳ / Niên Vụ</th>
-                  <th className="px-4 py-2.5">Năm Tài Chính</th>
-                  <th className="px-4 py-2.5">Ngày Bắt Đầu</th>
-                  <th className="px-4 py-2.5">Ngày Kết Thúc</th>
-                  <th className="px-4 py-2.5">Trạng Thái</th>
-                  <th className="px-4 py-2.5 text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {cycles.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/60">
-                    <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
-                    <td className="px-4 py-3 font-mono text-slate-700">{c.fiscalYear}</td>
-                    <td className="px-4 py-3 text-slate-600">{formatDate(c.startDate)}</td>
-                    <td className="px-4 py-3 text-slate-600">{formatDate(c.endDate)}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={c.status} size="sm" />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Can permission="PERM_FARM_UPDATE">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenCycleModal(c)}
-                          className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-800 transition-colors"
-                          title="Sửa chu kỳ"
-                        >
-                          <Edit2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCycle(c)}
-                          className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors ml-1"
-                          title="Xóa chu kỳ"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </Can>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <DataTable
+          columns={cycleColumns}
+          data={cycles}
+          isLoading={cyclesLoading}
+          pagination={true}
+          pageSize={10}
+          emptyStateProps={{
+            title: 'Chưa có chu kỳ vận hành nào',
+            description: 'Chưa có chu kỳ vận hành nào cho trang trại này. Nhấn "+ Thêm Chu Kỳ" để tạo mới.',
+            actionLabel: '+ Thêm Chu Kỳ',
+            onAction: () => handleOpenCycleModal(null),
+          }}
+        />
       </div>
 
       {/* 2. Cấu hình Ngưỡng Trang trại farm_operational_settings #17 */}

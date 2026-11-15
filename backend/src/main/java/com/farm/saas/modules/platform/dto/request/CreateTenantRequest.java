@@ -46,7 +46,7 @@ public class CreateTenantRequest {
     private LocalDate validTo;
 
     @NotBlank(message = "Email quản trị viên không được để trống")
-    @Email(message = "Email không đúng định dạng")
+    @Pattern(regexp = "^[A-Za-z0-9._%+-]+@gmail\\.com$", flags = Pattern.Flag.CASE_INSENSITIVE, message = "Email phải có định dạng @gmail.com (ví dụ: quantri@gmail.com)")
     private String adminEmail;
 
     @NotBlank(message = "Họ tên quản trị viên không được để trống")

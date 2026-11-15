@@ -16,6 +16,7 @@ import {
   MapPin,
   CalendarCheck,
   UserCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { hrService } from '@/services/modules/hrService';
@@ -23,7 +24,7 @@ import { qaService } from '@/services/modules/qaService';
 import { inventoryService } from '@/services/modules/inventoryService';
 import { geographyService } from '@/services/modules/geographyService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
-import { formatNumber } from '@/utils/formatters';
+import { formatNumber, checkTaskOverdue } from '@/utils/formatters';
 
 
 const ZONE_TYPE_LABELS = {
@@ -127,11 +128,14 @@ export function FarmManagerDailyOverview({
 
   const totalPendingForms = pendingLeaveCount + pendingOtCount;
 
-  // Công việc hiện trường hôm nay
-  const totalTasks = tasks.length;
-  const completedTasks = tasks.filter((t) => t.status === 'DONE' || t.status === 'COMPLETED').length;
-  const inProgressTasks = tasks.filter((t) => t.status === 'IN_PROGRESS').length;
+  // Công việc hiện trường hôm nay (chỉ tính việc còn hiệu lực, loại trừ nhiệm vụ đã HỦY)
+  const activeTasks = tasks.filter((t) => t.status !== 'CANCELLED');
+  const totalTasks = activeTasks.length;
+  const completedTasks = activeTasks.filter((t) => t.status === 'DONE' || t.status === 'COMPLETED').length;
+  const inProgressTasks = activeTasks.filter((t) => t.status === 'IN_PROGRESS').length;
   const taskProgressRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const overdueTasks = activeTasks.filter((t) => checkTaskOverdue(t).isOverdue);
+  const overdueCount = overdueTasks.length;
 
   // Lấy thủ kho trang trại
   const warehouseKeeperAssignment = assignments.find((a) => a.roleInFarm === 'WAREHOUSE_KEEPER');
@@ -304,9 +308,33 @@ export function FarmManagerDailyOverview({
               <strong className="text-indigo-700">{inProgressTasks}</strong> đang làm •{' '}
               <strong className="text-slate-700">{totalTasks - completedTasks - inProgressTasks}</strong> chờ
             </span>
+            {overdueCount > 0 && (
+              <span className="rounded-full bg-rose-100 border border-rose-300 px-2 py-0.5 text-[10px] font-black text-rose-800 animate-pulse">
+                🚨 {overdueCount} quá hạn
+              </span>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Banner cảnh báo việc quá hạn cho Giám đốc trại */}
+      {overdueCount > 0 && (
+        <div className="rounded-2xl border border-rose-300 bg-rose-50/80 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-rose-900 shadow-xs animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-600 text-white shrink-0 shadow-xs">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-black text-rose-950">
+                🚨 CẢNH BÁO TIẾN ĐỘ: CÓ {overdueCount} CÔNG VIỆC TRONG TRẠI ĐÃ QUÁ HẠN!
+              </h4>
+              <p className="text-xs text-rose-700 mt-0.5 font-medium">
+                Các đầu việc đã quá giờ quy định nhưng nhân sự chưa hoàn thành hoặc chưa nộp nghiệm thu.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ======================================================== */}
       {/* 2. BẢNG TÓM TẮT TIẾN ĐỘ THEO TỪNG PHÂN KHU & KHO        */}
@@ -400,11 +428,11 @@ export function FarmManagerDailyOverview({
               });
               const zoneAttendedCount = zoneEmployees.filter((e) => attendedEmployeeIds.has(e.id)).length;
 
-              // Đếm công việc của phân khu
-              const zoneTasks = tasks.filter((t) => t.zoneId === zone.id);
+              // Đếm công việc của phân khu (loại trừ các việc đã HỦY)
+              const zoneTasks = tasks.filter((t) => Number(t.zoneId) === Number(zone.id) && t.status !== 'CANCELLED');
               const zoneDoneTasks = zoneTasks.filter((t) => t.status === 'DONE' || t.status === 'COMPLETED').length;
               const zoneInProgressTasks = zoneTasks.filter((t) => t.status === 'IN_PROGRESS').length;
-              const zoneRate = zoneTasks.length > 0 ? Math.round((zoneDoneTasks / zoneTasks.length) * 100) : 100;
+              const zoneRate = zoneTasks.length > 0 ? Math.round((zoneDoneTasks / zoneTasks.length) * 100) : 0;
 
               return (
                 <div

@@ -11,6 +11,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+/**
+ * DTO yêu cầu đóng mới một lô sản phẩm thành phẩm (Product Batch).
+ */
 @Getter
 @Setter
 @Builder
@@ -49,11 +52,16 @@ public class CreateProductBatchRequest {
     @Pattern(regexp = "GRADE_A|GRADE_B|EXPORT|STANDARD", message = "qualityGrade phải là GRADE_A, GRADE_B, EXPORT hoặc STANDARD")
     private String qualityGrade;
 
+    private String packagingPhotoUrl;
+
     private List<Long> sourceHarvestRecordIds;
 
     @Valid
     private List<ProductBatchSourceItemRequest> sources;
 
+    /**
+     * DTO chi tiết một nguồn nguyên liệu thu hoạch đóng góp vào lô thành phẩm.
+     */
     @Getter
     @Setter
     @Builder

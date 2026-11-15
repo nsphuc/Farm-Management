@@ -40,7 +40,7 @@ public class ConsumptionQuota {
     @Column(name = "unit_of_measure", nullable = false, length = 30)
     private String unitOfMeasure;
 
-    @Column(name = "stage", length = 50)
+    @Column(name = "stage", length = 255)
     private String stage;
 
     @Column(name = "created_at")

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building, CheckCircle2, Eye, TrendingUp, TrendingDown, 
-  RotateCcw, DollarSign, Clock, ShieldCheck, QrCode, Search, Filter 
+  RotateCcw, DollarSign, Clock, ShieldCheck, QrCode, Search, Filter, Download 
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { exportToCsv } from '@/utils/exportUtils';
 import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -203,26 +204,23 @@ export function CycleSettlementConsole({ farmId }) {
       header: 'Trạng Thái',
       align: 'center',
       render: (row) => {
-        let badgeVariant = 'outline';
         let label = row.status;
+        let badgeClass = 'bg-blue-50 text-blue-700 border border-blue-200';
         if (row.status === 'ACTIVE') {
-          label = 'Đang Chạy';
-          badgeVariant = 'info';
+          label = 'Đang Vận Hành';
+          badgeClass = 'bg-blue-50 text-blue-700 border border-blue-200';
         } else if (row.status === 'PENDING_SETTLEMENT') {
           label = 'Chờ Owner Xác Nhận';
-          badgeVariant = 'warning';
+          badgeClass = 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse';
         } else if (row.status === 'CLOSED') {
           label = 'Đã Tất Toán';
-          badgeVariant = 'success';
+          badgeClass = 'bg-emerald-100 text-emerald-800 border border-emerald-300';
+        } else if (row.status === 'PLANNING') {
+          label = 'Lập Kế Hoạch';
+          badgeClass = 'bg-purple-50 text-purple-700 border border-purple-200 font-bold';
         }
         return (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${
-            row.status === 'CLOSED'
-              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-              : row.status === 'PENDING_SETTLEMENT'
-              ? 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
-              : 'bg-blue-50 text-blue-700 border border-blue-200'
-          }`}>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${badgeClass}`}>
             {label}
           </span>
         );
@@ -232,44 +230,49 @@ export function CycleSettlementConsole({ farmId }) {
       key: 'actions',
       header: manager ? 'Thao Tác Giám Đốc Trại' : 'Thao Tác Owner',
       align: 'center',
-      render: (row) => (
-        <div className="flex items-center justify-center gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            icon={<Eye className="h-3.5 w-3.5 text-slate-600" />}
-            onClick={() => handleOpenDetail(row)}
-            title="Xem chi tiết bảng kê thu chi và chứng từ kết toán"
-          >
-            Chi Tiết
-          </Button>
+      render: (row) => {
+        const isPlanning = row.status === 'PLANNING';
+        const isClosed = row.status === 'CLOSED';
 
-          {manager && row.status !== 'CLOSED' && (
+        return (
+          <div className="flex items-center justify-center gap-1.5">
             <Button
               size="sm"
-              variant="primary"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs"
-              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+              variant="outline"
+              icon={<Eye className="h-3.5 w-3.5 text-slate-600" />}
               onClick={() => handleOpenDetail(row)}
-              title="Ký duyệt bảng kết toán chu kỳ nội bộ trại"
+              title="Xem chi tiết bảng kê thu chi và chứng từ kết toán"
             >
-              Ký Duyệt
+              Chi Tiết
             </Button>
-          )}
 
-          {owner && row.status !== 'CLOSED' && (
-            <Button
-              size="sm"
-              variant="primary"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-              onClick={() => handleConfirmSettlement(row, 'Chốt sổ trực tiếp từ danh sách')}
-            >
-              Chốt Sổ
-            </Button>
-          )}
-        </div>
-      ),
+            {manager && !isClosed && !isPlanning && (
+              <Button
+                size="sm"
+                variant="primary"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs"
+                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                onClick={() => handleOpenDetail(row)}
+                title="Ký duyệt bảng kết toán chu kỳ nội bộ trại"
+              >
+                Ký Duyệt
+              </Button>
+            )}
+
+            {owner && !isClosed && !isPlanning && (
+              <Button
+                size="sm"
+                variant="primary"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                onClick={() => handleConfirmSettlement(row, 'Chốt sổ trực tiếp từ danh sách')}
+              >
+                Chốt Sổ
+              </Button>
+            )}
+          </div>
+        );
+      },
     },
   ];
 
@@ -340,7 +343,8 @@ export function CycleSettlementConsole({ farmId }) {
               className="text-xs rounded-xl border border-slate-200 px-3 py-1.5 bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
             >
               <option value="">Tất cả trạng thái</option>
-              <option value="ACTIVE">Đang chạy</option>
+              <option value="PLANNING">Lập kế hoạch</option>
+              <option value="ACTIVE">Đang vận hành</option>
               <option value="PENDING_SETTLEMENT">Chờ Owner xác nhận</option>
               <option value="CLOSED">Đã tất toán (Khóa sổ)</option>
             </select>
@@ -348,6 +352,29 @@ export function CycleSettlementConsole({ farmId }) {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<Download className="h-3.5 w-3.5 text-emerald-600" />}
+            onClick={() => {
+              const headers = [
+                { label: 'Trang Trại', key: 'farmName' },
+                { label: 'Tên Chu Kỳ', key: 'cycleName' },
+                { label: 'Mã Chu Kỳ', key: 'cycleCode' },
+                { label: 'Từ Ngày', key: 'startDate', formatter: (v) => formatDate(v) },
+                { label: 'Đến Ngày', key: 'endDate', formatter: (v) => formatDate(v) },
+                { label: 'Tổng Doanh Thu (VNĐ)', key: 'totalRevenue', formatter: (v) => formatCurrency(v) },
+                { label: 'Tổng Chi Phí (VNĐ)', key: 'totalExpense', formatter: (v) => formatCurrency(v) },
+                { label: 'Lợi Nhuận Ròng (VNĐ)', key: 'netProfit', formatter: (v) => formatCurrency(v) },
+                { label: 'Trạng Thái', key: 'status' },
+              ];
+              exportToCsv(`Bao_Cao_Ket_Toan_Loi_Nhuan`, headers, filteredData);
+            }}
+            className="font-semibold text-xs border-slate-300 text-emerald-700 hover:bg-emerald-50"
+          >
+            Xuất Excel/CSV
+          </Button>
+
           <Button
             variant="outline"
             size="sm"

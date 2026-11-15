@@ -23,6 +23,8 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long>, J
 
     Optional<SalesOrder> findByTenantIdAndFarmIdAndOrderCode(Long tenantId, Long farmId, String orderCode);
 
+    boolean existsByTenantIdAndFarmIdAndOrderCode(Long tenantId, Long farmId, String orderCode);
+
     Page<SalesOrder> findByFarmId(Long farmId, Pageable pageable);
 
     Page<SalesOrder> findByTenantId(Long tenantId, Pageable pageable);

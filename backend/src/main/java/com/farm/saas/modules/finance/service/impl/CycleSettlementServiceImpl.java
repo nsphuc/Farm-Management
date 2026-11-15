@@ -111,6 +111,10 @@ public class CycleSettlementServiceImpl implements CycleSettlementService {
         OperationalCycle cycle = operationalCycleRepository.findByFarmIdAndId(farmId, cycleId)
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Operational cycle not found: " + cycleId));
 
+        if ("PLANNING".equalsIgnoreCase(cycle.getStatus())) {
+            throw new BusinessException("INVALID_STATE", "Không thể chốt sổ chu kỳ đang ở trạng thái Lập kế hoạch (PLANNING).");
+        }
+
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Farm not found: " + farmId));
 
@@ -160,6 +164,10 @@ public class CycleSettlementServiceImpl implements CycleSettlementService {
 
         OperationalCycle cycle = operationalCycleRepository.findByFarmIdAndId(farmId, cycleId)
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Operational cycle not found: " + cycleId));
+
+        if ("PLANNING".equalsIgnoreCase(cycle.getStatus())) {
+            throw new BusinessException("INVALID_STATE", "Không thể chốt sổ chu kỳ đang ở trạng thái Lập kế hoạch (PLANNING).");
+        }
 
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Farm not found: " + farmId));

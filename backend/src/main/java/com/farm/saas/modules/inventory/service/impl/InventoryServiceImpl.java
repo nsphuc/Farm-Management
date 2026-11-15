@@ -25,6 +25,10 @@ import com.farm.saas.modules.masterdata.repository.CostCategoryRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialRepository;
 import com.farm.saas.modules.masterdata.repository.WarehouseRepository;
 import com.farm.saas.modules.notification.service.NotificationService;
+import com.farm.saas.modules.hr.entity.Employee;
+import com.farm.saas.modules.hr.entity.FarmTask;
+import com.farm.saas.modules.hr.repository.EmployeeRepository;
+import com.farm.saas.modules.hr.repository.FarmTaskRepository;
 import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.PartnerRepository;
 import jakarta.persistence.criteria.Predicate;
@@ -74,6 +78,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     private final BudgetService budgetService;
     private final NotificationService notificationService;
     private final ZoneLocationRepository zoneLocationRepository;
+    private final FarmTaskRepository farmTaskRepository;
+    private final EmployeeRepository employeeRepository;
 
     private void notifyFarmManager(Long farmId, Long tenantId, String title, String message, String refType, Long refId, String actionUrl) {
         if (notificationService == null || farmId == null) return;
@@ -776,6 +782,181 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     }
 
     @Override
+    @Transactional
+    public WarehouseIssueDetailResponse autoCreateIssueDraftForTask(Long farmId, Long taskId, Long currentUserId) {
+        if (farmId == null || taskId == null) return null;
+
+        FarmTask task = farmTaskRepository.findById(taskId).orElse(null);
+        if (task == null) return null;
+
+        Long materialId = task.getMaterialId();
+        BigDecimal standardQty = task.getStandardQuantity();
+        if (materialId == null || standardQty == null || standardQty.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+
+        Long tenantId = task.getTenantId();
+
+        // 1. Tránh tạo trùng lặp phiếu đang hoạt động cho task này
+        if (issueRepository.existsByTaskIdAndStatusNot(taskId, "CANCELLED")) {
+            WarehouseIssue existing = issueRepository.findFirstByTaskIdAndStatusNot(taskId, "CANCELLED").orElse(null);
+            if (existing != null) {
+                return enrichIssueDetail(existing);
+            }
+        }
+
+        // 2. Xác định kho xuất
+        Long warehouseId = task.getWarehouseId();
+        if (warehouseId == null) {
+            List<Warehouse> farmWarehouses = warehouseRepository.findByFarmId(farmId);
+            if (!farmWarehouses.isEmpty()) {
+                warehouseId = farmWarehouses.get(0).getId();
+            } else {
+                log.warn("Không tìm thấy kho nào cho farmId={} để xuất vật tư task id={}", farmId, taskId);
+                return null;
+            }
+        }
+
+        Material material = materialRepository.findById(materialId).orElse(null);
+        if (material == null) {
+            log.warn("Không tìm thấy vật tư id={} của task id={}", materialId, taskId);
+            return null;
+        }
+
+        // 3. Người nhận hàng từ task (công nhân được giao việc)
+        String receiverName = "Công nhân thực hiện";
+        if (task.getAssignedToEmployeeId() != null) {
+            Employee emp = employeeRepository.findById(task.getAssignedToEmployeeId()).orElse(null);
+            if (emp != null && StringUtils.hasText(emp.getFullName())) {
+                receiverName = emp.getFullName();
+            }
+        }
+
+        // 4. Sinh mã phiếu xuất
+        String code;
+        do {
+            code = generateDocCode("ISS");
+        } while (issueRepository.existsByTenantIdAndFarmIdAndIssueCode(tenantId, farmId, code));
+
+        // 5. Thuật toán FEFO (First Expired First Out): Tìm các lô còn hạn dùng gần nhất và có tồn khả dụng
+        List<WarehouseInventory> fefoLots = inventoryRepository.findFefoAvailableLots(farmId, warehouseId, materialId);
+
+        BigDecimal remainingToAllocate = standardQty;
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        List<WarehouseIssueItem> itemsToSave = new ArrayList<>();
+
+        if (!fefoLots.isEmpty()) {
+            for (WarehouseInventory inv : fefoLots) {
+                if (remainingToAllocate.compareTo(BigDecimal.ZERO) <= 0) break;
+
+                BigDecimal currentReserved = inv.getReservedQuantity() != null ? inv.getReservedQuantity() : BigDecimal.ZERO;
+                BigDecimal availableInLot = inv.getQuantityOnHand().subtract(currentReserved);
+                if (availableInLot.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                BigDecimal allocateQty = availableInLot.min(remainingToAllocate);
+
+                // Tạm giữ tồn kho (Hold/Reserve)
+                inv.setReservedQuantity(currentReserved.add(allocateQty));
+                inventoryRepository.save(inv);
+
+                BigDecimal unitPrice = inv.getUnitCost() != null ? inv.getUnitCost() : BigDecimal.ZERO;
+                BigDecimal totalPrice = allocateQty.multiply(unitPrice);
+                totalAmount = totalAmount.add(totalPrice);
+
+                WarehouseIssueItem item = WarehouseIssueItem.builder()
+                        .tenantId(tenantId)
+                        .materialId(materialId)
+                        .batchNumber(inv.getBatchNumber())
+                        .enteredUnit(material.getStandardUnit())
+                        .enteredQuantity(allocateQty)
+                        .conversionFactor(BigDecimal.ONE.setScale(4))
+                        .quantity(allocateQty)
+                        .unitPrice(unitPrice)
+                        .totalPrice(totalPrice)
+                        .createdAt(Instant.now())
+                        .createdBy(currentUserId)
+                        .build();
+                itemsToSave.add(item);
+
+                remainingToAllocate = remainingToAllocate.subtract(allocateQty);
+            }
+        }
+
+        // Nếu kho không đủ tồn khả dụng hoặc không có lô nào, vẫn tạo dòng yêu cầu để thủ kho thấy thiếu hàng và chủ động nhập/soạn
+        if (remainingToAllocate.compareTo(BigDecimal.ZERO) > 0) {
+            String fallbackBatch = !fefoLots.isEmpty() ? fefoLots.get(0).getBatchNumber() : "DEFAULT";
+            BigDecimal unitPrice = !fefoLots.isEmpty() && fefoLots.get(0).getUnitCost() != null ? fefoLots.get(0).getUnitCost() : BigDecimal.ZERO;
+            BigDecimal totalPrice = remainingToAllocate.multiply(unitPrice);
+            totalAmount = totalAmount.add(totalPrice);
+
+            WarehouseIssueItem fallbackItem = WarehouseIssueItem.builder()
+                    .tenantId(tenantId)
+                    .materialId(materialId)
+                    .batchNumber(fallbackBatch)
+                    .enteredUnit(material.getStandardUnit())
+                    .enteredQuantity(remainingToAllocate)
+                    .conversionFactor(BigDecimal.ONE.setScale(4))
+                    .quantity(remainingToAllocate)
+                    .unitPrice(unitPrice)
+                    .totalPrice(totalPrice)
+                    .createdAt(Instant.now())
+                    .createdBy(currentUserId)
+                    .build();
+            itemsToSave.add(fallbackItem);
+        }
+
+        WarehouseIssue issue = WarehouseIssue.builder()
+                .tenantId(tenantId)
+                .farmId(farmId)
+                .warehouseId(warehouseId)
+                .issueCode(code)
+                .issueType("TASK_DISPATCH")
+                .taskId(taskId)
+                .receiverName(receiverName)
+                .seasonId(task.getCropSeasonId())
+                .livestockGroupId(task.getLivestockGroupId())
+                .isBackflushed(false)
+                .issueDate(LocalDate.now())
+                .totalAmount(totalAmount)
+                .notes("Xuất vật tư theo công việc: " + task.getTaskTitle())
+                .status("DRAFT")
+                .createdAt(Instant.now())
+                .createdBy(currentUserId)
+                .build();
+
+        issue = issueRepository.save(issue);
+
+        for (WarehouseIssueItem it : itemsToSave) {
+            it.setIssueId(issue.getId());
+            issueItemRepository.save(it);
+        }
+
+        // Bắn Notification tới Quản lý trang trại và Thủ kho
+        String notifTitle = "Yêu cầu xuất kho mới từ công việc";
+        String notifMsg = String.format("Công việc [%s] của [%s] đang cần xuất %s %s [%s]. Phiếu xuất kho [%s] đang chờ thủ kho kiểm hàng và xuất.",
+                task.getTaskTitle(), receiverName, standardQty.stripTrailingZeros().toPlainString(),
+                material.getStandardUnit() != null ? material.getStandardUnit() : "", material.getName(), code);
+        notifyFarmManager(farmId, tenantId, notifTitle, notifMsg, "WAREHOUSE_ISSUE", issue.getId(), "/app/inventory?tab=ISSUES&id=" + issue.getId());
+
+        log.info("Auto created draft WarehouseIssue code={} for task id={}", issue.getIssueCode(), taskId);
+        return enrichIssueDetail(issue);
+    }
+
+    @Override
+    @Transactional
+    public void cancelIssueForTask(Long farmId, Long taskId, String reason) {
+        if (farmId == null || taskId == null) return;
+        List<WarehouseIssue> issues = issueRepository.findByTaskId(taskId);
+        for (WarehouseIssue issue : issues) {
+            if ("DRAFT".equals(issue.getStatus())) {
+                CancelWarehouseIssueRequest cancelReq = new CancelWarehouseIssueRequest();
+                cancelReq.setCancellationReason(reason != null ? reason : "Công việc bị hủy/thay đổi");
+                cancelIssue(farmId, issue.getId(), cancelReq);
+            }
+        }
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Page<WarehouseIssueDetailResponse> getIssues(
             Long farmId, Long warehouseId, String status,
@@ -842,7 +1023,13 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                             issue.getWarehouseId(), item.getMaterialId(), item.getBatchNumber())
                     .orElseThrow(() -> new InsufficientStockException("Không tìm thấy lô vật tư trong kho: " + item.getBatchNumber()));
 
-            BigDecimal available = inventory.getQuantityOnHand().subtract(inventory.getReservedQuantity());
+            BigDecimal reservedByOthers = inventory.getReservedQuantity() != null ? inventory.getReservedQuantity() : BigDecimal.ZERO;
+            if (issue.getTaskId() != null) {
+                reservedByOthers = reservedByOthers.subtract(item.getQuantity());
+                if (reservedByOthers.compareTo(BigDecimal.ZERO) < 0) reservedByOthers = BigDecimal.ZERO;
+            }
+
+            BigDecimal available = inventory.getQuantityOnHand().subtract(reservedByOthers);
             if (available.compareTo(item.getQuantity()) < 0) {
                 throw new InsufficientStockException(item.getBatchNumber(), item.getQuantity(), available);
             }
@@ -850,6 +1037,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             BigDecimal balanceBefore = inventory.getQuantityOnHand();
             BigDecimal balanceAfter = balanceBefore.subtract(item.getQuantity());
             inventory.setQuantityOnHand(balanceAfter);
+            inventory.setReservedQuantity(reservedByOthers);
             inventory.setUpdatedAt(Instant.now());
             inventory.setUpdatedBy(SecurityUtils.getCurrentUserId());
             inventoryRepository.save(inventory);
@@ -900,8 +1088,17 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Completed issue: " + issue.getIssueCode())
                 .build());
 
-        // Nếu xuất sử dụng nội bộ (INTERNAL_USE) và có gắn vụ mùa hoặc đàn nuôi -> Tự động sinh FarmExpense
-        if ("INTERNAL_USE".equalsIgnoreCase(issue.getIssueType()) && (issue.getSeasonId() != null || issue.getLivestockGroupId() != null)) {
+        if (issue.getTaskId() != null) {
+            farmTaskRepository.findById(issue.getTaskId()).ifPresent(task -> {
+                if (task.getActualQuantity() == null) {
+                    task.setActualQuantity(task.getStandardQuantity());
+                    farmTaskRepository.save(task);
+                }
+            });
+        }
+
+        // Nếu xuất sử dụng nội bộ (INTERNAL_USE / TASK_DISPATCH) và có gắn vụ mùa hoặc đàn nuôi -> Tự động sinh FarmExpense
+        if (("INTERNAL_USE".equalsIgnoreCase(issue.getIssueType()) || "TASK_DISPATCH".equalsIgnoreCase(issue.getIssueType())) && (issue.getSeasonId() != null || issue.getLivestockGroupId() != null)) {
             CostCategory costCategory = costCategoryRepository.findByTenantIdAndCostType(tenantId, "MATERIALS")
                     .stream().findFirst()
                     .orElseGet(() -> {
@@ -965,6 +1162,23 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         issue.setUpdatedAt(Instant.now());
         issue.setUpdatedBy(SecurityUtils.getCurrentUserId());
         issue = issueRepository.save(issue);
+
+        // Giải phóng tồn kho tạm giữ (reservedQuantity) nếu hủy phiếu xuất theo nhiệm vụ
+        if (issue.getTaskId() != null) {
+            List<WarehouseIssueItem> items = issueItemRepository.findByIssueId(issue.getId());
+            for (WarehouseIssueItem item : items) {
+                inventoryRepository.findByWarehouseIdAndMaterialIdAndBatchNumberForUpdate(
+                        issue.getWarehouseId(), item.getMaterialId(), item.getBatchNumber())
+                        .ifPresent(inventory -> {
+                            BigDecimal curReserved = inventory.getReservedQuantity() != null ? inventory.getReservedQuantity() : BigDecimal.ZERO;
+                            BigDecimal newReserved = curReserved.subtract(item.getQuantity());
+                            inventory.setReservedQuantity(newReserved.compareTo(BigDecimal.ZERO) > 0 ? newReserved : BigDecimal.ZERO);
+                            inventory.setUpdatedAt(Instant.now());
+                            inventory.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                            inventoryRepository.save(inventory);
+                        });
+            }
+        }
 
         eventPublisher.publishEvent(AuditTrailEvent.builder()
                 .tenantId(issue.getTenantId())
@@ -1715,8 +1929,22 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         Warehouse warehouse = warehouseRepository.findById(i.getWarehouseId()).orElse(null);
         List<WarehouseIssueItem> items = issueItemRepository.findByIssueId(i.getId());
 
+        String taskTitle = null;
+        if (i.getTaskId() != null) {
+            taskTitle = farmTaskRepository.findById(i.getTaskId())
+                    .map(FarmTask::getTaskTitle)
+                    .orElse("Nhiệm vụ #" + i.getTaskId());
+        }
+
         List<WarehouseIssueDetailResponse.IssueItemDto> itemDtos = items.stream().map(it -> {
             Material material = materialRepository.findById(it.getMaterialId()).orElse(null);
+            WarehouseInventory inv = inventoryRepository.findByWarehouseIdAndMaterialIdAndBatchNumber(
+                    i.getWarehouseId(), it.getMaterialId(), it.getBatchNumber()).orElse(null);
+
+            String storageBinCode = inv != null ? inv.getStorageBinCode() : null;
+            LocalDate expiryDate = inv != null ? inv.getExpiryDate() : null;
+            BigDecimal available = inv != null ? inv.getQuantityOnHand().subtract(inv.getReservedQuantity() != null ? inv.getReservedQuantity() : BigDecimal.ZERO) : BigDecimal.ZERO;
+
             return WarehouseIssueDetailResponse.IssueItemDto.builder()
                     .id(it.getId())
                     .materialId(it.getMaterialId())
@@ -1724,6 +1952,9 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .materialName(material != null ? material.getName() : null)
                     .standardUnit(material != null ? material.getStandardUnit() : null)
                     .batchNumber(it.getBatchNumber())
+                    .storageBinCode(storageBinCode)
+                    .expiryDate(expiryDate)
+                    .availableQuantity(available)
                     .enteredUnit(it.getEnteredUnit())
                     .enteredQuantity(it.getEnteredQuantity())
                     .conversionFactor(it.getConversionFactor())
@@ -1740,6 +1971,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .warehouseName(warehouse != null ? warehouse.getName() : "Kho #" + i.getWarehouseId())
                 .issueCode(i.getIssueCode())
                 .issueType(i.getIssueType())
+                .taskId(i.getTaskId())
+                .taskTitle(taskTitle)
                 .receiverName(i.getReceiverName())
                 .seasonId(i.getSeasonId())
                 .livestockGroupId(i.getLivestockGroupId())

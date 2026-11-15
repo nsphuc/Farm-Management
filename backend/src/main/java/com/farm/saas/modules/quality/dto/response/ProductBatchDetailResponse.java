@@ -7,6 +7,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+/**
+ * DTO phản hồi chi tiết thông tin lô sản phẩm thành phẩm (Product Batch)
+ * bao gồm trạng thái kiểm định KCS, bản chụp truy xuất nguồn gốc và danh sách nguồn đóng góp.
+ */
 @Getter
 @Setter
 @Builder
@@ -66,14 +70,27 @@ public class ProductBatchDetailResponse {
     private Instant createdAt;
     private Instant updatedAt;
 
+    /**
+     * Lấy tên đầy đủ của kỹ thuật viên KCS kiểm định (ưu tiên inspectorName, nếu không có lấy inspectorFullName).
+     *
+     * @return Tên người kiểm định
+     */
     public String getInspectorName() {
         return inspectorName != null ? inspectorName : inspectorFullName;
     }
 
+    /**
+     * Lấy chuỗi JSON biên bản kiểm định KCS (ưu tiên qcJson, nếu không có lấy qcInspectionJson).
+     *
+     * @return Chuỗi JSON biên bản KCS
+     */
     public String getQcJson() {
         return qcJson != null ? qcJson : qcInspectionJson;
     }
 
+    /**
+     * DTO chi tiết nguồn gốc nguyên liệu thu hoạch đóng góp vào lô thành phẩm.
+     */
     @Getter
     @Setter
     @Builder

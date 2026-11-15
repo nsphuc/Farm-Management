@@ -1096,6 +1096,7 @@ export function Personnel360Workspace() {
         employee={editingEmployee}
         farms={farms}
         defaultPosition={formDefaultPosition}
+        existingEmployees={employees}
       />
 
       {/* Slide-Over Drawer Hồ sơ Nhân sự 360° */}

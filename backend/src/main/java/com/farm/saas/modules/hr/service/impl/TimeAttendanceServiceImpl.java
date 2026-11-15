@@ -110,29 +110,38 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
         boolean isOfficeStaff = isOfficeStaffRole(currentUser, employee, farm.getId());
         double farmLat = farm.getLatitude() != null ? farm.getLatitude().doubleValue() : 0.0;
         double farmLon = farm.getLongitude() != null ? farm.getLongitude().doubleValue() : 0.0;
+        boolean farmHasCoords = (farmLat != 0.0 || farmLon != 0.0);
 
         java.math.BigDecimal reqLat = request.getLatitude();
         java.math.BigDecimal reqLon = request.getLongitude();
-        if ((reqLat == null || reqLon == null || (reqLat.doubleValue() == 0 && reqLon.doubleValue() == 0)) && isOfficeStaff) {
-            reqLat = farm.getLatitude() != null ? farm.getLatitude() : java.math.BigDecimal.ZERO;
-            reqLon = farm.getLongitude() != null ? farm.getLongitude() : java.math.BigDecimal.ZERO;
-            request.setLatitude(reqLat);
-            request.setLongitude(reqLon);
-        }
+        boolean reqHasCoords = reqLat != null && reqLon != null && (reqLat.doubleValue() != 0.0 || reqLon.doubleValue() != 0.0);
 
         double distanceM = 0.0;
-        if (reqLat != null && reqLon != null && (reqLat.doubleValue() != 0 || reqLon.doubleValue() != 0)) {
+        boolean withinGeofence = true;
+
+        if (farmHasCoords && reqHasCoords) {
             distanceM = GeoDistanceUtils.calculateDistanceMeters(
                     reqLat.doubleValue(),
                     reqLon.doubleValue(),
                     farmLat,
                     farmLon
             );
+            double radiusM = farm.getGeofenceRadiusM() != null ? farm.getGeofenceRadiusM() : 200.0;
+            withinGeofence = distanceM <= radiusM;
+        } else if (!farmHasCoords) {
+            // Trang trại chưa cấu hình toạ độ GPS tâm trại -> Bỏ qua kiểm tra để không chặn nhầm
+            withinGeofence = true;
+        } else {
+            // Thiết bị không có toạ độ (mạng LAN HTTP / thiết bị chặn GPS) -> Gán toạ độ tâm trại
+            reqLat = farm.getLatitude();
+            reqLon = farm.getLongitude();
+            request.setLatitude(reqLat);
+            request.setLongitude(reqLon);
+            withinGeofence = true;
         }
 
-        double radiusM = farm.getGeofenceRadiusM() != null ? farm.getGeofenceRadiusM() : 200.0;
-        boolean withinGeofence = distanceM <= radiusM;
         if (!withinGeofence && !isOfficeStaff) {
+            double radiusM = farm.getGeofenceRadiusM() != null ? farm.getGeofenceRadiusM() : 200.0;
             log.warn("GPS_OUTSIDE_GEOFENCE: employee {} distance {}m > radius {}m for farm {}", employee.getId(), distanceM, radiusM, farm.getId());
             throw new BusinessException("GPS_OUTSIDE_GEOFENCE",
                     String.format("Tọa độ chấm công nằm ngoài phạm vi trang trại (Khoảng cách: %.1fm > Cho phép: %.1fm)", distanceM, radiusM));
@@ -227,25 +236,33 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
 
         double farmLat = farm.getLatitude() != null ? farm.getLatitude().doubleValue() : 0.0;
         double farmLon = farm.getLongitude() != null ? farm.getLongitude().doubleValue() : 0.0;
+        boolean farmHasCoords = (farmLat != 0.0 || farmLon != 0.0);
 
         boolean isOfficeStaff = isOfficeStaffRole(currentUser, employee, farm.getId());
         java.math.BigDecimal outLat = request.getLatitude();
         java.math.BigDecimal outLon = request.getLongitude();
-        if ((outLat == null || outLon == null || (outLat.doubleValue() == 0 && outLon.doubleValue() == 0)) && isOfficeStaff) {
-            outLat = farm.getLatitude() != null ? farm.getLatitude() : java.math.BigDecimal.ZERO;
-            outLon = farm.getLongitude() != null ? farm.getLongitude() : java.math.BigDecimal.ZERO;
-            request.setLatitude(outLat);
-            request.setLongitude(outLon);
-        }
+        boolean outHasCoords = outLat != null && outLon != null && (outLat.doubleValue() != 0.0 || outLon.doubleValue() != 0.0);
 
         double distanceM = 0.0;
-        if (outLat != null && outLon != null && (outLat.doubleValue() != 0 || outLon.doubleValue() != 0)) {
+        boolean withinGeofence = true;
+
+        if (farmHasCoords && outHasCoords) {
             distanceM = GeoDistanceUtils.calculateDistanceMeters(
                     outLat.doubleValue(),
                     outLon.doubleValue(),
                     farmLat,
                     farmLon
             );
+            double radiusM = farm.getGeofenceRadiusM() != null ? farm.getGeofenceRadiusM() : 200.0;
+            withinGeofence = distanceM <= radiusM;
+        } else if (!farmHasCoords) {
+            withinGeofence = true;
+        } else {
+            outLat = farm.getLatitude();
+            outLon = farm.getLongitude();
+            request.setLatitude(outLat);
+            request.setLongitude(outLon);
+            withinGeofence = true;
         }
 
         // Calculate working hours & early leave minutes
@@ -379,6 +396,34 @@ public class TimeAttendanceServiceImpl implements TimeAttendanceService {
         }
 
         // Normal staff (FIELD_WORKER, WAREHOUSE_STAFF, TECHNICAL_STAFF): only see own attendances
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        Optional<Employee> myEmp = employeeRepository.findByTenantIdAndUserId(tenantId, currentUserId);
+        if (myEmp.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Long myEmpId = myEmp.get().getId();
+        return attendances.stream()
+                .filter(a -> myEmpId.equals(a.getEmployeeId()))
+                .map(this::enrichDetailResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TimeAttendanceDetailResponse> getAttendancesByDateRange(Long farmId, LocalDate fromDate, LocalDate toDate) {
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        List<TimeAttendance> attendances = timeAttendanceRepository.findByFarmIdAndWorkDateBetweenOrderByWorkDateAsc(farmId, fromDate, toDate);
+
+        if (user == null || user.isSuperAdmin()
+                || user.hasRole("ROLE_FARM_OWNER")
+                || user.hasRole("ROLE_FARM_MANAGER")
+                || user.hasRole("ROLE_ACCOUNTANT")) {
+            return attendances.stream()
+                    .map(this::enrichDetailResponse)
+                    .collect(Collectors.toList());
+        }
+
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Optional<Employee> myEmp = employeeRepository.findByTenantIdAndUserId(tenantId, currentUserId);
         if (myEmp.isEmpty()) {

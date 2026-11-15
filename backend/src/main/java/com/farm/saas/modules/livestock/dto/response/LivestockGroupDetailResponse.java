@@ -18,6 +18,8 @@ public class LivestockGroupDetailResponse {
     private Long farmId;
     private Long zoneId;
     private String zoneName;
+    private Long locationId;
+    private String locationName;
     private Long operationalCycleId;
     private String cycleName;
     private String groupCode;
@@ -35,9 +37,13 @@ public class LivestockGroupDetailResponse {
     private String notes;
     private LocalDate entryDate;
     private String status;
+    private String managementType;
+    private Integer taggedIndividualCount;
     private LocalDate activeWithdrawalEndDate;
     private Boolean isInWithdrawalQuarantine;
     private BigDecimal totalExpensesAmount;
+    private Long createdBy;
+    private String createdByName;
     private Instant createdAt;
     private Instant updatedAt;
 }

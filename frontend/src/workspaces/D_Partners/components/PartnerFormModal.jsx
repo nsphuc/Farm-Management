@@ -5,7 +5,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, Textarea, CodeInput } from '@/components/ui/FormControls';
 import { extractApiErrors, VIETNAM_BANKS } from '@/utils/apiHelpers';
-import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { generateEntityCode, CODE_PREFIXES, commitSequentialCode } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
@@ -28,6 +28,7 @@ export function PartnerFormModal({
   isOpen,
   onClose,
   editingItem = null,
+  existingPartners = [],
   onSuccess,
 }) {
   const { isOwner, isFarmManager } = useAuthStore();
@@ -35,6 +36,8 @@ export function PartnerFormModal({
   const owner = isOwner();
   const farmManager = isFarmManager();
   const canEditCredit = Boolean(owner || farmManager);
+
+  const [serverPartners, setServerPartners] = useState([]);
 
   const [formData, setFormData] = useState({
     farmId: '',
@@ -60,6 +63,36 @@ export function PartnerFormModal({
   const [fieldErrors, setFieldErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Truy vấn danh sách đối tác hiện có trên hệ thống để tự động tăng mã PRT-xxx chính xác
+  useEffect(() => {
+    if (!isOpen || editingItem) return;
+    let isMounted = true;
+
+    partnerService
+      .getPartners({ size: 1000 })
+      .then((res) => {
+        if (!isMounted) return;
+        const list = res?.content || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list) && list.length > 0) {
+          setServerPartners(list);
+          const nextCode = generateEntityCode(CODE_PREFIXES.PARTNER, list);
+          setFormData((prev) => {
+            if (!prev.code || prev.code.startsWith('PRT-')) {
+              return { ...prev, code: nextCode };
+            }
+            return prev;
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn('Lỗi khi tải danh sách đối tác để sinh mã:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, editingItem]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -92,9 +125,14 @@ export function PartnerFormModal({
         ? String(activeFarmId)
         : '';
 
+      const allKnownPartners = serverPartners.length > 0
+        ? serverPartners
+        : (existingPartners && existingPartners.length > 0 ? existingPartners : []);
+      const initialCode = generateEntityCode(CODE_PREFIXES.PARTNER, allKnownPartners);
+
       setFormData({
         farmId: defaultFarmId,
-        code: generateEntityCode(CODE_PREFIXES.PARTNER),
+        code: initialCode,
         name: '',
         partnerType: 'SUPPLIER',
         taxCode: '',
@@ -115,6 +153,14 @@ export function PartnerFormModal({
     }
   }, [isOpen, editingItem, owner, activeFarmId]);
 
+  const handleRegenerateCode = () => {
+    const allKnownPartners = serverPartners.length > 0
+      ? serverPartners
+      : (existingPartners && existingPartners.length > 0 ? existingPartners : []);
+    const nextCode = generateEntityCode(CODE_PREFIXES.PARTNER, allKnownPartners);
+    setFormData((prev) => ({ ...prev, code: nextCode }));
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
@@ -123,8 +169,8 @@ export function PartnerFormModal({
         name === 'code'
           ? value.toUpperCase()
           : name === 'bankAccountName'
-          ? value.toUpperCase()
-          : value,
+            ? value.toUpperCase()
+            : value,
     }));
     if (fieldErrors[name]) {
       setFieldErrors((prev) => {
@@ -181,8 +227,8 @@ export function PartnerFormModal({
 
     // Validate email nếu nhập
     if (formData.email?.trim()) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
-        errors.email = 'Email không hợp lệ';
+      if (!/^[A-Za-z0-9._%+-]+@gmail\.com$/i.test(formData.email.trim())) {
+        errors.email = 'Email bắt buộc phải có đuôi @gmail.com';
       }
     }
 
@@ -224,8 +270,8 @@ export function PartnerFormModal({
         creditLimit: owner
           ? Number(formData.creditLimit)
           : editingItem
-          ? Number(editingItem.creditLimit) || 0
-          : 0,
+            ? Number(editingItem.creditLimit) || 0
+            : 0,
         paymentTermDays: Number(formData.paymentTermDays),
         bankBin: formData.bankBin || null,
         bankName: formData.bankName || null,
@@ -238,7 +284,8 @@ export function PartnerFormModal({
         await partnerService.updatePartner(editingItem.id, payload);
         toast.success(`Cập nhật thông tin đối tác "${payload.name}" thành công!`);
       } else {
-        await partnerService.createPartner(payload);
+        const created = await partnerService.createPartner(payload);
+        commitSequentialCode(CODE_PREFIXES.PARTNER, created?.code || payload.code);
         toast.success(`Thêm mới đối tác "${payload.name}" cho trang trại thành công!`);
       }
 
@@ -352,12 +399,12 @@ export function PartnerFormModal({
             <FormField
               label="Mã Đối Tác"
               error={fieldErrors.code}
-              hint={editingItem ? 'Khóa cứng bất biến' : 'Mã tự sinh dạng PRT-YYMM-XXXX'}
+              hint={editingItem ? 'Khóa cứng bất biến' : 'Mã tự sinh dạng PRT-XXX (VD: PRT-001)'}
             >
               <CodeInput
                 value={formData.code}
                 onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.PARTNER) }))}
+                onRegenerate={handleRegenerateCode}
                 isEditMode={Boolean(editingItem)}
                 error={fieldErrors.code}
               />
@@ -407,13 +454,15 @@ export function PartnerFormModal({
               />
             </FormField>
 
-            <FormField label="Email Liên Hệ" error={fieldErrors.email}>
+            <FormField label="Email Liên Hệ (@gmail.com)" error={fieldErrors.email}>
               <Input
                 type="email"
                 name="email"
                 value={formData.email}
                 onChange={handleChange}
-                placeholder="contact@doitac.vn"
+                placeholder="contact.doitac@gmail.com"
+                pattern=".+@gmail\.com"
+                title="Email phải có đuôi @gmail.com"
               />
             </FormField>
           </div>

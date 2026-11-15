@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Layers, AlertTriangle, Building, CheckCircle2, RefreshCw } from 'lucide-react';
 import { geographyService } from '@/services/modules/geographyService';
 import { Modal } from '@/components/ui/Modal';
@@ -86,10 +86,19 @@ export function ZoneFormModal({
   const [fieldErrors, setFieldErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
   const [saving, setSaving] = useState(false);
+  const hasInitializedRef = useRef(false);
 
   // Khởi tạo ngữ cảnh khi mở Modal
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      hasInitializedRef.current = false;
+      return;
+    }
+    if (hasInitializedRef.current && !editingItem) {
+      return;
+    }
+    hasInitializedRef.current = true;
+
     setFieldErrors({});
     setGeneralError('');
 
@@ -120,8 +129,9 @@ export function ZoneFormModal({
         mapLayoutJson: editingItem.mapLayoutJson || null,
       });
     } else {
+      const currentFarmZones = currentFarm?.zones || [];
       setFormData({
-        code: generateEntityCode(CODE_PREFIXES.ZONE),
+        code: generateEntityCode(CODE_PREFIXES.ZONE, currentFarmZones),
         name: '',
         zoneType: resolvedDefaultType,
         areaM2: 1000,
@@ -364,7 +374,7 @@ export function ZoneFormModal({
             <CodeInput
               value={formData.code}
               onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-              onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.ZONE) }))}
+              onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.ZONE, currentFarm?.zones || []) }))}
               isEditMode={Boolean(editingItem)}
               error={fieldErrors.code}
             />

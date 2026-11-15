@@ -249,6 +249,9 @@ export function GeographyWorkspace() {
       setSelectedFarm(farm);
       setSelectedZone(zone);
       setSelectedWarehouse(null);
+      if (farm?.id && zone?.id) {
+        fetchLocations(farm.id, zone.id);
+      }
     }
   };
 
@@ -382,14 +385,9 @@ export function GeographyWorkspace() {
         const parentZone = (parentFarm.zones || []).find((z) => Number(z.id) === Number(targetZoneId));
         if (parentZone) {
           setSelectedZone(parentZone);
-          const freshLoc = (parentZone.locations || []).find(
-            (l) => Number(l.id) === Number(savedLoc?.id) || l.code === savedLoc?.code
-          );
-          if (freshLoc) {
-            setSelectedNode({ type: 'LOCATION', item: freshLoc, farm: parentFarm, zone: parentZone });
-          } else {
-            setSelectedNode({ type: 'ZONE', item: parentZone, farm: parentFarm });
-          }
+          setSelectedWarehouse(null);
+          // Luôn giữ giao diện ở cấp Phân khu để người dùng thấy ngay vị trí/kệ vừa thêm trong danh sách và tiếp tục thao tác
+          setSelectedNode({ type: 'ZONE', item: parentZone, farm: parentFarm });
         }
       }
     }
@@ -1020,9 +1018,29 @@ export function GeographyWorkspace() {
             </div>
           )}
 
-          {/* TRƯỜNG HỢP 2: ĐANG CHỌN NODE PHÂN KHU (production_zones #13) */}
-          {selectedNode?.type === 'ZONE' && selectedZone && (
+          {/* TRƯỜNG HỢP 2: ĐANG CHỌN NODE PHÂN KHU HOẶC VỊ TRÍ CHI TIẾT */}
+          {(selectedNode?.type === 'ZONE' || selectedNode?.type === 'LOCATION') && selectedZone && (
             <div className="space-y-6 animate-in fade-in duration-150">
+              {/* Thanh thông báo khi đang focus một vị trí/kệ cụ thể */}
+              {selectedNode?.type === 'LOCATION' && selectedNode.item && (
+                <div className="flex items-center justify-between rounded-xl bg-purple-50 border border-purple-200 p-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-purple-700 shrink-0" />
+                    <span className="font-semibold text-purple-900">
+                      Đang xem vị trí: <span className="font-bold">{selectedNode.item.name}</span> ({selectedNode.item.code})
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    onClick={() => setSelectedNode({ type: 'ZONE', item: selectedZone, farm: selectedFarm })}
+                  >
+                    Xem toàn bộ phân khu
+                  </Button>
+                </div>
+              )}
+
               {/* Thẻ Chi Tiết Phân Khu */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
@@ -1324,23 +1342,33 @@ export function GeographyWorkspace() {
 
                         {/* Danh sách các Kệ thực tế thuộc kho này */}
                         {whShelves.length > 0 ? (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                            {whShelves.map((loc) => (
-                              <div
-                                key={loc.id}
-                                className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 hover:bg-white hover:border-amber-300 transition-all flex flex-col justify-between shadow-2xs"
-                              >
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            {whShelves.map((loc) => {
+                              const isFocused = selectedNode?.type === 'LOCATION' && Number(selectedNode?.item?.id) === Number(loc.id);
+                              return (
+                                <div
+                                  key={loc.id}
+                                  className={`rounded-xl border p-3.5 transition-all flex flex-col justify-between shadow-2xs min-w-0 overflow-hidden ${
+                                    isFocused
+                                      ? 'border-purple-400 bg-purple-50/70 ring-2 ring-purple-500/30'
+                                      : 'border-slate-200 bg-slate-50/60 hover:bg-white hover:border-amber-300'
+                                  }`}
+                                >
                                 <div>
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-800">
-                                      <MapPin className="h-3.5 w-3.5 text-purple-600 shrink-0" />
-                                      <span className="truncate">{loc.name}</span>
+                                  <div className="flex items-start justify-between gap-2 min-w-0">
+                                    <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                                      <MapPin className="h-3.5 w-3.5 text-purple-600 shrink-0 mt-0.5" />
+                                      <span className="font-bold text-xs text-slate-900 leading-snug line-clamp-2 break-words" title={loc.name}>
+                                        {loc.name}
+                                      </span>
                                     </div>
-                                    <StatusBadge status={loc.status} size="xs" />
+                                    <div className="shrink-0">
+                                      <StatusBadge status={loc.status} size="xs" />
+                                    </div>
                                   </div>
                                   <div className="mt-1 text-[11px] font-mono text-slate-500">Mã kệ: {loc.code}</div>
                                   {loc.description && (
-                                    <p className="mt-1 text-[11px] text-slate-600 line-clamp-1">{loc.description}</p>
+                                    <p className="mt-1 text-[11px] text-slate-600 line-clamp-2 break-words">{loc.description}</p>
                                   )}
                                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
                                     {loc.areaM2 != null && (
@@ -1350,7 +1378,7 @@ export function GeographyWorkspace() {
                                     )}
                                     {loc.capacity != null && (
                                       <span className="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-mono font-semibold">
-                                        Sức chứa: {loc.capacity}
+                                        Sức chứa: {loc.capacity} {loc.capacityUnit || ''}
                                       </span>
                                     )}
                                   </div>
@@ -1383,7 +1411,8 @@ export function GeographyWorkspace() {
                                   </Can>
                                 </div>
                               </div>
-                            ))}
+                            );
+                          })}
                           </div>
                         ) : (
                           <div className="text-center py-4 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
@@ -1407,15 +1436,19 @@ export function GeographyWorkspace() {
                             Vị Trí Chung Trong Phân Khu / Chưa Gán Vào Kho Cụ Thể ({unassignedShelves.length})
                           </h4>
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                           {unassignedShelves.map((loc) => (
-                            <div key={loc.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 flex flex-col justify-between">
+                            <div key={loc.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 flex flex-col justify-between min-w-0 overflow-hidden">
                               <div>
-                                <div className="flex items-start justify-between gap-1">
-                                  <span className="font-bold text-xs text-slate-800">{loc.name}</span>
-                                  <StatusBadge status={loc.status} size="xs" />
+                                <div className="flex items-start justify-between gap-2 min-w-0">
+                                  <span className="font-bold text-xs text-slate-800 leading-snug line-clamp-2 break-words flex-1 min-w-0" title={loc.name}>
+                                    {loc.name}
+                                  </span>
+                                  <div className="shrink-0">
+                                    <StatusBadge status={loc.status} size="xs" />
+                                  </div>
                                 </div>
-                                <div className="text-[11px] font-mono text-slate-500 mt-1">{loc.code}</div>
+                                <div className="text-[11px] font-mono text-slate-500 mt-1">Mã: {loc.code}</div>
                               </div>
                               <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
                                 <span className="text-[10px] text-amber-700 italic">Chưa gán kho</span>
@@ -1508,15 +1541,25 @@ export function GeographyWorkspace() {
                       </div>
                     )
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                      {zoneLocations.map((loc) => (
-                        <div
-                          key={loc.id}
-                          className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2 hover:bg-white hover:border-purple-300 transition-all shadow-2xs"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-xs text-slate-900">{loc.name}</span>
-                            <StatusBadge status={loc.status} size="xs" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      {zoneLocations.map((loc) => {
+                        const isFocused = selectedNode?.type === 'LOCATION' && Number(selectedNode?.item?.id) === Number(loc.id);
+                        return (
+                          <div
+                            key={loc.id}
+                            className={`rounded-xl border p-3.5 space-y-2 transition-all shadow-2xs min-w-0 overflow-hidden ${
+                              isFocused
+                                ? 'border-purple-400 bg-purple-50/70 ring-2 ring-purple-500/30'
+                                : 'border-slate-200 bg-slate-50/60 hover:bg-white hover:border-purple-300'
+                            }`}
+                          >
+                          <div className="flex items-start justify-between gap-2 min-w-0">
+                            <span className="font-bold text-xs text-slate-900 leading-snug line-clamp-2 break-words flex-1 min-w-0" title={loc.name}>
+                              {loc.name}
+                            </span>
+                            <div className="shrink-0">
+                              <StatusBadge status={loc.status} size="xs" />
+                            </div>
                           </div>
                           <div className="font-mono text-[11px] text-slate-500">{loc.code}</div>
                           {(loc.areaM2 != null || loc.capacity != null) && (
@@ -1529,10 +1572,10 @@ export function GeographyWorkspace() {
                               {loc.capacity != null && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold">
                                   {selectedZone?.zoneType === 'BARN' || selectedZone?.zoneType === 'ISOLATION'
-                                    ? `🐾 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} con`
+                                    ? `🐾 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} ${loc.capacityUnit || 'con'}`
                                     : selectedZone?.zoneType === 'STORAGE'
-                                    ? `📦 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} kiện/thùng`
-                                    : `🌱 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} cây`}
+                                    ? `📦 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} ${loc.capacityUnit || 'kiện/thùng'}`
+                                    : `🌱 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} ${loc.capacityUnit || 'cây'}`}
                                 </span>
                               )}
                             </div>
@@ -1567,7 +1610,8 @@ export function GeographyWorkspace() {
                             </Can>
                           </div>
                         </div>
-                      ))}
+                      );
+                    })}
                     </div>
                   )}
                 </div>
@@ -1702,6 +1746,7 @@ export function GeographyWorkspace() {
         onClose={() => setFarmModalOpen(false)}
         editingItem={editingFarm}
         employees={employees}
+        existingFarms={farms}
         onSuccess={() => {
           fetchHierarchy();
           notifyDataChanged?.('farms');
@@ -1743,6 +1788,7 @@ export function GeographyWorkspace() {
         farmId={selectedFarm?.id || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null)}
         initialZoneId={targetZoneForWarehouse}
         zones={selectedFarm?.zones || []}
+        warehouses={selectedFarm?.warehouses || []}
         employees={employees}
         editingItem={editingWarehouse}
         onSuccess={handleWarehouseSaved}

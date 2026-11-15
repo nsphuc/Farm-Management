@@ -25,6 +25,9 @@ public class Material {
     @Column(name = "category_id", nullable = false)
     private Long categoryId;
 
+    @Column(name = "crop_type_id")
+    private Long cropTypeId;
+
     @Column(name = "sku_code", nullable = false, length = 50)
     private String skuCode;
 

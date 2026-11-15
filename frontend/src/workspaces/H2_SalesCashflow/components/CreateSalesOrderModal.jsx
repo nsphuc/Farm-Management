@@ -293,9 +293,9 @@ export function CreateSalesOrderModal({ isOpen, onClose, onSuccess, initialFarmI
               loading={isSubmitting}
               onClick={handleSubmit}
               icon={<CheckCircle2 className="h-4 w-4" />}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 shadow-xs"
             >
-              Lưu Đơn Bán Sỉ (PENDING)
+              Tạo Đơn Bán Sỉ (Lưu Nháp)
             </Button>
           </div>
         </div>

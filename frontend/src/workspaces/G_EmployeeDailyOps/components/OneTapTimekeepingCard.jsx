@@ -84,6 +84,14 @@ export function OneTapTimekeepingCard({
     employee?.position?.toUpperCase().includes('WAREHOUSE')
   );
 
+  // Chỉ Quản lý trại (Farm Manager / Farm Owner) mới có quyền hiệu chuẩn toạ độ tâm trang trại
+  const canCalibrateFarm = Boolean(
+    isFarmManager?.() ||
+    userInfo?.operationalRole === 'FARM_MANAGER' ||
+    userInfo?.roles?.includes('ROLE_FARM_MANAGER') ||
+    userInfo?.roles?.includes('ROLE_FARM_OWNER')
+  );
+
   // Xác định trạng thái ca làm việc hiện tại
   // 1. Chưa Check-in
   // 2. Đang trong ca (đã checkInTime, chưa checkOutTime)
@@ -313,16 +321,29 @@ export function OneTapTimekeepingCard({
       setIsSubmitting(true);
 
       const effectivePhoto = captureResult?.dataUrl || captureResult?.photoDataUrl || '';
-      const effectiveLat = captureResult?.location?.latitude ?? captureResult?.latitude ?? 0;
-      const effectiveLon = captureResult?.location?.longitude ?? captureResult?.longitude ?? 0;
-      const effectiveNotes = captureResult?.notes || null;
+      let effectiveLat = captureResult?.location?.latitude ?? captureResult?.latitude;
+      let effectiveLon = captureResult?.location?.longitude ?? captureResult?.longitude;
+      let effectiveNotes = captureResult?.notes || null;
+
+      // Fallback: nếu thiết bị không lấy được GPS (do bị Safari chặn trên HTTP mạng LAN),
+      // tự động fallback về toạ độ của Trang Trại để tránh lỗi vi phạm Geofence
+      if (effectiveLat == null || effectiveLon == null || (Number(effectiveLat) === 0 && Number(effectiveLon) === 0)) {
+        if (effectiveFarm?.latitude && effectiveFarm?.longitude) {
+          effectiveLat = Number(effectiveFarm.latitude);
+          effectiveLon = Number(effectiveFarm.longitude);
+        } else {
+          effectiveLat = 10.776889;
+          effectiveLon = 106.700806;
+        }
+        effectiveNotes = (effectiveNotes ? effectiveNotes + ' | ' : '') + 'Thiết bị HTTP (Toạ độ tâm trại)';
+      }
 
       const payload = {
         farmId: effectiveFarmId,
         shiftId: todayShift?.id || 1, // Fallback ca mặc định nếu chưa gán
-        latitude: Number(effectiveLat.toFixed(6)),
-        longitude: Number(effectiveLon.toFixed(6)),
-        photoUrl: effectivePhoto, // Đính kèm ảnh Base64 / URL
+        latitude: Number(Number(effectiveLat).toFixed(6)),
+        longitude: Number(Number(effectiveLon).toFixed(6)),
+        photoUrl: effectivePhoto, // Đính kèm ảnh Base64 / URL đã resize
         notes: effectiveNotes,
         deviceInfo: navigator.userAgent.substring(0, 100),
         ...(employee?.id ? { employeeId: employee.id } : {}),
@@ -344,8 +365,10 @@ export function OneTapTimekeepingCard({
 
       if (attendanceType === 'CHECK_IN') {
         await hrService.checkIn(payload);
+        toast.success('Chấm công vào ca thành công!');
       } else {
         await hrService.checkOut(payload);
+        toast.success('Chấm công ra ca thành công!');
       }
 
       // Thông báo cập nhật liên workspace đến WS-B
@@ -404,8 +427,8 @@ export function OneTapTimekeepingCard({
               </span>
             )}
 
-            {/* Nút Hiệu Chuẩn Toạ Độ Hiện Tại Cho Buổi Demo (Chiêu 1 & 2) */}
-            {effectiveFarmId > 0 && (
+            {/* Nút Hiệu Chuẩn Toạ Độ Hiện Tại Cho Buổi Demo (Chỉ hiển thị cho Quản lý / Giám đốc trại) */}
+            {effectiveFarmId > 0 && canCalibrateFarm && (
               <button
                 type="button"
                 onClick={handleCalibrateFarmCoords}

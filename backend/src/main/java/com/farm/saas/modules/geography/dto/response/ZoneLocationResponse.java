@@ -27,5 +27,6 @@ public class ZoneLocationResponse {
     private String status;
     private BigDecimal areaM2;
     private Integer capacity;
+    private String capacityUnit;
     private Instant createdAt;
 }

@@ -6,6 +6,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import lombok.*;
 
+/**
+ * Thực thể liên kết nguồn gốc nguyên liệu thu hoạch cấu thành nên lô sản phẩm thành phẩm (product_batch_sources).
+ */
 @Getter
 @Setter
 @Builder

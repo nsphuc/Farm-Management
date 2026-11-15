@@ -3,6 +3,7 @@ package com.farm.saas.modules.auth.service;
 import com.farm.saas.common.audit.AuditTrailEvent;
 import com.farm.saas.common.exception.ApiException;
 import com.farm.saas.common.security.SecurityUtils;
+import com.farm.saas.common.mail.EmailService;
 import com.farm.saas.modules.auth.dto.request.CreateUserRequest;
 import com.farm.saas.modules.auth.dto.request.UpdateUserRolesRequest;
 import com.farm.saas.modules.auth.dto.request.UpdateUserStatusRequest;
@@ -67,6 +68,7 @@ public class UserServiceImpl implements UserService {
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
     private final com.farm.saas.common.security.FarmSecurityEvaluator farmSecurity;
+    private final EmailService emailService;
 
     @Override
     @Transactional(readOnly = true)
@@ -154,6 +156,9 @@ public class UserServiceImpl implements UserService {
             }
         }
 
+        if (request.getEmail() != null && !request.getEmail().trim().toLowerCase().endsWith("@gmail.com")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EMAIL_DOMAIN", "Email bắt buộc phải có định dạng @gmail.com (ví dụ: example@gmail.com).");
+        }
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new ApiException(HttpStatus.CONFLICT, "USERNAME_ALREADY_EXISTS", "Tên đăng nhập đã tồn tại trên hệ thống.");
         }
@@ -231,6 +236,17 @@ public class UserServiceImpl implements UserService {
         // Tự động tạo hồ sơ Employee khi người dùng vừa được tạo trên Web
         // để tài khoản có thể vào WS-G chấm công GPS và nhận việc ngay mà không bị lỗi thiếu hồ sơ.
         autoCreateEmployeeProfile(savedUser, effectiveTenantId, selectedRoles, request);
+
+        // Tự động gửi email chứa thông tin tài khoản và mật khẩu tới người dùng (Nhiệm vụ 5)
+        if (savedUser.getEmail() != null && !savedUser.getEmail().isBlank()) {
+            emailService.sendAccountCredentialsEmail(
+                    savedUser.getEmail(),
+                    savedUser.getFullName(),
+                    savedUser.getUsername(),
+                    rawPassword,
+                    null
+            );
+        }
 
         return enrichUserDetail(savedUser);
     }

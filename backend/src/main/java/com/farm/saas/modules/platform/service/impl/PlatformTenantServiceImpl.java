@@ -49,6 +49,7 @@ public class PlatformTenantServiceImpl implements PlatformTenantService {
     private final PasswordEncoder passwordEncoder;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.farm.saas.common.mail.EmailService emailService;
 
     @Override
     @Transactional
@@ -58,6 +59,9 @@ public class PlatformTenantServiceImpl implements PlatformTenantService {
         }
         if (tenantRepository.existsBySubdomain(request.getSubdomain())) {
             throw new BusinessException("SUBDOMAIN_ALREADY_EXISTS", "Subdomain đã tồn tại: " + request.getSubdomain());
+        }
+        if (request.getAdminEmail() != null && !request.getAdminEmail().trim().toLowerCase().endsWith("@gmail.com")) {
+            throw new BusinessException("INVALID_EMAIL_DOMAIN", "Email quản trị viên bắt buộc phải có đuôi @gmail.com");
         }
         if (request.getValidTo().isBefore(request.getValidFrom())) {
             throw new BusinessException("INVALID_DATE_RANGE", "Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu");
@@ -123,7 +127,18 @@ public class PlatformTenantServiceImpl implements PlatformTenantService {
                 .build();
         userRoleRepository.save(userRole);
 
-        // 5. Audit log
+        // 5. Gửi thông tin tài khoản và mật khẩu tới email của Chủ đầu tư (Nhiệm vụ 5)
+        if (adminUser.getEmail() != null && !adminUser.getEmail().isBlank()) {
+            emailService.sendAccountCredentialsEmail(
+                    adminUser.getEmail(),
+                    adminUser.getFullName(),
+                    adminUser.getUsername(),
+                    rawPassword,
+                    null
+            );
+        }
+
+        // 6. Audit log
         eventPublisher.publishEvent(AuditTrailEvent.builder()
                 .tenantId(tenant.getId())
                 .userId(SecurityUtils.getCurrentUserId())

@@ -14,6 +14,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+/**
+ * DTO yêu cầu tạo mới biên bản kiểm định chất lượng KCS cho lô thành phẩm.
+ */
 @Getter
 @Setter
 @Builder
@@ -51,6 +54,9 @@ public class QcInspectionRequest {
     @Valid
     private List<QcInspectionItemRequest> items;
 
+    /**
+     * DTO yêu cầu ghi nhận một chỉ tiêu kiểm định KCS thành phần.
+     */
     @Getter
     @Setter
     @Builder
@@ -78,40 +84,80 @@ public class QcInspectionRequest {
 
         private String notes;
 
+        /**
+         * Lấy tên chỉ tiêu kiểm định (tương thích alias criterionName).
+         *
+         * @return Tên chỉ tiêu
+         */
         public String getCriterionName() {
             return parameterName;
         }
 
+        /**
+         * Thiết lập tên chỉ tiêu kiểm định nếu chưa có giá trị.
+         *
+         * @param criterionName Tên chỉ tiêu
+         */
         public void setCriterionName(String criterionName) {
             if (this.parameterName == null || this.parameterName.isBlank()) {
                 this.parameterName = criterionName;
             }
         }
 
+        /**
+         * Lấy ngưỡng giá trị tiêu chuẩn (tương thích alias standardValue).
+         *
+         * @return Ngưỡng tiêu chuẩn
+         */
         public String getStandardValue() {
             return standardThreshold;
         }
 
+        /**
+         * Thiết lập ngưỡng tiêu chuẩn nếu chưa có giá trị.
+         *
+         * @param standardValue Ngưỡng tiêu chuẩn
+         */
         public void setStandardValue(String standardValue) {
             if (this.standardThreshold == null || this.standardThreshold.isBlank()) {
                 this.standardThreshold = standardValue;
             }
         }
 
+        /**
+         * Lấy giá trị đo thực tế (tương thích alias actualValue).
+         *
+         * @return Giá trị đo thực tế
+         */
         public String getActualValue() {
             return measuredValue;
         }
 
+        /**
+         * Thiết lập giá trị đo thực tế nếu chưa có giá trị.
+         *
+         * @param actualValue Giá trị thực tế đo được
+         */
         public void setActualValue(String actualValue) {
             if (this.measuredValue == null || this.measuredValue.isBlank()) {
                 this.measuredValue = actualValue;
             }
         }
 
+        /**
+         * Lấy kết quả đánh giá đạt hay không đạt (tương thích alias passed).
+         *
+         * @return true nếu đạt chuẩn, false nếu không đạt
+         */
         public Boolean getPassed() {
             return isPassed;
         }
 
+        /**
+         * Thiết lập kết quả đánh giá đạt hay không đạt nếu chưa có giá trị.
+         *
+         * @param passed Trạng thái đạt/không đạt
+         */
         public void setPassed(Boolean passed) {
             if (this.isPassed == null) {
                 this.isPassed = passed;

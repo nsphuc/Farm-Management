@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   ShieldCheck,
   Building,
@@ -275,6 +276,56 @@ export function TraceabilityDetailDrawer({
     } finally {
       setIsPrinting(false);
     }
+  };
+
+  // Handle Direct Print to Thermal Printer (ESC/POS window.print)
+  const handleDirectPrint = () => {
+    const labelElem = document.getElementById('printable-label-badge');
+    if (!labelElem) {
+      handleConfirmPrintLabel();
+      return;
+    }
+    const printWin = window.open('', '_blank', 'width=450,height=450');
+    if (!printWin) {
+      window.print();
+      handleConfirmPrintLabel();
+      return;
+    }
+    const isSquare = printConfig.labelSize === '50x50';
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Tem Nhãn VietGAP - ${batch.batchCode}</title>
+        <style>
+          @page { size: ${isSquare ? '50mm 50mm' : '35mm 22mm'}; margin: 0; }
+          body { 
+            margin: 0; 
+            padding: 1.5mm; 
+            font-family: Arial, Helvetica, sans-serif; 
+            display: flex; 
+            flex-direction: column;
+            align-items: center; 
+            justify-content: center; 
+            color: #000;
+          }
+          * { box-sizing: border-box; }
+        </style>
+      </head>
+      <body>
+        ${labelElem.innerHTML}
+        <script>
+          window.onload = function() {
+            window.focus();
+            window.print();
+            setTimeout(function() { window.close(); }, 600);
+          };
+        <\/script>
+      </body>
+      </html>
+    `);
+    printWin.document.close();
+    handleConfirmPrintLabel();
   };
 
   // Handle Create QC Inspection (ROLE_TECHNICAL_STAFF)
@@ -744,7 +795,14 @@ export function TraceabilityDetailDrawer({
                 <div><span className="text-slate-400">Mã thu hoạch:</span> <strong className="text-slate-800 block font-mono">{harvest?.harvestRecordCode || `HAR-${batch.batchCode}`}</strong></div>
                 <div><span className="text-slate-400">Ngày thu hoạch:</span> <span className="text-slate-700 block font-mono">{harvest?.harvestDate || formatDate(batch.harvestDate)}</span></div>
                 <div><span className="text-slate-400">Trang trại:</span> <strong className="text-slate-800 block">{harvest?.farmName || batch.farmName || 'Toàn chuỗi'}</strong></div>
-                <div><span className="text-slate-400">Sản lượng:</span> <strong className="text-slate-800 block">{formatWeight(harvest?.actualHarvestYieldKg || batch.initialQuantity)}</strong></div>
+                <div><span className="text-slate-400">Sản lượng:</span> <strong className="text-slate-800 block">{formatWeight(harvest?.actualHarvestYieldKg || batch.initialQuantity, batch.unit)}</strong></div>
+                <div className="col-span-2 pt-1 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-slate-500">Người phụ trách thu hoạch:</span>
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>{harvest?.harvestedByName || 'Đỗ Minh Kỹ Sư (Tổ Trưởng Thu Hoạch)'}</span>
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -796,15 +854,15 @@ export function TraceabilityDetailDrawer({
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="bg-white p-3 rounded-lg border border-emerald-100">
                   <span className="text-[10px] text-slate-400 uppercase font-semibold block">Sản lượng ban đầu</span>
-                  <span className="font-mono text-sm font-black text-slate-900">{formatWeight(batch.initialQuantity)}</span>
+                  <span className="font-mono text-sm font-black text-slate-900">{formatWeight(batch.initialQuantity, batch.unit)}</span>
                 </div>
                 <div className="bg-white p-3 rounded-lg border border-emerald-100">
                   <span className="text-[10px] text-slate-400 uppercase font-semibold block">Đã xuất bán</span>
-                  <span className="font-mono text-sm font-black text-blue-700">{formatWeight(batch.soldQuantity || 0)}</span>
+                  <span className="font-mono text-sm font-black text-blue-700">{formatWeight(batch.soldQuantity || 0, batch.unit)}</span>
                 </div>
                 <div className="bg-white p-3 rounded-lg border border-emerald-100">
                   <span className="text-[10px] text-slate-400 uppercase font-semibold block">Tồn kho khả dụng</span>
-                  <span className="font-mono text-sm font-black text-emerald-700">{formatWeight(batch.remainingQuantity)}</span>
+                  <span className="font-mono text-sm font-black text-emerald-700">{formatWeight(batch.remainingQuantity, batch.unit)}</span>
                 </div>
               </div>
             </div>
@@ -1169,6 +1227,84 @@ export function TraceabilityDetailDrawer({
             </div>
           </div>
 
+          {/* Live Print Preview Box */}
+          <div className="rounded-2xl border border-slate-300 bg-slate-50 p-3 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+              <span className="flex items-center gap-1.5">
+                <QrCode className="h-4 w-4 text-emerald-600" />
+                Bản Xem Trước Con Tem Thực Tế ({printConfig.labelSize}mm)
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">Chuẩn ESC/POS</span>
+            </div>
+
+            <div className="flex justify-center items-center py-2">
+              <div
+                id="printable-label-badge"
+                className={`bg-white border-2 border-black rounded shadow-sm text-black transition-all ${
+                  printConfig.labelSize === '50x50'
+                    ? 'w-[220px] h-[220px] p-2 flex flex-col justify-between text-center'
+                    : 'w-[260px] h-[155px] p-2 flex items-center justify-between text-left gap-2'
+                }`}
+              >
+                {printConfig.labelSize === '50x50' ? (
+                  <>
+                    <div className="border-b border-black pb-1">
+                      <div className="text-[9px] font-black tracking-wider uppercase text-emerald-800">
+                        NÔNG SẢN VIETGAP AN TOÀN
+                      </div>
+                      <div className="text-[12px] font-black line-clamp-1 leading-tight text-slate-900 mt-0.5">
+                        {batch.productName}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-center py-1">
+                      <QRCodeSVG
+                        value={typeof window !== 'undefined' ? `${window.location.origin}/trace/${batch.traceabilityCode || batch.batchCode}` : `https://trace.farm.vn/${batch.batchCode}`}
+                        size={84}
+                        level="M"
+                        includeMargin={false}
+                      />
+                    </div>
+
+                    <div className="border-t border-black pt-1 text-[8px] font-mono leading-tight space-y-0.5 text-slate-800">
+                      <div className="flex justify-between font-bold">
+                        <span>LÔ: {batch.batchCode}</span>
+                        <span>CẤP: {batch.qualityGrade || 'STANDARD'}</span>
+                      </div>
+                      <div className="flex justify-between text-[7.5px] text-slate-600">
+                        <span>ĐG: {formatDate(batch.harvestDate)}</span>
+                        <span>HSD: {formatDate(batch.expiryDate)}</span>
+                      </div>
+                      <div className="text-[7px] text-center text-slate-500 font-sans italic">
+                        Quét mã QR tra cứu hồ sơ 360°
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex-1 space-y-1">
+                      <div className="text-[8px] font-black text-emerald-800 uppercase">VIETGAP QUALITY</div>
+                      <div className="text-[11px] font-black line-clamp-2 leading-tight text-slate-900">
+                        {batch.productName}
+                      </div>
+                      <div className="font-mono text-[8px] text-slate-700">Lô: {batch.batchCode}</div>
+                      <div className="text-[7.5px] text-slate-500 font-mono">HSD: {formatDate(batch.expiryDate)}</div>
+                      <div className="text-[7px] text-slate-400 italic">Quét để truy xuất</div>
+                    </div>
+                    <div className="shrink-0 flex items-center justify-center p-1 bg-white border border-slate-200 rounded">
+                      <QRCodeSVG
+                        value={typeof window !== 'undefined' ? `${window.location.origin}/trace/${batch.traceabilityCode || batch.batchCode}` : `https://trace.farm.vn/${batch.batchCode}`}
+                        size={64}
+                        level="M"
+                        includeMargin={false}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
           <FormField label="Khổ Tem Nhãn Nhiệt (ESC/POS)" required>
             <div className="space-y-2 pt-1">
               <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
@@ -1224,18 +1360,30 @@ export function TraceabilityDetailDrawer({
             </FormField>
           </div>
 
-          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100 flex-wrap">
             <Button variant="ghost" type="button" onClick={() => setIsPrintModalOpen(false)}>
               Hủy
             </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={isPrinting}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
-            >
-              {isPrinting ? 'Đang phát lệnh...' : 'Xác Nhận In Tem'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                type="submit"
+                disabled={isPrinting}
+                className="text-slate-700 border-slate-300 hover:bg-slate-50 font-bold text-xs"
+              >
+                {isPrinting ? 'Đang lưu...' : '💾 Lưu Nhật Ký In'}
+              </Button>
+              <Button
+                variant="primary"
+                type="button"
+                disabled={isPrinting}
+                onClick={handleDirectPrint}
+                icon={<Printer className="h-4 w-4" />}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black shadow-xs text-xs"
+              >
+                🖨️ In Ngay Xuống Máy In ({printConfig.printQuantity} bản)
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>

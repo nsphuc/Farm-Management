@@ -92,6 +92,10 @@ export function PlatformUsersConsole({ tenants = [] }) {
       toast.error('Vui lòng điền đầy đủ các thông tin bắt buộc');
       return;
     }
+    if (!createUserForm.email.trim().toLowerCase().endsWith('@gmail.com')) {
+      toast.error('Email người dùng bắt buộc phải có đuôi @gmail.com (ví dụ: user@gmail.com)');
+      return;
+    }
 
     try {
       setIsCreating(true);
@@ -105,7 +109,7 @@ export function PlatformUsersConsole({ tenants = [] }) {
       };
 
       await platformService.createPlatformUser(payload);
-      toast.success('Khởi tạo tài khoản Chủ đầu tư cho Doanh nghiệp thành công!');
+      toast.success(`Khởi tạo tài khoản [${payload.username}] thành công! Mật khẩu đăng nhập đã được gửi vào email ${payload.email}.`);
       setIsCreateModalOpen(false);
       setCreateUserForm({
         tenantId: '',
@@ -471,12 +475,14 @@ export function PlatformUsersConsole({ tenants = [] }) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Email Đăng Nhập <span className="text-rose-500">*</span>
+                    Email Đăng Nhập <span className="text-rose-500">*</span> (@gmail.com)
                   </label>
                   <input
                     type="email"
                     required
-                    placeholder="owner@domain.vn"
+                    placeholder="user@gmail.com"
+                    pattern=".+@gmail\.com"
+                    title="Email phải có đuôi @gmail.com"
                     value={createUserForm.email}
                     onChange={(e) =>
                       setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))

@@ -60,10 +60,15 @@ export function MasterGeographicTree({
 
   const toggleExpand = (nodeKey, e) => {
     e.stopPropagation();
-    setExpandedNodes((prev) => ({
-      ...prev,
-      [nodeKey]: !prev[nodeKey],
-    }));
+    setExpandedNodes((prev) => {
+      const current = prev[nodeKey];
+      const effectiveDefault = nodeKey.startsWith('farm-') ? true : false;
+      const effectiveVal = current !== undefined ? current : effectiveDefault;
+      return {
+        ...prev,
+        [nodeKey]: !effectiveVal,
+      };
+    });
   };
 
   const handleSelect = (type, item, parentFarm = null, parentZone = null) => {
@@ -356,11 +361,18 @@ export function MasterGeographicTree({
                           {isZoneExpanded && zone.warehouses && zone.warehouses.length > 0 && (
                             <div className="pl-4 space-y-1 border-l border-amber-200 ml-3 mb-1">
                               {zone.warehouses.map((wh) => {
+                                const whKey = `wh-${wh.id}`;
                                 const isWhSelected =
                                   selectedNode?.type === 'WAREHOUSE' && selectedNode?.item?.id === wh.id;
                                 const whShelves = (zone.locations || []).filter(
                                   (loc) => Number(loc.warehouseId) === Number(wh.id)
                                 );
+                                const hasSelectedChild = whShelves.some(
+                                  (loc) => selectedNode?.type === 'LOCATION' && selectedNode?.item?.id === loc.id
+                                );
+                                const isWhExpanded = expandedNodes[whKey] !== undefined
+                                  ? expandedNodes[whKey]
+                                  : hasSelectedChild;
 
                                 return (
                                   <div key={`wh-${wh.id}`} className="space-y-0.5">
@@ -372,7 +384,23 @@ export function MasterGeographicTree({
                                           : 'text-amber-900 bg-amber-50/50 hover:bg-amber-100/60'
                                       }`}
                                     >
-                                      <div className="flex items-center gap-1.5 truncate">
+                                      <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
+                                        {whShelves.length > 0 ? (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => toggleExpand(whKey, e)}
+                                            className="p-0.5 text-amber-700 hover:text-amber-950 rounded cursor-pointer shrink-0"
+                                            title={isWhExpanded ? 'Thu gọn kệ' : 'Mở rộng kệ'}
+                                          >
+                                            {isWhExpanded ? (
+                                              <ChevronDown className="h-3 w-3" />
+                                            ) : (
+                                              <ChevronRight className="h-3 w-3" />
+                                            )}
+                                          </button>
+                                        ) : (
+                                          <span className="w-3.5 shrink-0" />
+                                        )}
                                         <Warehouse className="h-3.5 w-3.5 text-amber-600 shrink-0" />
                                         <span className="truncate font-semibold">{wh.name}</span>
                                         <span className="font-mono text-[9px] text-amber-800 bg-amber-100 px-1 rounded shrink-0">
@@ -414,7 +442,7 @@ export function MasterGeographicTree({
                                     </div>
 
                                     {/* Kệ con thuộc kho này */}
-                                    {whShelves.length > 0 && (
+                                    {isWhExpanded && whShelves.length > 0 && (
                                       <div className="pl-4 space-y-0.5 border-l border-amber-100 ml-2">
                                         {whShelves.map((loc) => {
                                           const isLocSelected =
@@ -484,7 +512,7 @@ export function MasterGeographicTree({
                                           )}
                                           {loc.capacity != null && (
                                             <span className="text-[9px] font-mono text-amber-700 bg-amber-50 px-1 rounded shrink-0">
-                                              {loc.capacity} con
+                                              {loc.capacity} {loc.capacityUnit || (zone?.zoneType === 'BARN' ? 'con' : zone?.zoneType === 'STORAGE' ? 'thùng' : 'cây')}
                                             </span>
                                           )}
                                         </div>

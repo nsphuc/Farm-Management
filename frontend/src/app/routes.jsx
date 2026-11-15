@@ -80,6 +80,7 @@ export function AppRoutes() {
       {/* 2. Public Traceability Shell (Cổng QR Không cần đăng nhập) */}
       <Route element={<PublicTraceShell />}>
         <Route path="/trace/:traceabilityCode" element={<TraceabilityDetailPage />} />
+        <Route path="/public/traceability/:traceabilityCode" element={<TraceabilityDetailPage />} />
       </Route>
 
       {/* 3. Auth Shell (/login, /force-change-password) */}

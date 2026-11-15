@@ -17,6 +17,7 @@ import {
   Pill,
   CheckCircle2,
   DollarSign,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -704,7 +705,18 @@ export function FarmingLogsTimelineTab({ item, sector, farmId, onDataChanged }) 
           </span>
         </div>
 
-        <div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<RefreshCw className="h-3.5 w-3.5" />}
+            onClick={fetchLogs}
+            title="Làm mới dòng thời gian nhật ký"
+            className="text-slate-600 border-slate-300 hover:bg-slate-100"
+          >
+            Làm Mới
+          </Button>
+
           {sector === 'CROP' ? (
             <Can permission="PERM_CROP_LOG" role={['ROLE_FIELD_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
               <Button

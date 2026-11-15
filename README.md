@@ -12,7 +12,7 @@ Nền tảng SaaS số hóa nông nghiệp toàn diện cho doanh nghiệp và h
 | **Cơ sở dữ liệu** | MySQL Server | 8.0.x (InnoDB, `utf8mb4_unicode_ci`) | 71 bảng nghiệp vụ (70 core + notifications), khóa ngoại composite, index tối ưu hóa. |
 | **Database Migration** | Flyway | 10.x (`flyway-mysql`) | Quản lý schema tự động: `V1_0__init_system_core.sql` (baseline) và `V1_1__init_system_core.sql` (Notifications & RBAC Patch). |
 | **Frontend** | ReactJS + Vite | React 18, Vite 5, JavaScript | Single Page Application (SPA), TailwindCSS, Zustand state, Axios HTTP client, Lucide Icons. |
-| **Tài liệu chuẩn** | Markdown / DOCX / SQL | Single Source of Truth | Lưu trữ tại `.antigravity/rules/` (DECISION_LOG.md, architecture-rules.md, v.v.). |
+| **Tài liệu chuẩn** | Markdown / DOCX / SQL | Single Source of Truth | Lưu trữ tại `.antigravity/rules/` (DECISION_LOG.md, architecture-rules.md, v.v.). | CLAUDE.md
 
 ---
 

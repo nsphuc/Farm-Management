@@ -50,6 +50,9 @@ public class WarehouseIssue {
     @Column(name = "livestock_event_id")
     private Long livestockEventId;
 
+    @Column(name = "task_id")
+    private Long taskId;
+
     @Column(name = "is_backflushed", nullable = false)
     private Boolean isBackflushed;
 

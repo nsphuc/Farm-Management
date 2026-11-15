@@ -20,6 +20,8 @@ public class UpdateMaterialRequest {
     @NotNull(message = "Nhóm vật tư không được để trống")
     private Long categoryId;
 
+    private Long cropTypeId;
+
     private String barcode;
 
     @NotBlank(message = "Tên vật tư không được để trống")
@@ -55,4 +57,7 @@ public class UpdateMaterialRequest {
     private Integer shelfLifeDays;
     private String description;
     private String status;
+
+    @jakarta.validation.Valid
+    private java.util.List<CreateMaterialRequest.ConversionItemRequest> conversions;
 }

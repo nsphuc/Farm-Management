@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Radio,
   Building,
@@ -48,6 +48,21 @@ export function BroadcastNotificationModal({ isOpen, onClose, tenants = [], onSu
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [tenantList, setTenantList] = useState(tenants);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (tenants && tenants.length > 0) {
+      setTenantList(tenants.filter((t) => t.status !== 'DELETED'));
+    } else {
+      platformService.getTenants({ size: 100 })
+        .then((res) => {
+          const list = Array.isArray(res) ? res : (res?.content || []);
+          setTenantList(list.filter((t) => t.status !== 'DELETED'));
+        })
+        .catch((err) => console.error('Failed to load tenants for broadcast modal:', err));
+    }
+  }, [isOpen, tenants]);
 
   if (!isOpen) return null;
 
@@ -166,7 +181,7 @@ export function BroadcastNotificationModal({ isOpen, onClose, tenants = [], onSu
                   className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-xs font-semibold text-slate-800 focus:border-rose-500 focus:outline-none"
                 >
                   <option value="">-- Chọn Doanh nghiệp --</option>
-                  {tenants.map((t) => (
+                  {tenantList.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name} ({t.code})
                     </option>

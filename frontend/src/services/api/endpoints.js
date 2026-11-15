@@ -121,6 +121,7 @@ export const API_ENDPOINTS = {
     FARMING_LOGS: (farmId) => `/farms/${farmId}/farming-logs`,
     LIVESTOCK_GROUPS: (farmId) => `/farms/${farmId}/livestock-groups`,
     LIVESTOCK_INDIVIDUALS: (farmId) => `/farms/${farmId}/livestock-individuals`,
+    LIVESTOCK_INDIVIDUALS_BATCH: (farmId) => `/farms/${farmId}/livestock-individuals/batch`,
     LIVESTOCK_INDIVIDUAL_DETAIL: (farmId, id) => `/farms/${farmId}/livestock-individuals/${id}`,
     LIVESTOCK_WEIGHT_LOGS: (farmId, groupId) => groupId ? `/farms/${farmId}/livestock-groups/${groupId}/weight-logs` : `/farms/${farmId}/livestock-weight-logs`,
     LIVESTOCK_WEIGH_IN: (farmId) => `/farms/${farmId}/livestock/weigh-in`,
@@ -188,5 +189,10 @@ export const API_ENDPOINTS = {
   // 13. Public Traceability (Unauthenticated)
   PUBLIC: {
     TRACEABILITY: (code) => `/public/traceability/${encodeURIComponent(code)}`,
+  },
+
+  // 14. File & Media Uploads
+  UPLOADS: {
+    IMAGE: '/uploads/image',
   },
 };

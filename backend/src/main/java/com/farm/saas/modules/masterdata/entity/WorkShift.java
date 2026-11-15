@@ -25,6 +25,9 @@ public class WorkShift {
     @Column(name = "farm_id")
     private Long farmId;
 
+    @Column(name = "applicable_farms", length = 255)
+    private String applicableFarms;
+
     @Column(name = "name", nullable = false, length = 100)
     private String name;
 

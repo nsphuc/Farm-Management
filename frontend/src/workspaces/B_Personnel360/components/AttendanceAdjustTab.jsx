@@ -11,6 +11,7 @@ import {
   Eye,
   X,
   Search,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
@@ -21,6 +22,7 @@ import { Modal } from '@/components/ui/Modal';
 import { AttendanceAdjustModal } from './AttendanceAdjustModal';
 import { hrService } from '@/services/modules/hrService';
 import { formatNumber, formatDate, formatDateTime, formatLocalDate } from '@/utils/formatters';
+import { exportToCsv } from '@/utils/exportUtils';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 function formatTime(instantStr) {
@@ -358,15 +360,41 @@ export function AttendanceAdjustTab({ farmId, geofenceRadiusM = 300 }) {
           </Select>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          icon={<RefreshCw className="h-4 w-4" />}
-          onClick={fetchAttendances}
-          isLoading={isLoading}
-        >
-          Làm Mới
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<Download className="h-4 w-4 text-emerald-600" />}
+            onClick={() => {
+              const headers = [
+                { label: 'Mã NV', key: 'employeeCode' },
+                { label: 'Họ Và Tên', key: 'employeeName' },
+                { label: 'Ca Làm Việc', key: 'shiftName' },
+                { label: 'Giờ Check-in', key: 'checkInTime', formatter: (v) => formatTime(v) },
+                { label: 'Giờ Check-out', key: 'checkOutTime', formatter: (v) => formatTime(v) },
+                { label: 'Giờ Công Thực Tế', key: 'workingHours', formatter: (v) => v ? `${v}h` : '—' },
+                { label: 'Đi Muộn (phút)', key: 'lateMinutes' },
+                { label: 'Về Sớm (phút)', key: 'earlyLeaveMinutes' },
+                { label: 'Khoảng Cách GPS (m)', key: 'gpsDistanceMeters' },
+                { label: 'Trạng Thái', key: 'status' },
+              ];
+              exportToCsv(`Bang_Cham_Cong_Ngay_${workDate}`, headers, filteredAttendances);
+            }}
+            className="text-xs font-semibold text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+          >
+            Xuất Excel/CSV
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            icon={<RefreshCw className="h-4 w-4" />}
+            onClick={fetchAttendances}
+            isLoading={isLoading}
+          >
+            Làm Mới
+          </Button>
+        </div>
       </div>
 
       <DataTable

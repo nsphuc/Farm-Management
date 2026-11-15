@@ -49,6 +49,9 @@ public class ZoneLocation {
     @Column(name = "capacity")
     private Integer capacity;
 
+    @Column(name = "capacity_unit", length = 50)
+    private String capacityUnit;
+
     @Column(name = "created_at")
     private Instant createdAt;
 

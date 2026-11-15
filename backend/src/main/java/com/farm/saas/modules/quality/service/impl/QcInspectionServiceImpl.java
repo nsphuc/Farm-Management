@@ -27,6 +27,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Triển khai dịch vụ nghiệp vụ kiểm tra và chứng nhận chất lượng KCS (QC Inspection).
+ * Quản lý quy trình kiểm tra các chỉ tiêu kỹ thuật, đánh giá đạt/không đạt cho từng tiêu chí,
+ * tổng hợp kết quả kiểm định mẫu và thông báo đến cấp quản lý trang trại.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -39,6 +44,17 @@ public class QcInspectionServiceImpl implements QcInspectionService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
 
+    /**
+     * Tạo biên bản kiểm định chất lượng KCS mới cho một lô sản phẩm thành phẩm.
+     * Lưu thông tin người kiểm định, kích thước mẫu, kết quả tổng quát và từng chỉ tiêu thành phần.
+     * Tự động gửi thông báo đến Giám đốc trang trại để chuẩn bị phê duyệt lô hàng.
+     *
+     * @param farmId  ID trang trại thực hiện kiểm định
+     * @param request Dữ liệu chi tiết biên bản kiểm tra và danh sách chỉ tiêu đo lường
+     * @return Chi tiết biên bản kiểm định KCS vừa được tạo
+     * @throws ResourceNotFoundException nếu không tìm thấy lô sản phẩm tương ứng trong trang trại
+     * @throws BusinessException         nếu người dùng không có quyền truy cập lô sản phẩm này
+     */
     @Override
     @Transactional
     public QcInspectionDetailResponse createInspection(Long farmId, QcInspectionRequest request) {
@@ -161,6 +177,13 @@ public class QcInspectionServiceImpl implements QcInspectionService {
         return mapToDetailResponse(inspection, batch, savedItems);
     }
 
+    /**
+     * Lấy danh sách phân trang các biên bản kiểm định KCS trong một trang trại.
+     *
+     * @param farmId   ID trang trại
+     * @param pageable Thông tin phân trang và sắp xếp dữ liệu
+     * @return Trang danh sách biên bản kiểm định chi tiết kèm danh sách chỉ tiêu đo lường
+     */
     @Override
     @Transactional(readOnly = true)
     public Page<QcInspectionDetailResponse> getInspections(Long farmId, Pageable pageable) {
@@ -171,6 +194,14 @@ public class QcInspectionServiceImpl implements QcInspectionService {
         });
     }
 
+    /**
+     * Lấy chi tiết thông tin một biên bản kiểm định KCS theo ID.
+     *
+     * @param farmId ID trang trại
+     * @param id     ID của biên bản kiểm định
+     * @return Chi tiết biên bản kiểm định kèm thông tin lô sản phẩm và danh sách chỉ tiêu
+     * @throws ResourceNotFoundException nếu không tìm thấy biên bản trong trang trại
+     */
     @Override
     @Transactional(readOnly = true)
     public QcInspectionDetailResponse getInspectionById(Long farmId, Long id) {
@@ -182,6 +213,14 @@ public class QcInspectionServiceImpl implements QcInspectionService {
         return mapToDetailResponse(inspection, batch, items);
     }
 
+    /**
+     * Chuyển đổi thực thể QcInspection, ProductBatch và danh sách chỉ tiêu thành DTO phản hồi chi tiết.
+     *
+     * @param ins   Thực thể biên bản kiểm định KCS
+     * @param batch Thực thể lô sản phẩm liên quan
+     * @param items Danh sách các chỉ tiêu kiểm định thực tế
+     * @return DTO chi tiết biên bản kiểm định KCS
+     */
     private QcInspectionDetailResponse mapToDetailResponse(QcInspection ins, ProductBatch batch, List<QcInspectionItem> items) {
         String farmName = farmRepository.findById(ins.getFarmId()).map(f -> f.getName()).orElse(null);
         String inspectorName = null;

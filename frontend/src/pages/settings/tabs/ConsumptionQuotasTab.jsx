@@ -124,10 +124,12 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
     setEditingItem(item);
     setFieldErrors({});
     setGeneralError('');
+    const currentTargetFarmId = String(effectiveFarmId || selectedFarmId || farmList[0]?.id || farmList[0]?.farmId || '');
     if (item) {
       const isLivestock = Boolean(item.livestockBreedId);
       setTargetType(isLivestock ? 'LIVESTOCK' : 'CROP');
       setFormData({
+        farmId: item.farmId ? String(item.farmId) : currentTargetFarmId,
         cropTypeId: item.cropTypeId ? String(item.cropTypeId) : '',
         livestockBreedId: item.livestockBreedId ? String(item.livestockBreedId) : '',
         materialId: item.materialId ? String(item.materialId) : '',
@@ -141,6 +143,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
       setTargetType(initialTarget);
       if (initialTarget === 'LIVESTOCK') {
         setFormData({
+          farmId: currentTargetFarmId,
           cropTypeId: '',
           livestockBreedId: livestockBreeds[0]?.id ? String(livestockBreeds[0]?.id) : '',
           materialId: materials[0]?.id ? String(materials[0]?.id) : '',
@@ -151,6 +154,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
         });
       } else {
         setFormData({
+          farmId: currentTargetFarmId,
           cropTypeId: cropTypes[0]?.id ? String(cropTypes[0]?.id) : '',
           livestockBreedId: '',
           materialId: materials[0]?.id ? String(materials[0]?.id) : '',
@@ -210,8 +214,12 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
       setFieldErrors({});
       setGeneralError('');
 
+      const targetFarmId = (activeFarmId && activeFarmId !== 'ALL')
+        ? Number(activeFarmId)
+        : Number(formData.farmId || effectiveFarmId || selectedFarmId || farmList[0]?.id || farmList[0]?.farmId);
+
       const payload = {
-        farmId: effectiveFarmId && effectiveFarmId !== 'ALL' ? Number(effectiveFarmId) : (editingItem?.farmId || null),
+        farmId: targetFarmId,
         cropTypeId: targetType === 'CROP' && formData.cropTypeId ? Number(formData.cropTypeId) : null,
         livestockBreedId:
           targetType === 'LIVESTOCK' && formData.livestockBreedId
@@ -231,6 +239,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
       }
 
       setModalOpen(false);
+      setEditingItem(null);
       fetchQuotas();
       useActiveFarmStore.getState().notifyDataChanged?.('all');
     } catch (err) {
@@ -430,12 +439,23 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
       {/* Modal ConsumptionQuotaForm */}
       <Modal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          setModalOpen(false);
+          setEditingItem(null);
+        }}
         title={editingItem ? 'Cập Nhật Định Mức Tiêu Hao BOM' : 'Thêm Mới Định Mức Tiêu Hao BOM'}
         size="md"
         footer={
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setModalOpen(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setModalOpen(false);
+                setEditingItem(null);
+              }}
+            >
               Hủy
             </Button>
             <Button type="button" variant="primary" size="sm" isLoading={saving} onClick={handleSave}>
@@ -451,6 +471,39 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
               <span>{generalError}</span>
             </div>
           )}
+
+          {/* Hiển thị / Lựa chọn Trang trại áp dụng định mức */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-700 block">
+                Trang Trại Áp Dụng BOM
+              </label>
+              {activeFarmId !== 'ALL' && (
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  Theo bộ lọc TopBar
+                </span>
+              )}
+            </div>
+            {activeFarmId === 'ALL' && farmList.length > 0 ? (
+              <Select
+                value={String(formData.farmId || effectiveFarmId || '')}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData((prev) => ({ ...prev, farmId: val }));
+                  setSelectedFarmId(val);
+                }}
+                options={farmList.map((f) => ({
+                  value: String(f.id || f.farmId),
+                  label: `${f.code || ''} - ${f.name || f.farmName}`,
+                }))}
+              />
+            ) : (
+              <div className="text-xs font-semibold text-emerald-900 bg-white border border-slate-200 px-3 py-2 rounded-lg">
+                {farmList.find((f) => Number(f.id || f.farmId) === Number(effectiveFarmId))?.name ||
+                  `Trang trại #${effectiveFarmId}`}
+              </div>
+            )}
+          </div>
 
           {/* Radio XOR Cây Trồng vs Vật Nuôi */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2">
@@ -572,6 +625,7 @@ export function ConsumptionQuotasTab({ onNavigateTab }) {
               value={formData.stage}
               onChange={(e) => setFormData((prev) => ({ ...prev, stage: e.target.value }))}
               placeholder="VD: Bón lót trước khi gieo, Tuần tuổi 1-4, Nuôi vỗ béo..."
+              maxLength={255}
             />
           </FormField>
         </form>

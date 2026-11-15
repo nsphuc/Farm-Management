@@ -38,7 +38,7 @@ public class WarehouseIssueController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_ISSUE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_WAREHOUSE_STAFF')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseIssueDetailResponse> createIssue(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateWarehouseIssueRequest request) {
@@ -46,7 +46,7 @@ public class WarehouseIssueController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_FIELD_STAFF', 'ROLE_WAREHOUSE_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<WarehouseIssueDetailResponse> getIssueById(
             @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
@@ -54,7 +54,7 @@ public class WarehouseIssueController {
     }
 
     @PostMapping({"/{id}/complete", "/{id}/approve"})
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_ISSUE') and @farmSecurity.isFarmManager(#farmId)")
+    @PreAuthorize("@farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseIssueDetailResponse> completeIssue(
             @PathVariable Long farmId,
             @PathVariable Long id) {
@@ -62,7 +62,7 @@ public class WarehouseIssueController {
     }
 
     @PostMapping("/{id}/cancel")
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_ISSUE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("@farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseIssueDetailResponse> cancelIssue(
             @PathVariable Long farmId,
             @PathVariable Long id,

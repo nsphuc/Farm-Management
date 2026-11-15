@@ -17,8 +17,10 @@ public class CropTypeResponse {
     private Long id;
     private Long tenantId;
     private String name;
+    private String imageUrl;
     private String varietyCode;
     private Integer growthDaysStandard;
+    private String cropCategory;
     private BigDecimal waterNeedM3Day;
     private BigDecimal optimalTempMin;
     private BigDecimal optimalTempMax;

@@ -119,6 +119,12 @@ export function MultiFarmExpenseSummary() {
     };
   }, [summaryData]);
 
+  // Đếm số lượng trang trại thực tế (tránh nhầm lẫn giữa 9 chu kỳ vận hành và 3 trang trại)
+  const distinctFarmCount = useMemo(() => {
+    const ids = new Set((summaryData.items || []).map((it) => it.farmId).filter(Boolean));
+    return ids.size > 0 ? ids.size : (isAllFarms ? 3 : 1);
+  }, [summaryData.items, isAllFarms]);
+
   // Khởi tạo đối tượng xem chi tiết mặc định khi đổi trang trại hoặc nạp xong dữ liệu
   useEffect(() => {
     if (isAllFarms) {
@@ -266,7 +272,7 @@ export function MultiFarmExpenseSummary() {
                   </span>
                 </div>
                 <span className="text-[10px] text-emerald-700 font-semibold block">
-                  Tổng hợp {summaryData.items?.length || 0} trang trại thành viên
+                  Tổng hợp {distinctFarmCount} trang trại thành viên ({summaryData.items?.length || 0} chu kỳ vận hành)
                 </span>
               </div>
             </div>
@@ -420,6 +426,8 @@ export function MultiFarmExpenseSummary() {
     return (
       e.expenseCode?.toLowerCase().includes(q) ||
       e.costCategoryName?.toLowerCase().includes(q) ||
+      e.itemSummary?.toLowerCase().includes(q) ||
+      e.notes?.toLowerCase().includes(q) ||
       e.recipientName?.toLowerCase().includes(q) ||
       e.expenseSource?.toLowerCase().includes(q)
     );
@@ -465,21 +473,42 @@ export function MultiFarmExpenseSummary() {
       ),
     },
     {
-      key: 'expenseSource',
-      header: 'Nguồn Nghiệp Vụ',
-      width: '160px',
+      key: 'itemSummary',
+      header: 'Mặt Hàng & Nội Dung Chi',
+      width: '240px',
       render: (row) => {
         const sourceMap = {
           INVENTORY_BACKFLUSH: { label: 'Xuất kho vật tư (E)', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-          PAYROLL_ALLOCATION: { label: 'Bảng lương nhân công (G)', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+          TAGGING_BACKFLUSH: { label: 'Gán thẻ tai RFID (E)', color: 'bg-purple-50 text-purple-700 border-purple-200' },
+          BREED_PURCHASE: { label: 'Nhập con giống ban đầu', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+          PAYROLL_ALLOCATION: { label: 'Bảng lương nhân công (G)', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
           UTILITY_BILL: { label: 'Điện nước & Tiện ích', color: 'bg-amber-50 text-amber-700 border-amber-200' },
           MANUAL: { label: 'Chi phí ngoài / Hóa đơn', color: 'bg-slate-100 text-slate-700 border-slate-200' },
         };
-        const cfg = sourceMap[row.expenseSource] || { label: row.expenseSource, color: 'bg-slate-100 text-slate-700 border-slate-200' };
+        const cfg = sourceMap[row.expenseSource] || { label: row.expenseSource || 'Chi phí', color: 'bg-slate-100 text-slate-700 border-slate-200' };
+
+        // Phân giải tên vật tư / con giống hiển thị rõ ràng
+        let itemTitle = row.itemSummary;
+        if (!itemTitle) {
+          if (row.notes) {
+            itemTitle = row.notes
+              .replace(/^Chi phí mua con giống ban đầu đàn\s+/i, 'Con giống: ')
+              .replace(/^Chi phí xuất kho\s+/i, 'Vật tư: ')
+              .replace(/^Chi phí\s+/i, '');
+          } else {
+            itemTitle = row.costCategoryName || 'Vật tư / Dịch vụ';
+          }
+        }
+
         return (
-          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${cfg.color}`}>
-            {cfg.label}
-          </span>
+          <div className="min-w-[200px] space-y-1">
+            <div className="font-bold text-xs text-slate-800 leading-snug">
+              {itemTitle}
+            </div>
+            <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold border ${cfg.color}`}>
+              {cfg.label}
+            </span>
+          </div>
         );
       },
     },
@@ -583,7 +612,13 @@ export function MultiFarmExpenseSummary() {
             </Can>
           );
         }
-        return <span className="text-[10px] text-slate-400">Đã chốt sổ</span>;
+        if (row.status === 'CONFIRMED' || row.status === 'PAID') {
+          return <span className="text-[10px] font-semibold text-emerald-600">Đã phê duyệt</span>;
+        }
+        if (row.status === 'CANCELLED') {
+          return <span className="text-[10px] font-semibold text-rose-500">Đã từ chối</span>;
+        }
+        return <span className="text-[10px] text-slate-400">Đã khóa</span>;
       },
     },
   ];
@@ -611,7 +646,7 @@ export function MultiFarmExpenseSummary() {
           </div>
           <p className="mt-1 text-[11px] text-slate-500 font-medium truncate">
             {isAllFarms
-              ? `Lũy kế ${summaryData.items?.length || 0} trang trại thành viên`
+              ? `Lũy kế ${distinctFarmCount} trang trại thành viên (${summaryData.items?.length || 0} chu kỳ)`
               : currentFarmName}
           </p>
         </div>
@@ -728,7 +763,7 @@ export function MultiFarmExpenseSummary() {
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    🌾 Từng Trang Trại Thành Viên ({summaryData.items?.length || 0})
+                    🌾 Từng Trang Trại Thành Viên ({distinctFarmCount})
                   </button>
                 </div>
               </>

@@ -225,6 +225,19 @@ export const financeService = {
     return res.data;
   },
 
+  getPayments: async (params = {}) => {
+    const { farmId, ...rest } = params;
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/payments` : '/finance/payments';
+    const res = await apiClient.get(url, { params: rest });
+    return res.data;
+  },
+
+  getPaymentById: async (id, farmId) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/payments/${id}` : `/finance/payments/${id}`;
+    const res = await apiClient.get(url);
+    return res.data;
+  },
+
   createPayment: async (farmId, data) => {
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/payments` : '/finance/payments';
     const res = await apiClient.post(url, data);

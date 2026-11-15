@@ -6,6 +6,11 @@ import lombok.*;
 import java.time.Instant;
 import java.time.LocalDate;
 
+/**
+ * DTO phản hồi thông tin truy xuất nguồn gốc công khai phục vụ người tiêu dùng quét mã QR.
+ * Bao gồm các thông tin lô hàng, trạng thái thu hồi, số lượt quét, doanh nghiệp, chứng chỉ VietGAP,
+ * dòng thời gian canh tác, biên bản thu hoạch và kết quả kiểm định KCS.
+ */
 @Getter
 @Setter
 @Builder
@@ -14,6 +19,7 @@ import java.time.LocalDate;
 public class PublicTraceabilityResponse {
     private String traceabilityCode;
     private String productName;
+    private String productImageUrl;
     private String qualityGrade;
     private String batchCode;
     private LocalDate harvestDate;

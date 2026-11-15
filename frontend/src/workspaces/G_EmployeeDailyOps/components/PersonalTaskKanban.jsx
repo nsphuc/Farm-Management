@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Pencil,
   Ban,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -25,8 +26,11 @@ import { CompleteTaskModal } from './CompleteTaskModal';
 import { CreateTaskModal } from './CreateTaskModal';
 import { ReviewTaskModal } from './ReviewTaskModal';
 import { hrService } from '@/services/modules/hrService';
-import { formatDateTime } from '@/utils/formatters';
+import { inventoryService } from '@/services/modules/inventoryService';
+import { formatDateTime, checkTaskOverdue } from '@/utils/formatters';
 import { toast } from '@/store/useToastStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 const BASE_KANBAN_COLUMNS = [
   { id: 'TODO', label: 'Cần Làm (TODO)', color: 'border-slate-300 bg-slate-50/70', headerColor: 'text-slate-700' },
@@ -70,6 +74,7 @@ export function PersonalTaskKanban({
   canManageTasks = true,
   onRefresh,
 }) {
+  const { isFieldWorker, userInfo } = useAuthStore();
   const [completeTarget, setCompleteTarget] = useState(null);
   const [reviewTarget, setReviewTarget] = useState(null);
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
@@ -82,6 +87,7 @@ export function PersonalTaskKanban({
   const [cancelReason, setCancelReason] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
   const [showCancelled, setShowCancelled] = useState(false);
+  const [filterOverdueOnly, setFilterOverdueOnly] = useState(false);
   const [typeFilter, setTypeFilter] = useState('ALL'); // ALL, ROUTINE, AD_HOC
 
   const kanbanColumns = React.useMemo(() => {
@@ -90,6 +96,10 @@ export function PersonalTaskKanban({
 
   const cancelledCount = React.useMemo(() => {
     return tasks.filter((t) => t.status === 'CANCELLED').length;
+  }, [tasks]);
+
+  const overdueCount = React.useMemo(() => {
+    return tasks.filter((t) => checkTaskOverdue(t).isOverdue).length;
   }, [tasks]);
 
   const handleEditTask = (task) => {
@@ -112,8 +122,28 @@ export function PersonalTaskKanban({
     }
     try {
       setIsCancelling(true);
+
+      // Nếu task có phiếu xuất kho liên kết (IssueId) -> Tự động hủy phiếu xuất kho (và hoàn kho nếu đã xuất)
+      const issueMatch = cancellingTask?.completionNotes?.match(/IssueId:\s*(\d+)/i);
+      if (issueMatch && issueMatch[1]) {
+        const issueId = Number(issueMatch[1]);
+        try {
+          await inventoryService.cancelIssue(cancellingTask.farmId || farmId, issueId, {
+            cancellationReason: `Hủy theo nhiệm vụ: ${cancelReason.trim()}`,
+          });
+          toast.success('Đã tự động hủy phiếu xuất kho và hoàn trả vật tư về kho (nếu đã trừ)!');
+        } catch (issueErr) {
+          console.warn('Lỗi khi hủy phiếu xuất kho:', issueErr);
+        }
+      }
+
       await hrService.cancelTask(cancellingTask.id, cancelReason.trim());
       toast.success(`Đã hủy nhiệm vụ "${cancellingTask.taskTitle}" thành công!`);
+
+      const { notifyDataChanged } = useActiveFarmStore.getState();
+      notifyDataChanged?.('tasks');
+      notifyDataChanged?.('inventory');
+
       setIsCancelModalOpen(false);
       setCancellingTask(null);
       setCancelReason('');
@@ -126,14 +156,27 @@ export function PersonalTaskKanban({
     }
   };
 
-  // 1. Chuyển task sang IN_PROGRESS (Dành cho công nhân bắt đầu làm việc)
-  const handleStartTask = async (taskId) => {
+  // 1. Chuyển task sang IN_PROGRESS (Dành cho công nhân bắt đầu làm việc, backend tự động tạo phiếu xuất kho DRAFT theo FEFO)
+  const handleStartTask = async (taskOrId) => {
     try {
+      const targetTask = typeof taskOrId === 'object' ? taskOrId : tasks.find((t) => t.id === taskOrId);
+      const taskId = targetTask?.id || taskOrId;
+
       await hrService.updateTaskStatus(taskId, {
         status: 'IN_PROGRESS',
-        completionNotes: null,
-        photosJson: null,
+        completionNotes: targetTask?.completionNotes || null,
+        photosJson: targetTask?.photosJson || null,
       });
+
+      if (targetTask?.materialId && targetTask?.standardQuantity) {
+        toast.success('Đã nhận việc! Hệ thống đã tạo Phiếu xuất kho và gửi tới Thủ kho để chuẩn bị vật tư.');
+      } else {
+        toast.success('Đã nhận việc và chuyển sang trạng thái ĐANG THỰC HIỆN!');
+      }
+
+      const { notifyDataChanged } = useActiveFarmStore.getState();
+      notifyDataChanged?.('tasks');
+      notifyDataChanged?.('inventory');
       onRefresh?.();
     } catch (err) {
       console.error('Start task error:', err);
@@ -185,6 +228,9 @@ export function PersonalTaskKanban({
   const visibleTasks = tasks
     .filter((t) => (showCancelled ? true : t.status !== 'CANCELLED'))
     .filter((t) => {
+      if (filterOverdueOnly && !checkTaskOverdue(t).isOverdue) {
+        return false;
+      }
       if (typeFilter === 'ROUTINE') {
         return t.taskTitle && t.taskTitle.startsWith('[CỐ ĐỊNH HÀNG NGÀY]');
       }
@@ -251,6 +297,23 @@ export function PersonalTaskKanban({
                 Việc Phát Sinh
               </button>
             </div>
+
+            {/* Toggle lọc việc quá hạn */}
+            <button
+              type="button"
+              onClick={() => setFilterOverdueOnly((prev) => !prev)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                filterOverdueOnly
+                  ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                  : overdueCount > 0
+                  ? 'bg-rose-50 border-rose-300 text-rose-700 animate-pulse'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              title="Lọc danh sách các công việc đã quá giờ quy định"
+            >
+              <AlertTriangle className={`h-3.5 w-3.5 ${filterOverdueOnly ? 'text-white' : overdueCount > 0 ? 'text-rose-600' : 'text-slate-400'}`} />
+              <span>Việc quá hạn ({overdueCount})</span>
+            </button>
 
             {/* Toggle hiển thị việc đã hủy */}
             <button
@@ -427,15 +490,36 @@ export function PersonalTaskKanban({
 
                     // Kiểm tra nhân sự phụ trách: Có người không có tài khoản (Role 6B) không?
                     const assignees = task.assignees || [];
+                    const currentUserId = userInfo?.id ? Number(userInfo.id) : null;
+                    const isAssignedToMe = Boolean(
+                      (task.assignedToUserId && Number(task.assignedToUserId) === currentUserId) ||
+                      (assignees.some((a) => Number(a.userId) === currentUserId))
+                    );
                     const hasNoAccountWorker =
                       task.assignedToHasAccount === false ||
                       assignees.some((a) => a.hasUserAccount === false);
+                    const { isOverdue, overdueText } = checkTaskOverdue(task);
 
                     return (
                       <div
                         key={task.id}
-                        className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xs transition-all hover:shadow-xs space-y-2.5"
+                        className={`rounded-xl border p-3.5 shadow-2xs transition-all space-y-2.5 ${
+                          isOverdue
+                            ? 'border-rose-400 bg-rose-50/25 ring-1 ring-rose-400'
+                            : 'border-slate-200 bg-white hover:shadow-xs'
+                        }`}
                       >
+                        {/* Cảnh báo quá hạn khẩn cấp */}
+                        {isOverdue && (
+                          <div className="w-full rounded bg-rose-600 text-white px-2 py-0.5 text-[10px] font-black flex items-center justify-between gap-1 animate-pulse shadow-2xs">
+                            <span className="flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              <span>🚨 QUÁ HẠN: {overdueText}</span>
+                            </span>
+                            <span className="text-[9px] bg-rose-800 px-1 rounded">Chậm tiến độ</span>
+                          </div>
+                        )}
+
                         {/* Nhãn phân loại việc: Cố định vs Phát sinh & Độ ưu tiên */}
                         <div className="flex items-center justify-between gap-1.5 flex-wrap">
                           <div className="flex items-center gap-1">
@@ -468,13 +552,25 @@ export function PersonalTaskKanban({
                           {task.zoneName && (
                             <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-1">
                               <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
-                              <span className="truncate">{task.zoneName}</span>
+                              <span className="truncate">
+                                {task.zoneName}
+                                {task.locationName && (
+                                  <span className="text-emerald-700 font-semibold"> • {task.locationName}</span>
+                                )}
+                              </span>
                             </div>
                           )}
                         </div>
 
                         {/* Nhân sự & Nhãn phân biệt Role 6A (Có TK) vs Role 6B (Không TK) */}
                         <div className="space-y-1.5 pt-1.5 border-t border-slate-100 text-[11px]">
+                          {(task.startTime || task.endTime) && (
+                            <div className="flex items-center gap-1 font-mono text-[10px] text-amber-800 font-bold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded w-fit">
+                              <Clock className="h-3 w-3 text-amber-600 shrink-0" />
+                              <span>Khung giờ: {task.startTime?.substring(0, 5) || '--:--'} - {task.endTime?.substring(0, 5) || '--:--'}</span>
+                            </div>
+                          )}
+
                           {task.deadline && (
                             <div className="flex items-center gap-1 font-mono text-[10px] text-slate-500">
                               <Clock className="h-3 w-3 text-amber-500 shrink-0" />
@@ -521,7 +617,7 @@ export function PersonalTaskKanban({
                                 size="sm"
                                 className="w-full text-xs font-bold text-blue-700 hover:bg-blue-50"
                                 icon={<Play className="h-3.5 w-3.5" />}
-                                onClick={() => handleStartTask(task.id)}
+                                onClick={() => handleStartTask(task)}
                               >
                                 Bắt Đầu Nhiệm Vụ
                               </Button>
@@ -545,29 +641,49 @@ export function PersonalTaskKanban({
                           {/* Cột 2: IN_PROGRESS */}
                           {col.id === 'IN_PROGRESS' && (
                             <>
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                className="w-full text-xs font-bold bg-amber-600 hover:bg-amber-700"
-                                icon={<Send className="h-3.5 w-3.5" />}
-                                onClick={() => {
-                                  setCompleteTarget(task);
-                                  setIsCompleteModalOpen(true);
-                                }}
-                              >
-                                📸 Báo Cáo & Gửi Nghiệm Thu
-                              </Button>
+                              {/* Nếu là người được giao việc hoặc công nhân trực tiếp */}
+                              {(isAssignedToMe || isFieldWorker()) && (
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  className="w-full text-xs font-bold bg-amber-600 hover:bg-amber-700"
+                                  icon={<Send className="h-3.5 w-3.5" />}
+                                  onClick={() => {
+                                    setCompleteTarget(task);
+                                    setIsCompleteModalOpen(true);
+                                  }}
+                                >
+                                  📸 Báo Cáo & Gửi Nghiệm Thu
+                                </Button>
+                              )}
 
-                              {/* Quản lý / Kỹ thuật / Trưởng phân khu xác nhận làm xong trực tiếp tại thực địa cho Role 6B */}
+                              {/* Nếu Quản lý / Giám sát xem việc của nhân viên khác (có tài khoản) */}
+                              {!isAssignedToMe && !isFieldWorker() && !hasNoAccountWorker && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full text-[11px] font-bold text-amber-800 border-amber-300 hover:bg-amber-50"
+                                  icon={<Send className="h-3.5 w-3.5 text-amber-600" />}
+                                  onClick={() => {
+                                    setCompleteTarget(task);
+                                    setIsCompleteModalOpen(true);
+                                  }}
+                                  title="Quản lý nộp báo cáo ảnh hộ nhân sự hiện trường"
+                                >
+                                  📸 Báo Cáo Hộ Nhân Sự
+                                </Button>
+                              )}
+
+                              {/* Quản lý / Kỹ thuật xác nhận làm xong trực tiếp tại thực địa cho công nhân thời vụ không có tài khoản (Role 6B) */}
                               {canManageTasks && hasNoAccountWorker && (
                                 <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
                                   <button
                                     type="button"
                                     onClick={() => handleDirectConfirmDoneNoAccount(task)}
-                                    className="w-full py-1 px-2 rounded-lg text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors flex items-center justify-center gap-1"
+                                    className="w-full py-1.5 px-2 rounded-lg text-[10px] font-black text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 transition-colors flex items-center justify-center gap-1 shadow-2xs"
                                   >
-                                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                                    <span>✅ Xác Nhận Đã Làm Xong (Role 6B)</span>
+                                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
+                                    <span>✅ Xác Nhận Đã Làm Xong (Thời Vụ)</span>
                                   </button>
                                 </Can>
                               )}
@@ -613,9 +729,9 @@ export function PersonalTaskKanban({
                             </div>
                           )}
 
-                          {/* Các nút Sửa & Hủy việc dành cho Farm Manager, Technical Staff & Zone Manager (Chỉ khi task chưa DONE và chưa CANCELLED) */}
-                          {task.status !== 'DONE' && task.status !== 'CANCELLED' && (
-                            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER']}>
+                          {/* Các nút Sửa & Hủy việc: CHỈ dành cho Farm Manager & Technical Lead, TUYỆT ĐỐI không cho công nhân hiện trường */}
+                          {task.status !== 'DONE' && task.status !== 'CANCELLED' && canManageTasks && !isFieldWorker() && (
+                            <Can permission="PERM_TASK_ASSIGN" role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']} farmRole={['FARM_MANAGER', 'TECHNICAL_LEAD']}>
                               <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-100">
                                 <button
                                   type="button"

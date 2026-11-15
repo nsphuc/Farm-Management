@@ -86,6 +86,10 @@ export function CreateTenantModal({ isOpen, onClose, onSuccess }) {
       setErrorMessage('Vui lòng nhập Email Chủ đầu tư.');
       return;
     }
+    if (!formData.adminEmail.trim().toLowerCase().endsWith('@gmail.com')) {
+      setErrorMessage('Email Chủ đầu tư bắt buộc phải có đuôi @gmail.com (ví dụ: owner@gmail.com).');
+      return;
+    }
     if (!formData.adminFullName.trim()) {
       setErrorMessage('Vui lòng nhập Họ tên Chủ đầu tư.');
       return;
@@ -270,12 +274,14 @@ export function CreateTenantModal({ isOpen, onClose, onSuccess }) {
               />
             </FormField>
 
-            <FormField label="Email Đăng Nhập (Username) *" hint="Đồng thời là email nhận thông báo">
+            <FormField label="Email Đăng Nhập (Username) *" hint="Bắt buộc định dạng @gmail.com (dùng nhận thông tin tài khoản)">
               <Input
                 type="email"
                 value={formData.adminEmail}
                 onChange={(e) => setFormData((prev) => ({ ...prev, adminEmail: e.target.value }))}
-                placeholder="owner@greenfarm.vn"
+                placeholder="chudautu.greenfarm@gmail.com"
+                pattern=".+@gmail\.com"
+                title="Email phải có đuôi @gmail.com"
                 required
               />
             </FormField>

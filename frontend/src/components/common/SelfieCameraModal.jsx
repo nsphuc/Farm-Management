@@ -108,11 +108,19 @@ export function SelfieCameraModal({
   const fetchLocation = () => {
     setLocationState((prev) => ({ ...prev, isLoading: true, error: null }));
 
+    const isInsecureHttp =
+      typeof window !== 'undefined' &&
+      window.location.protocol === 'http:' &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1';
+
     if (!navigator.geolocation) {
       setLocationState((prev) => ({
         ...prev,
         isLoading: false,
-        error: 'Trình duyệt không hỗ trợ định vị GPS.',
+        error: isInsecureHttp
+          ? 'Trình duyệt chặn GPS khi kết nối qua IP mạng HTTP (hệ thống sẽ tự động sử dụng toạ độ Trang Trại).'
+          : 'Trình duyệt không hỗ trợ định vị GPS.',
       }));
       return;
     }
@@ -145,27 +153,46 @@ export function SelfieCameraModal({
         });
       },
       (err) => {
+        let errMsg = `Không thể lấy tọa độ GPS: ${err.message}`;
+        if (isInsecureHttp) {
+          errMsg = 'Trình duyệt chặn GPS khi truy cập qua HTTP (hệ thống sẽ tự động gán toạ độ Trang Trại).';
+        }
         setLocationState((prev) => ({
           ...prev,
           isLoading: false,
-          error: `Không thể lấy tọa độ GPS: ${err.message}`,
+          error: errMsg,
         }));
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: 10000,
         maximumAge: 0,
       }
     );
   };
 
   /**
-   * Đóng dấu Watermark thời gian & toạ độ GPS lên Canvas rồi nén WebP
+   * Đóng dấu Watermark thời gian & toạ độ GPS lên Canvas rồi nén WebP/JPEG
+   * Tự động scale down ảnh gốc điện thoại (12-48MP) về tối đa 1024px để tránh phình dung lượng Base64
    */
   const drawWatermarkAndFinalize = (sourceCanvasOrImage, isMirror = false) => {
+    const rawWidth = sourceCanvasOrImage.videoWidth || sourceCanvasOrImage.naturalWidth || sourceCanvasOrImage.width || 1280;
+    const rawHeight = sourceCanvasOrImage.videoHeight || sourceCanvasOrImage.naturalHeight || sourceCanvasOrImage.height || 720;
+
+    const MAX_DIM = 1024;
+    let width = rawWidth;
+    let height = rawHeight;
+    if (width > MAX_DIM || height > MAX_DIM) {
+      if (width > height) {
+        height = Math.round((height * MAX_DIM) / width);
+        width = MAX_DIM;
+      } else {
+        width = Math.round((width * MAX_DIM) / height);
+        height = MAX_DIM;
+      }
+    }
+
     const canvas = canvasRef.current || document.createElement('canvas');
-    const width = sourceCanvasOrImage.videoWidth || sourceCanvasOrImage.naturalWidth || sourceCanvasOrImage.width || 1280;
-    const height = sourceCanvasOrImage.videoHeight || sourceCanvasOrImage.naturalHeight || sourceCanvasOrImage.height || 720;
     canvas.width = width;
     canvas.height = height;
 
@@ -185,39 +212,47 @@ export function SelfieCameraModal({
     const now = new Date();
     const timeStr = formatDateTime(now);
     const farmName = activeFarm?.farmName || activeFarm?.name || 'Trang Trại';
-    const latStr = locationState.latitude ? locationState.latitude.toFixed(6) : 'N/A';
-    const lonStr = locationState.longitude ? locationState.longitude.toFixed(6) : 'N/A';
-    const distStr = locationState.distanceM !== null ? `${locationState.distanceM}m` : 'N/A';
+    const displayLat = locationState.latitude != null ? locationState.latitude : activeFarm?.latitude;
+    const displayLon = locationState.longitude != null ? locationState.longitude : activeFarm?.longitude;
+    const latStr = displayLat != null ? Number(displayLat).toFixed(6) : 'N/A';
+    const lonStr = displayLon != null ? Number(displayLon).toFixed(6) : 'N/A';
+    const distStr = locationState.distanceM !== null ? `${locationState.distanceM}m` : '0m (Tâm Trại)';
 
-    // Vẽ thanh nền mờ đen bảo đảm độ tương phản cao cho chữ
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-    ctx.fillRect(0, canvas.height - 90, canvas.width, 90);
+    const barHeight = Math.max(68, Math.round(canvas.height * 0.12));
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillRect(0, canvas.height - barHeight, canvas.width, barHeight);
+
+    const titleFontSize = Math.max(14, Math.round(barHeight * 0.28));
+    const subFontSize = Math.max(11, Math.round(barHeight * 0.22));
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 22px Outfit, sans-serif';
-    ctx.fillText(`📍 ${farmName} | ${timeStr}`, 24, canvas.height - 52);
+    ctx.font = `bold ${titleFontSize}px "Be Vietnam Pro", sans-serif`;
+    ctx.fillText(`📍 ${farmName} | ${timeStr}`, 16, canvas.height - barHeight + titleFontSize + 8);
 
-    ctx.font = '16px monospace';
+    ctx.font = `${subFontSize}px "Be Vietnam Pro", sans-serif`;
     ctx.fillStyle = locationState.isWithinGeofence ? '#34d399' : '#f87171';
     ctx.fillText(
-      `Tọa độ: ${latStr}, ${lonStr} | Khoảng cách tâm trại: ${distStr} (${
+      `Tọa độ: ${latStr}, ${lonStr} | Khoảng cách: ${distStr} (${
         locationState.isWithinGeofence ? 'Trong ranh giới' : 'NGOÀI HÀNG RÀO'
       })`,
-      24,
-      canvas.height - 22
+      16,
+      canvas.height - 12
     );
 
-    // Xuất định dạng WebP nén chất lượng cao
+    // Xuất định dạng WebP nén chất lượng cao (hoặc fallback JPEG nếu WebP không khả dụng)
     canvas.toBlob(
       (blob) => {
-        const dataUrl = canvas.toDataURL('image/webp', 0.85);
+        let dataUrl = canvas.toDataURL('image/webp', 0.75);
+        if (!dataUrl || dataUrl.length < 50 || dataUrl.startsWith('data:image/png')) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+        }
         setCapturedBlob(blob);
         setCapturedImage(dataUrl);
         setIsProcessing(false);
         stopCamera();
       },
       'image/webp',
-      0.85
+      0.75
     );
   };
 
@@ -263,15 +298,20 @@ export function SelfieCameraModal({
   const handleConfirm = () => {
     if (!capturedBlob && !capturedImage) return;
 
+    const farmLat = activeFarm?.latitude ? Number(activeFarm.latitude) : 10.776889;
+    const farmLon = activeFarm?.longitude ? Number(activeFarm.longitude) : 106.700806;
+    const hasRealCoord = locationState.latitude != null && locationState.longitude != null;
+
     if (onCaptureConfirm) {
       onCaptureConfirm({
         blob: capturedBlob,
         dataUrl: capturedImage,
         location: {
-          latitude: locationState.latitude,
-          longitude: locationState.longitude,
-          distanceM: locationState.distanceM,
-          isWithinGeofence: locationState.isWithinGeofence,
+          latitude: hasRealCoord ? locationState.latitude : farmLat,
+          longitude: hasRealCoord ? locationState.longitude : farmLon,
+          distanceM: hasRealCoord ? locationState.distanceM : 0,
+          isWithinGeofence: hasRealCoord ? locationState.isWithinGeofence : true,
+          isFallback: !hasRealCoord,
         },
       });
     }

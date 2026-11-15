@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Pattern;
 import lombok.*;
 
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.List;
 
 @Getter
@@ -17,6 +18,8 @@ import java.util.List;
 public class CreateFarmTaskRequest {
 
     private Long zoneId;
+
+    private Long locationId;
 
     @NotBlank(message = "Tiêu đề nhiệm vụ không được để trống")
     private String taskTitle;
@@ -32,6 +35,30 @@ public class CreateFarmTaskRequest {
     private Long assignedToEmployeeId;
 
     private Instant deadline;
+
+    private Long shiftId;
+
+    @com.fasterxml.jackson.annotation.JsonFormat(pattern = "HH:mm")
+    private LocalTime startTime;
+
+    @com.fasterxml.jackson.annotation.JsonFormat(pattern = "HH:mm")
+    private LocalTime endTime;
+
+    private String recurrenceDays;
+
+    private String assignmentMode;
+
+    private Long warehouseId;
+
+    private Long materialId;
+
+    private java.math.BigDecimal standardQuantity;
+
+    private java.math.BigDecimal actualQuantity;
+
+    private Long cropSeasonId;
+
+    private Long livestockGroupId;
 
     private String completionNotes;
 

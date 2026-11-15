@@ -28,11 +28,17 @@ public class LivestockBreed {
     @Column(name = "breed_name", nullable = false, length = 150)
     private String breedName;
 
+    @Column(name = "image_url", columnDefinition = "MEDIUMTEXT")
+    private String imageUrl;
+
     @Column(name = "standard_growth_days")
     private Integer standardGrowthDays;
 
     @Column(name = "target_weight_kg", precision = 8, scale = 2)
     private BigDecimal targetWeightKg;
+
+    @Column(name = "management_type", length = 30)
+    private String managementType;
 
     @Column(name = "created_at")
     private Instant createdAt;

@@ -32,6 +32,7 @@ public class WarehouseReceiptDetailResponse {
     private Long cancelledBy;
     private Instant cancelledAt;
     private String cancellationReason;
+    private String itemSummary;
     private List<ReceiptItemDto> items;
 
     @Data

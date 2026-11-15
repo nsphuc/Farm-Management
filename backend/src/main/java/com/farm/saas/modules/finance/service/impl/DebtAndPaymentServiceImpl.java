@@ -27,6 +27,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.farm.saas.common.codegenerator.CodeGenerator;
+import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -47,6 +49,25 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final CodeGenerator codeGenerator;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.inventory.repository.WarehouseReceiptRepository warehouseReceiptRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.inventory.repository.WarehouseReceiptItemRepository warehouseReceiptItemRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.masterdata.repository.MaterialRepository materialRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.livestock.repository.LivestockGroupRepository livestockGroupRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.masterdata.repository.LivestockBreedRepository livestockBreedRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.finance.repository.SalesOrderItemRepository salesOrderItemRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -93,13 +114,61 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<PaymentTransactionDetailResponse> getPayments(Long farmId, Long partnerId, String paymentType, String paymentMethod, String status, Pageable pageable) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        if (farmId != null && farmId > 0) {
+            validateFarm(farmId);
+        }
+
+        Specification<PaymentTransaction> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("tenantId"), tenantId));
+            if (farmId != null && farmId > 0) {
+                predicates.add(cb.equal(root.get("farmId"), farmId));
+            }
+            if (partnerId != null) {
+                predicates.add(cb.equal(root.get("partnerId"), partnerId));
+            }
+            if (paymentType != null && !paymentType.isBlank()) {
+                predicates.add(cb.equal(cb.upper(root.get("paymentType")), paymentType.toUpperCase()));
+            }
+            if (paymentMethod != null && !paymentMethod.isBlank()) {
+                predicates.add(cb.equal(cb.upper(root.get("paymentMethod")), paymentMethod.toUpperCase()));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(cb.upper(root.get("status")), status.toUpperCase()));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        Page<PaymentTransaction> page = paymentTransactionRepository.findAll(spec, pageable);
+        return page.map(this::toPaymentDetailResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PaymentTransactionDetailResponse getPaymentById(Long farmId, Long id) {
+        validateFarm(farmId);
+        PaymentTransaction payment = paymentTransactionRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Payment transaction not found: " + id));
+        if (!payment.getFarmId().equals(farmId)) {
+            throw new BusinessException("BAD_REQUEST", "Payment transaction does not belong to specified farm");
+        }
+        return toPaymentDetailResponse(payment);
+    }
+
+    @Override
     @Transactional
     public PaymentTransactionDetailResponse createPayment(Long farmId, CreatePaymentTransactionRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
         validateFarm(farmId);
 
-        String paymentCode = "PAY-" + farmId + "-" + (System.currentTimeMillis() % 10000000);
+        String paymentCode;
+        do {
+            paymentCode = codeGenerator.generatePaymentCode();
+        } while (paymentTransactionRepository.existsByTenantIdAndFarmIdAndPaymentCode(tenantId, farmId, paymentCode));
 
         boolean isChecker = SecurityUtils.getCurrentUser() != null &&
                 SecurityUtils.getCurrentUser().hasAnyRole("ROLE_FARM_MANAGER", "ROLE_FARM_OWNER", "ROLE_SUPER_ADMIN");
@@ -393,7 +462,7 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
                     "Số tiền cấn trừ (" + offsetAmount + ") vượt quá mức dư nợ khả dụng tối đa (" + maxOffset + ")");
         }
 
-        String paymentCode = "OFFSET-" + farmId + "-" + (System.currentTimeMillis() % 10000000);
+        String paymentCode = codeGenerator.generateCode("OFFSET");
 
         PaymentTransaction payment = PaymentTransaction.builder()
                 .tenantId(tenantId)
@@ -519,6 +588,73 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
                 ? salesOrderRepository.findById(debt.getSalesOrderId()).map(SalesOrder::getOrderCode).orElse(null)
                 : null;
 
+        String receiptCode = null;
+        String livestockGroupCode = null;
+        String itemSummary = null;
+
+        // 1. Phân giải nội dung trực tiếp từ danh mục giống và đàn vật nuôi (Đảm bảo chuẩn UTF-8)
+        if (debt.getLivestockGroupId() != null && livestockGroupRepository != null) {
+            com.farm.saas.modules.livestock.entity.LivestockGroup lg = livestockGroupRepository.findById(debt.getLivestockGroupId()).orElse(null);
+            if (lg != null) {
+                livestockGroupCode = lg.getGroupCode();
+                if (livestockBreedRepository != null) {
+                    String bName = livestockBreedRepository.findById(lg.getBreedId())
+                            .map(com.farm.saas.modules.masterdata.entity.LivestockBreed::getBreedName).orElse("Con giống");
+                    itemSummary = bName + " (" + lg.getInitialQuantity() + " con)";
+                }
+            }
+        }
+
+        // 2. Phân giải nội dung từ phiếu nhập kho và danh mục vật tư
+        if (itemSummary == null && debt.getWarehouseReceiptId() != null && warehouseReceiptRepository != null) {
+            com.farm.saas.modules.inventory.entity.WarehouseReceipt receipt = warehouseReceiptRepository.findById(debt.getWarehouseReceiptId()).orElse(null);
+            if (receipt != null) {
+                receiptCode = receipt.getReceiptCode();
+                if (warehouseReceiptItemRepository != null) {
+                    List<com.farm.saas.modules.inventory.entity.WarehouseReceiptItem> items = warehouseReceiptItemRepository.findByReceiptId(receipt.getId());
+                    if (items != null && !items.isEmpty()) {
+                        com.farm.saas.modules.inventory.entity.WarehouseReceiptItem firstItem = items.get(0);
+                        String matName = (materialRepository != null)
+                                ? materialRepository.findById(firstItem.getMaterialId()).map(com.farm.saas.modules.masterdata.entity.Material::getName).orElse("Vật tư")
+                                : "Vật tư";
+                        String unit = firstItem.getEnteredUnit() != null ? firstItem.getEnteredUnit() : "đơn vị";
+                        java.math.BigDecimal qty = firstItem.getEnteredQuantity() != null ? firstItem.getEnteredQuantity() : firstItem.getQuantity();
+                        String qtyStr = (qty != null) ? qty.stripTrailingZeros().toPlainString() : "0";
+                        if (items.size() > 1) {
+                            itemSummary = matName + " (" + qtyStr + " " + unit + ") + " + (items.size() - 1) + " mục khác";
+                        } else {
+                            itemSummary = matName + " (" + qtyStr + " " + unit + ")";
+                        }
+                    } else if (StringUtils.hasText(receipt.getNotes())) {
+                        itemSummary = receipt.getNotes();
+                    }
+                }
+            }
+        }
+
+        // 3. Phân giải nội dung từ đơn hàng bán sỉ
+        if (itemSummary == null && debt.getSalesOrderId() != null && salesOrderItemRepository != null) {
+            List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(debt.getSalesOrderId());
+            if (items != null && !items.isEmpty()) {
+                SalesOrderItem firstItem = items.get(0);
+                String unit = firstItem.getUnit() != null ? firstItem.getUnit() : "kg";
+                String qtyStr = (firstItem.getQuantity() != null) ? firstItem.getQuantity().stripTrailingZeros().toPlainString() : "0";
+                if (items.size() > 1) {
+                    itemSummary = firstItem.getItemName() + " (" + qtyStr + " " + unit + ") + " + (items.size() - 1) + " loại khác";
+                } else {
+                    itemSummary = firstItem.getItemName() + " (" + qtyStr + " " + unit + ")";
+                }
+            }
+        }
+
+        if (itemSummary == null && StringUtils.hasText(debt.getNotes())) {
+            itemSummary = debt.getNotes();
+        }
+
+        if (!StringUtils.hasText(itemSummary)) {
+            itemSummary = "Hàng hóa / Dịch vụ";
+        }
+
         long daysOverdue = 0;
         if (debt.getDueDate() != null && LocalDate.now().isAfter(debt.getDueDate())) {
             daysOverdue = ChronoUnit.DAYS.between(debt.getDueDate(), LocalDate.now());
@@ -534,6 +670,11 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
                 .salesOrderId(debt.getSalesOrderId())
                 .orderCode(orderCode)
                 .warehouseReceiptId(debt.getWarehouseReceiptId())
+                .receiptCode(receiptCode)
+                .livestockGroupId(debt.getLivestockGroupId())
+                .livestockGroupCode(livestockGroupCode)
+                .notes(debt.getNotes())
+                .itemSummary(itemSummary)
                 .debtType(debt.getDebtType())
                 .totalDebt(debt.getTotalDebt())
                 .paidAmount(debt.getPaidAmount())

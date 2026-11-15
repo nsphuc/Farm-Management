@@ -16,7 +16,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { FormField, Input, Select, Switch, CodeInput } from '@/components/ui/FormControls';
 import { hrService } from '@/services/modules/hrService';
 import { geographyService } from '@/services/modules/geographyService';
-import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
+import { generateEntityCode, CODE_PREFIXES, commitSequentialCode } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
@@ -116,6 +116,7 @@ export function EmployeeFormModal({
   employee = null,
   farms = [],
   defaultPosition = null,
+  existingEmployees = [],
 }) {
   const isEditing = Boolean(employee?.id);
   const { isOwner, isFarmManager } = useAuthStore();
@@ -127,6 +128,7 @@ export function EmployeeFormModal({
   const effectiveFarms = storeFarms && storeFarms.length > 0 ? storeFarms : farms;
 
   const hasInitializedRef = useRef(false);
+  const [serverEmployees, setServerEmployees] = useState([]);
 
   useEffect(() => {
     if (isOpen && owner && (!storeFarms || storeFarms.length === 0)) {
@@ -215,6 +217,36 @@ export function EmployeeFormModal({
       });
   }, [isOpen, formData.farmId, activeFarmId]);
 
+  // Truy vấn danh sách nhân sự hiện có để tự động tăng mã EMP-xxx
+  useEffect(() => {
+    if (!isOpen || employee) return;
+    let isMounted = true;
+
+    hrService
+      .getEmployees({ size: 1000 })
+      .then((res) => {
+        if (!isMounted) return;
+        const list = res?.content || (Array.isArray(res) ? res : []);
+        if (Array.isArray(list) && list.length > 0) {
+          setServerEmployees(list);
+          const nextCode = generateEntityCode(CODE_PREFIXES.EMPLOYEE, list);
+          setFormData((prev) => {
+            if (!prev.employeeCode || prev.employeeCode.startsWith('EMP-')) {
+              return { ...prev, employeeCode: nextCode };
+            }
+            return prev;
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn('Lỗi khi tải danh sách nhân sự để sinh mã:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, employee]);
+
   useEffect(() => {
     if (!isOpen) {
       hasInitializedRef.current = false;
@@ -262,7 +294,10 @@ export function EmployeeFormModal({
         defaultFarmId = String(effectiveFarms[0]?.id);
       }
 
-      const initialCode = generateEntityCode(CODE_PREFIXES.EMPLOYEE);
+      const allKnownEmployees = serverEmployees.length > 0
+        ? serverEmployees
+        : (existingEmployees && existingEmployees.length > 0 ? existingEmployees : []);
+      const initialCode = generateEntityCode(CODE_PREFIXES.EMPLOYEE, allKnownEmployees);
       if (owner) {
         // TRƯỜNG HỢP A: Chủ đầu tư (Owner) -> Bổ nhiệm FARM_MANAGER
         setFormData({
@@ -374,11 +409,12 @@ export function EmployeeFormModal({
     }
   };
 
-  const handleGenerateInternalEmail = () => {
-    const codeClean = formData.employeeCode
-      ? formData.employeeCode.toLowerCase().replace(/[^a-z0-9]/g, '')
-      : Math.random().toString(36).substring(2, 7);
-    handleChange('email', `nv_${codeClean}@nongtrai.vn`);
+  const handleRegenerateCode = () => {
+    const listToScan = serverEmployees.length > 0
+      ? serverEmployees
+      : (existingEmployees && existingEmployees.length > 0 ? existingEmployees : []);
+    const nextCode = generateEntityCode(CODE_PREFIXES.EMPLOYEE, listToScan);
+    handleChange('employeeCode', nextCode);
   };
 
   const validate = () => {
@@ -419,8 +455,8 @@ export function EmployeeFormModal({
     // 4. Validation Email
     if (!formData.email?.trim()) {
       errs.email = 'Email không được để trống';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
-      errs.email = 'Địa chỉ email không đúng định dạng';
+    } else if (!/^[A-Za-z0-9._%+-]+@gmail\.com$/i.test(formData.email.trim())) {
+      errs.email = 'Địa chỉ email bắt buộc phải có đuôi @gmail.com';
     }
 
     // 5. Validation Trang Trại & Chức vụ
@@ -511,6 +547,19 @@ export function EmployeeFormModal({
 
       let result;
       if (isEditing) {
+        // Ánh xạ roleInFarm hợp lệ theo chuẩn DB check constraint
+        const mapToValidRole = (pos) => {
+          if (!pos) return 'FIELD_WORKER';
+          const p = pos.toUpperCase();
+          if (p.contains ? p.contains('FARM_MANAGER') : p.includes('FARM_MANAGER')) return 'FARM_MANAGER';
+          if (p.includes('ZONE_MANAGER')) return 'ZONE_MANAGER';
+          if (p.includes('WAREHOUSE')) return 'WAREHOUSE_KEEPER';
+          if (p.includes('VET')) return 'VETERINARIAN';
+          if (p.includes('AGRONOMIST')) return 'AGRONOMIST';
+          if (p.includes('TECHNICAL')) return 'TECHNICAL_LEAD';
+          return 'FIELD_WORKER';
+        };
+
         // Tách biệt rõ ràng Payload cho updateEmployee (Khớp chính xác UpdateEmployeeRequest.java)
         const updatePayload = {
           fullName: cleanFullName,
@@ -529,7 +578,7 @@ export function EmployeeFormModal({
           farmId: cleanFarmId,
           assignedZoneId: cleanZoneId,
           zoneId: cleanZoneId,
-          roleInFarm: cleanPosition,
+          roleInFarm: mapToValidRole(cleanPosition),
         };
 
         result = await hrService.updateEmployee(employee.id, updatePayload);
@@ -578,6 +627,12 @@ export function EmployeeFormModal({
         };
 
         result = await hrService.createEmployee(createPayload);
+        commitSequentialCode(CODE_PREFIXES.EMPLOYEE, result?.employeeCode || formData.employeeCode);
+        if (shouldCreateAccount) {
+          toast.success(`Tạo hồ sơ và tài khoản [${formData.username}] thành công! Mật khẩu đăng nhập đã được tự động gửi vào email ${cleanEmail}.`);
+        } else {
+          toast.success(`Tạo hồ sơ nhân sự [${cleanFullName}] thành công!`);
+        }
       }
 
       notifyDataChanged?.('employees');
@@ -662,7 +717,7 @@ export function EmployeeFormModal({
               <CodeInput
                 value={formData.employeeCode}
                 onChange={(e) => handleChange('employeeCode', e.target.value.toUpperCase())}
-                onRegenerate={() => handleChange('employeeCode', generateEntityCode(CODE_PREFIXES.EMPLOYEE))}
+                onRegenerate={handleRegenerateCode}
                 isEditMode={isEditing}
                 error={errors.employeeCode}
               />
@@ -701,19 +756,7 @@ export function EmployeeFormModal({
             </FormField>
 
             <FormField
-              label={
-                <div className="flex items-center justify-between w-full">
-                  <span>Email Liên Hệ</span>
-                  <button
-                    type="button"
-                    onClick={handleGenerateInternalEmail}
-                    className="text-[10px] text-emerald-700 hover:text-emerald-900 font-semibold underline cursor-pointer"
-                    title="Điền email nội bộ dạng nv_xxxx@nongtrai.vn"
-                  >
-                    + Tạo email nội bộ
-                  </button>
-                </div>
-              }
+              label="Email Liên Hệ (@gmail.com)"
               required
               error={errors.email}
             >
@@ -721,7 +764,9 @@ export function EmployeeFormModal({
                 type="email"
                 value={formData.email}
                 onChange={(e) => handleChange('email', e.target.value)}
-                placeholder="nhanvien@nongtrai.vn"
+                placeholder="nhanvien@gmail.com"
+                pattern=".+@gmail\.com"
+                title="Email phải có đuôi @gmail.com"
               />
             </FormField>
           </div>

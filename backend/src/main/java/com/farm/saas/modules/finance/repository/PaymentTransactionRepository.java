@@ -22,6 +22,8 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
 
     Optional<PaymentTransaction> findByTenantIdAndFarmIdAndPaymentCode(Long tenantId, Long farmId, String paymentCode);
 
+    boolean existsByTenantIdAndFarmIdAndPaymentCode(Long tenantId, Long farmId, String paymentCode);
+
     Page<PaymentTransaction> findByFarmId(Long farmId, Pageable pageable);
 
     Page<PaymentTransaction> findByTenantId(Long tenantId, Pageable pageable);

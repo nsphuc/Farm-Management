@@ -20,11 +20,15 @@ public class UpdateCropTypeRequest {
     @NotBlank(message = "Tên loại cây trồng không được để trống")
     private String name;
 
+    private String imageUrl;
+
     private String varietyCode;
 
     @NotNull(message = "Số ngày sinh trưởng tiêu chuẩn không được để trống")
     @Min(value = 1, message = "Số ngày sinh trưởng phải lớn hơn 0")
     private Integer growthDaysStandard;
+
+    private String cropCategory;
 
     @DecimalMin(value = "0.00", message = "Nhu cầu nước phải lớn hơn hoặc bằng 0")
     private BigDecimal waterNeedM3Day;

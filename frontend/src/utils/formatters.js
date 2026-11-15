@@ -113,19 +113,50 @@ export function formatTime(value, fallback = NULL_FALLBACK) {
   }
 }
 
+const KNOWN_WEIGHT_UNITS = ['TAN', 'TẤN', 'TON', 'KG', 'KILOGRAM', 'CON', 'QUA', 'THUNG', 'BO', 'LIT', 'GOI', 'BAO'];
+
 /**
- * Format weight: under 1 ton in kg (e.g. 850.50 kg), over 1 ton in tấn (e.g. 2.45 tấn)
+ * Format weight or yield quantity:
+ * - If unit is TAN/TẤN/TON, displays in tấn
+ * - If unit is other non-kg unit (CON, QUA, THUNG...), displays formatted number + unit
+ * - If unit is KG (or unspecified), formats under 1 ton in kg (e.g. 850 kg), over 1 ton in tấn (e.g. 2.45 tấn)
  */
-export function formatWeight(valueInKg, fallback = NULL_FALLBACK) {
-  if (valueInKg === null || valueInKg === undefined || valueInKg === '' || isNaN(Number(valueInKg))) {
-    return fallback;
+export function formatWeight(value, unitOrFallback = NULL_FALLBACK, fallback = NULL_FALLBACK) {
+  let unit = null;
+  let fb = NULL_FALLBACK;
+
+  if (typeof unitOrFallback === 'string') {
+    const upper = unitOrFallback.trim().toUpperCase();
+    if (KNOWN_WEIGHT_UNITS.includes(upper)) {
+      unit = upper;
+      fb = fallback;
+    } else {
+      fb = unitOrFallback;
+    }
   }
-  const kg = Number(valueInKg);
-  if (kg >= 1000) {
-    const ton = kg / 1000;
+
+  if (value === null || value === undefined || value === '' || isNaN(Number(value))) {
+    return fb;
+  }
+
+  const num = Number(value);
+
+  // If unit is explicitly TAN / TẤN / TON, value is already in tons!
+  if (unit === 'TAN' || unit === 'TẤN' || unit === 'TON') {
+    return `${formatNumber(num, 2)} tấn`;
+  }
+
+  // If unit is a non-weight unit (e.g., CON, QUA, THUNG)
+  if (unit && unit !== 'KG' && unit !== 'KILOGRAM') {
+    return `${formatNumber(num, 2)} ${unit.toLowerCase()}`;
+  }
+
+  // Default weight behavior (value is in KG):
+  if (num >= 1000) {
+    const ton = num / 1000;
     return `${formatNumber(ton, 2)} tấn`;
   }
-  return `${formatNumber(kg, 2)} kg`;
+  return `${formatNumber(num, 2)} kg`;
 }
 
 /**
@@ -188,4 +219,75 @@ export function formatLocalDate(date = new Date()) {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Kiểm tra xem ca làm việc (shiftStartTime - shiftEndTime) có bao trọn khung giờ của công việc (taskStartTime - taskEndTime) không.
+ * Quy tắc cốt lõi: shiftStartTime <= taskStartTime VÀ shiftEndTime >= taskEndTime
+ */
+export function isShiftCoveringTask(shiftStartTime, shiftEndTime, taskStartTime, taskEndTime) {
+  if (!shiftStartTime || !shiftEndTime || !taskStartTime || !taskEndTime) {
+    return false;
+  }
+  const sStart = String(shiftStartTime).slice(0, 5);
+  const sEnd = String(shiftEndTime).slice(0, 5);
+  const tStart = String(taskStartTime).slice(0, 5);
+  const tEnd = String(taskEndTime).slice(0, 5);
+
+  const isOvernight = sEnd < sStart;
+  if (!isOvernight) {
+    if (tStart <= tEnd) {
+      return sStart <= tStart && sEnd >= tEnd;
+    }
+    return false;
+  } else {
+    if (tStart <= tEnd) {
+      const inNightBefore = tStart >= sStart;
+      const inMorningAfter = tEnd <= sEnd;
+      return inNightBefore || inMorningAfter;
+    }
+    return sStart <= tStart && sEnd >= tEnd;
+  }
+}
+
+/**
+ * Kiểm tra và tính toán trạng thái trễ hạn (Overdue) của một nhiệm vụ nông nghiệp.
+ * Trả về { isOverdue: boolean, overdueText: string, overdueMinutes: number }
+ */
+export function checkTaskOverdue(task) {
+  if (!task) return { isOverdue: false, overdueText: '', overdueMinutes: 0 };
+  if (task.status === 'DONE' || task.status === 'CANCELLED') {
+    return { isOverdue: false, overdueText: '', overdueMinutes: 0 };
+  }
+
+  let deadlineDate = null;
+  if (task.deadline) {
+    deadlineDate = new Date(task.deadline);
+  } else if (task.endTime) {
+    const timeParts = String(task.endTime).slice(0, 5).split(':');
+    deadlineDate = new Date();
+    deadlineDate.setHours(Number(timeParts[0]) || 0, Number(timeParts[1]) || 0, 0, 0);
+  }
+
+  if (deadlineDate && !isNaN(deadlineDate.getTime())) {
+    const now = new Date();
+    if (now > deadlineDate) {
+      const diffMs = now.getTime() - deadlineDate.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const hours = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      const overdueText = hours > 0 ? `Trễ ${hours}h ${mins}p` : `Trễ ${mins} phút`;
+      return { isOverdue: true, overdueText, overdueMinutes: diffMins };
+    }
+  }
+
+  if (task.isOverdue) {
+    const mins = task.overdueMinutes || 0;
+    const hours = Math.floor(mins / 60);
+    const m = mins % 60;
+    const overdueText = hours > 0 ? `Trễ ${hours}h ${m}p` : `Trễ ${m} phút`;
+    return { isOverdue: true, overdueText, overdueMinutes: mins };
+  }
+
+  return { isOverdue: false, overdueText: '', overdueMinutes: 0 };
 }

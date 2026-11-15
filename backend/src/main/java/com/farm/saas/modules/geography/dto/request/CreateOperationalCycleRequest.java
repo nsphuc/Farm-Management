@@ -26,4 +26,6 @@ public class CreateOperationalCycleRequest {
 
     @NotNull(message = "Ngày kết thúc không được để trống")
     private LocalDate endDate;
+
+    private String status;
 }

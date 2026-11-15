@@ -29,6 +29,9 @@ public class LivestockGroup {
     @Column(name = "zone_id", nullable = false)
     private Long zoneId;
 
+    @Column(name = "location_id")
+    private Long locationId;
+
     @Column(name = "operational_cycle_id")
     private Long operationalCycleId;
 
@@ -70,6 +73,9 @@ public class LivestockGroup {
 
     @Column(name = "status", nullable = false, length = 30)
     private String status;
+
+    @Column(name = "management_type", length = 30)
+    private String managementType;
 
     @Column(name = "created_at")
     private Instant createdAt;

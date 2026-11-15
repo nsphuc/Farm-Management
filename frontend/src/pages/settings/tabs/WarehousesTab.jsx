@@ -25,6 +25,47 @@ import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { toast } from '@/store/useToastStore';
+
+/**
+ * Tự động sinh mã kho tăng dần tuần tự dựa trên danh sách kho hiện có của trang trại.
+ * Hỗ trợ mọi định dạng: WHS-001 -> WHS-002, KHO-DL-01 -> KHO-DL-02, KHO-001 -> KHO-002...
+ */
+function generateWarehouseCode(existingWarehouses = []) {
+  if (!existingWarehouses || existingWarehouses.length === 0) {
+    return 'WHS-001';
+  }
+
+  let bestPrefix = 'WHS-';
+  let maxNum = 0;
+  let padLength = 3;
+
+  existingWarehouses.forEach((w) => {
+    const code = (w?.code || '').trim().toUpperCase();
+    if (!code) return;
+
+    const match = code.match(/^(.*?)(\d+)$/);
+    if (match) {
+      const prefix = match[1];
+      const numStr = match[2];
+      const num = parseInt(numStr, 10);
+
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+        bestPrefix = prefix;
+        padLength = Math.max(numStr.length, padLength);
+      }
+    }
+  });
+
+  if (maxNum === 0) {
+    return `WHS-${String(existingWarehouses.length + 1).padStart(3, '0')}`;
+  }
+
+  const nextNum = maxNum + 1;
+  const finalPad = Math.max(padLength, String(nextNum).length);
+  return `${bestPrefix}${String(nextNum).padStart(finalPad, '0')}`;
+}
 
 const WAREHOUSE_TYPES = [
   { value: 'FERTILIZER', label: 'FERTILIZER - Kho Phân bón' },
@@ -145,7 +186,7 @@ export function WarehousesTab() {
       });
     } else {
       setFormData({
-        code: generateEntityCode(CODE_PREFIXES.WAREHOUSE),
+        code: generateWarehouseCode(warehouses),
         name: '',
         warehouseType: 'GENERAL',
         zoneId: '',
@@ -199,10 +240,13 @@ export function WarehousesTab() {
 
       if (editingItem) {
         await masterDataService.updateWarehouse(effectiveFarmId, editingItem.id, payload);
+        toast.success(`Đã cập nhật kho "${payload.name}" (${payload.code}) thành công!`);
       } else {
         await masterDataService.createWarehouse(effectiveFarmId, payload);
+        toast.success(`Đã thêm mới kho "${payload.name}" (${payload.code}) thành công!`);
       }
       setModalOpen(false);
+      setEditingItem(null);
       notifyDataChanged?.('inventory');
       notifyDataChanged?.('all');
       fetchWarehouses();
@@ -444,7 +488,7 @@ export function WarehousesTab() {
                   setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
                 }
                 onRegenerate={() =>
-                  setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.WAREHOUSE) }))
+                  setFormData((prev) => ({ ...prev, code: generateWarehouseCode(warehouses) }))
                 }
                 isEditMode={Boolean(editingItem)}
                 error={fieldErrors.code}

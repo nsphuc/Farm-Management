@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.*;
 
+/**
+ * Thực thể ghi nhận lịch sử in tem nhãn QR truy xuất nguồn gốc của lô sản phẩm thành phẩm (label_print_logs).
+ */
 @Getter
 @Setter
 @Builder

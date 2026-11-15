@@ -15,6 +15,10 @@ public interface DebtAndPaymentService {
 
     DebtRecordDetailResponse getDebtById(Long farmId, Long id);
 
+    Page<PaymentTransactionDetailResponse> getPayments(Long farmId, Long partnerId, String paymentType, String paymentMethod, String status, Pageable pageable);
+
+    PaymentTransactionDetailResponse getPaymentById(Long farmId, Long id);
+
     PaymentTransactionDetailResponse createPayment(Long farmId, CreatePaymentTransactionRequest request);
 
     PaymentTransactionDetailResponse confirmPayment(Long farmId, Long paymentId);

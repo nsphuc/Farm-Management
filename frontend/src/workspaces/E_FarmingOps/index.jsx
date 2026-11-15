@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Edit,
   CheckCircle,
+  CheckCircle2,
   Clock,
   Layers,
   MapPin,
@@ -23,6 +24,7 @@ import {
   Info,
   Trash2,
   Tag,
+  Truck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
@@ -268,21 +270,44 @@ export function FarmingOpsWorkspace() {
               {row.cycleName}
             </span>
           )}
+          {row.createdByName && (
+            <span className="text-[10px] text-slate-400 block truncate" title={`Lập bởi: ${row.createdByName}`}>
+              Bởi: {row.createdByName}
+            </span>
+          )}
         </div>
       ),
     },
     {
       key: 'cropTypeName',
-      header: 'Giống Cây Trồng',
-      width: '160px',
-      render: (row) => (
-        <div className="flex items-center gap-1.5">
-          <Sprout className="h-4 w-4 text-emerald-600 shrink-0" />
-          <span className="font-semibold text-slate-800 text-xs truncate">
-            {row.cropTypeName || 'Giống —'}
-          </span>
-        </div>
-      ),
+      header: 'Giống Cây & Quy Mô',
+      width: '190px',
+      render: (row) => {
+        const isPerennial = row.cropCategory === 'PERENNIAL';
+        const seedStr = row.seedQuantity ? `${Number(row.seedQuantity).toLocaleString('vi-VN')} ${row.seedUnit || (isPerennial ? 'gốc' : 'gói')}` : null;
+        const yieldStr = row.estimatedYieldKg 
+          ? (row.estimatedYieldUnit === 'tấn' || row.estimatedYieldKg >= 1000 
+              ? `${(row.estimatedYieldKg / 1000).toLocaleString('vi-VN')} tấn` 
+              : `${Number(row.estimatedYieldKg).toLocaleString('vi-VN')} kg`)
+          : null;
+        return (
+          <div>
+            <div className="flex items-center gap-1.5">
+              <Sprout className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span className="font-semibold text-slate-800 text-xs truncate">
+                {row.cropTypeName || 'Giống —'}
+              </span>
+            </div>
+            {(seedStr || yieldStr) && (
+              <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
+                {seedStr ? `${isPerennial ? '🌳' : '🌱'} ${seedStr}` : ''}
+                {seedStr && yieldStr ? ' • ' : ''}
+                {yieldStr ? `DK: ${yieldStr}` : ''}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'zoneName',
@@ -311,18 +336,21 @@ export function FarmingOpsWorkspace() {
       key: 'schedule',
       header: 'Lịch Canh Tác',
       width: '170px',
-      render: (row) => (
-        <div className="text-[11px] space-y-0.5">
-          <div className="text-slate-600">
-            Gieo: <strong>{formatDate(row.startDate)}</strong>
-          </div>
-          {row.expectedHarvestDate && (
-            <div className="text-emerald-700 font-medium">
-              Dự kiến: {formatDate(row.expectedHarvestDate)}
+      render: (row) => {
+        const isPerennial = row.cropCategory === 'PERENNIAL';
+        return (
+          <div className="text-[11px] space-y-0.5">
+            <div className="text-slate-600">
+              {isPerennial ? 'Khởi vụ: ' : 'Gieo: '}<strong>{formatDate(row.startDate)}</strong>
             </div>
-          )}
-        </div>
-      ),
+            {row.expectedHarvestDate && (
+              <div className="text-emerald-700 font-medium">
+                Dự kiến: {formatDate(row.expectedHarvestDate)}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'status',
@@ -449,18 +477,39 @@ export function FarmingOpsWorkspace() {
               {row.cycleName}
             </span>
           )}
+          {row.createdByName && (
+            <span className="text-[10px] text-slate-400 block truncate" title={`Nhập bởi: ${row.createdByName}`}>
+              Bởi: {row.createdByName}
+            </span>
+          )}
         </div>
       ),
     },
     {
       key: 'breedName',
-      header: 'Giống Vật Nuôi',
-      width: '160px',
-      render: (row) => (
-        <span className="font-semibold text-slate-800 text-xs">
-          {row.breedName || 'Giống vật nuôi'}
-        </span>
-      ),
+      header: 'Giống & Phân Loại',
+      width: '180px',
+      render: (row) => {
+        const isFlock = row.managementType === 'FLOCK_HERD';
+        return (
+          <div className="space-y-1">
+            <span className="font-semibold text-slate-800 text-xs block truncate">
+              {row.breedName || 'Giống vật nuôi'}
+            </span>
+            <div className="flex items-center gap-1">
+              {isFlock ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-50 text-cyan-800 border border-cyan-200">
+                  <span>🦆</span> Nuôi theo bầy
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
+                  <span>🏷️</span> Cá thể RFID
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      },
     },
     {
       key: 'zoneName',
@@ -495,15 +544,22 @@ export function FarmingOpsWorkspace() {
     {
       key: 'status',
       header: 'Trạng Thái',
-      width: '130px',
+      width: '140px',
       render: (row) => (
         <div>
           <StatusBadge status={row.status} size="sm" />
-          {row.isInWithdrawalQuarantine && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 px-1.5 py-0.2 text-[9px] font-bold border border-rose-200 mt-1">
+          {row.isInWithdrawalQuarantine ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 px-1.5 py-0.5 text-[9px] font-bold border border-rose-200 mt-1">
               <ShieldAlert className="h-2.5 w-2.5" />
               <span>Cách ly thuốc</span>
             </span>
+          ) : (
+            row.status === 'ACTIVE' && (Number(row.currentQuantity) > 0) && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-1.5 py-0.5 text-[9px] font-bold border border-emerald-200 mt-1">
+                <CheckCircle2 className="h-2.5 w-2.5" />
+                <span>✨ Đủ chuẩn xuất</span>
+              </span>
+            )
           )}
         </div>
       ),
@@ -512,13 +568,34 @@ export function FarmingOpsWorkspace() {
       key: 'actions',
       header: 'Thao Tác Giám Đốc',
       align: 'center',
-      width: '260px',
+      width: '320px',
       render: (row) => {
         const isSold = row.status === 'SOLD' || row.status === 'CULLED';
         const isLoadingThis = actionLoadingId === row.id;
 
         return (
           <div className="flex items-center justify-center gap-1.5">
+            {/* Nút Xuất Chuồng / Cấp Lô KCS Chào Bán */}
+            {!isSold && (
+              <Can permission="PERM_HARVEST_MANAGE" role={['ROLE_FIELD_STAFF', 'ROLE_FARM_MANAGER']}>
+                <Button
+                  size="xs"
+                  variant="success"
+                  icon={<Truck className="h-3 w-3" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedItem(row);
+                    setDrawerActiveTab('growth');
+                    setIsDrawerOpen(true);
+                  }}
+                  title="Ghi nhận xuất chuồng hoặc cấp mã Lô KCS chào bán"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                >
+                  Xuất Chuồng
+                </Button>
+              </Can>
+            )}
+
             {/* Nút Sửa Đàn */}
             <Can permission="PERM_LIVESTOCK_MANAGE" role={["ROLE_TECHNICAL_STAFF", "ROLE_FARM_MANAGER"]}>
               <Button
@@ -588,10 +665,14 @@ export function FarmingOpsWorkspace() {
                 setDrawerActiveTab('individuals');
                 setIsDrawerOpen(true);
               }}
-              title="Xem danh sách cá thể đeo thẻ tai RFID"
+              title={
+                row.managementType === 'FLOCK_HERD'
+                  ? 'Xem thông tin cá thể đàn bầy'
+                  : 'Xem và gán mã thẻ tai RFID cho các cá thể'
+              }
               className="text-purple-700 border-purple-200 hover:bg-purple-50"
             >
-              Thẻ RFID
+              {row.managementType === 'FLOCK_HERD' ? 'Cá Thể Bầy' : 'Thẻ RFID'}
             </Button>
 
             {/* Nút Chi Tiết */}
@@ -616,10 +697,30 @@ export function FarmingOpsWorkspace() {
 
   // Danh sách các tab trong Slide-over Drawer
   const drawerTabs = [
-    { id: 'routines', label: '1. Việc Cố Định & Thu Hoạch', icon: Repeat },
-    { id: 'logs', label: '2. Nhật Ký Trừ Kho FEFO', icon: BookOpen },
-    { id: 'growth', label: sector === 'CROP' ? '3. Cách Ly PHI & Thu Hoạch' : '3. Cách Ly & Tăng Trưởng ADG', icon: ShieldCheck },
-    ...(sector === 'LIVESTOCK' ? [{ id: 'individuals', label: '4. Cá Thể Thẻ Tai RFID', icon: Tag }] : []),
+    {
+      id: 'routines',
+      label: sector === 'CROP' ? '1. Việc Cố Định & Thu Hoạch' : '1. Việc Thường Nhật & Xuất Chuồng',
+      icon: Repeat,
+    },
+    {
+      id: 'logs',
+      label: sector === 'CROP' ? '2. Nhật Ký Phân Thuốc FEFO' : '2. Nhật Ký Thú Y & Trừ Kho FEFO',
+      icon: BookOpen,
+    },
+    {
+      id: 'growth',
+      label: sector === 'CROP' ? '3. Cách Ly PHI & Thu Hoạch' : '3. Cách Ly & Tăng Trưởng ADG',
+      icon: ShieldCheck,
+    },
+    ...(sector === 'LIVESTOCK'
+      ? [
+          {
+            id: 'individuals',
+            label: selectedItem?.managementType === 'FLOCK_HERD' ? '4. Đàn & Cá Thể (Nuôi Bầy)' : '4. Cá Thể Thẻ Tai RFID',
+            icon: Tag,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -818,6 +919,7 @@ export function FarmingOpsWorkspace() {
         onClose={() => setIsCropModalOpen(false)}
         farmId={queryFarmId}
         editingSeason={editingSeason}
+        seasons={seasons}
         onSuccess={fetchData}
       />
 
@@ -826,7 +928,15 @@ export function FarmingOpsWorkspace() {
         onClose={() => setIsLivestockModalOpen(false)}
         farmId={queryFarmId}
         editingGroup={editingGroup}
-        onSuccess={fetchData}
+        groups={groups}
+        onSuccess={(createdGroup, autoOpenBatchTagging) => {
+          fetchData();
+          if (autoOpenBatchTagging && createdGroup) {
+            setSelectedItem(createdGroup);
+            setDrawerActiveTab('individuals');
+            setIsDrawerOpen(true);
+          }
+        }}
       />
 
       {/* ======================================================== */}
@@ -844,7 +954,7 @@ export function FarmingOpsWorkspace() {
         }
         subtitle={
           selectedItem
-            ? `${selectedItem.zoneName || 'Phân khu'} • Bắt đầu: ${formatDate(selectedItem.startDate || selectedItem.entryDate)}`
+            ? `${selectedItem.zoneName || 'Phân khu'} • Bắt đầu: ${formatDate(selectedItem.startDate || selectedItem.entryDate)}${selectedItem.createdByName ? ` • Người lập: ${selectedItem.createdByName}` : ''}`
             : ''
         }
         tabs={drawerTabs}
@@ -886,7 +996,7 @@ export function FarmingOpsWorkspace() {
       >
         <div className="p-5 space-y-5 text-xs text-slate-600">
           {/* Tóm tắt thông tin đầu khay */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
             <div>
               <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Mã Định Danh</span>
               <span className="font-mono font-bold text-slate-900 text-xs">
@@ -915,6 +1025,12 @@ export function FarmingOpsWorkspace() {
               </span>
               <span className="text-xs font-semibold text-emerald-800">
                 {formatDate(selectedItem?.expectedHarvestDate || selectedItem?.entryDate)}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Người Khởi Tạo</span>
+              <span className="text-xs font-semibold text-slate-900 truncate block">
+                {selectedItem?.createdByName || 'Quản lý trang trại'}
               </span>
             </div>
           </div>

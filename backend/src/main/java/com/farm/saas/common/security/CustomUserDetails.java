@@ -38,11 +38,15 @@ public class CustomUserDetails implements UserDetails {
 
     private Integer tierLevel;
 
+    public boolean isSuperAdmin() {
+        return isSuperAdmin || (roles != null && roles.contains("ROLE_SUPER_ADMIN"));
+    }
+
     public Integer getTierLevel() {
         if (tierLevel != null) {
             return tierLevel;
         }
-        if (isSuperAdmin || hasRole("ROLE_SUPER_ADMIN")) {
+        if (isSuperAdmin() || hasRole("ROLE_SUPER_ADMIN")) {
             return 1;
         }
         if (hasRole("ROLE_FARM_OWNER")) {
@@ -62,7 +66,7 @@ public class CustomUserDetails implements UserDetails {
                 authorities.add(new SimpleGrantedAuthority(role));
             }
         }
-        if (isSuperAdmin) {
+        if (isSuperAdmin() || (roles != null && roles.contains("ROLE_SUPER_ADMIN"))) {
             authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
         }
         if (permissions != null) {

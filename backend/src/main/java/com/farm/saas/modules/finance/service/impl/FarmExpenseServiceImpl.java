@@ -33,6 +33,7 @@ import com.farm.saas.modules.notification.service.NotificationService;
 import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
 import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
+import com.farm.saas.modules.masterdata.repository.LivestockBreedRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -66,6 +67,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
     private final NotificationService notificationService;
     private final FarmSecurityEvaluator farmSecurityEvaluator;
     private final UserRepository userRepository;
+    private final LivestockBreedRepository livestockBreedRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -575,7 +577,12 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         String targetName = "";
         BigDecimal totalYieldKg = BigDecimal.ZERO;
         BigDecimal directCost = BigDecimal.ZERO;
-        Map<String, BigDecimal> costBreakdownMap = new HashMap<>();
+        Map<String, BigDecimal> costBreakdownMap = new LinkedHashMap<>();
+        costBreakdownMap.put("SEEDS_BREED", BigDecimal.ZERO);
+        costBreakdownMap.put("FERTILIZER_FEED", BigDecimal.ZERO);
+        costBreakdownMap.put("PESTICIDE_VET", BigDecimal.ZERO);
+        costBreakdownMap.put("LABOR", BigDecimal.ZERO);
+        costBreakdownMap.put("OVERHEAD", BigDecimal.ZERO);
 
         if ("CROP_SEASON".equalsIgnoreCase(targetType)) {
             CropSeason season = cropSeasonRepository.findById(targetId)
@@ -587,13 +594,12 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
             List<FarmExpense> directExpenses = farmExpenseRepository.findBySeasonIdAndStatusAndUnitCostEligibleTrue(targetId, "CONFIRMED");
             for (FarmExpense fe : directExpenses) {
                 directCost = directCost.add(fe.getAmount());
-                costCategoryRepository.findById(fe.getCostCategoryId()).ifPresent(cat -> {
-                    String ct = cat.getCostType() != null ? cat.getCostType() : "OTHER";
-                    costBreakdownMap.merge(ct, fe.getAmount(), BigDecimal::add);
-                });
+                CostCategory cat = costCategoryRepository.findById(fe.getCostCategoryId()).orElse(null);
+                String grp = classifyExpenseTo5Groups(fe, cat);
+                costBreakdownMap.merge(grp, fe.getAmount(), BigDecimal::add);
             }
 
-            // Yield
+            // Tổng sản lượng thu hoạch
             totalYieldKg = harvestRecordRepository.sumQuantityBySeasonId(targetId);
             if (totalYieldKg.compareTo(BigDecimal.ZERO) == 0 && season.getActualYieldKg() != null) {
                 totalYieldKg = season.getActualYieldKg();
@@ -607,10 +613,9 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
             List<FarmExpense> directExpenses = farmExpenseRepository.findByLivestockGroupIdAndStatusAndUnitCostEligibleTrue(targetId, "CONFIRMED");
             for (FarmExpense fe : directExpenses) {
                 directCost = directCost.add(fe.getAmount());
-                costCategoryRepository.findById(fe.getCostCategoryId()).ifPresent(cat -> {
-                    String ct = cat.getCostType() != null ? cat.getCostType() : "OTHER";
-                    costBreakdownMap.merge(ct, fe.getAmount(), BigDecimal::add);
-                });
+                CostCategory cat = costCategoryRepository.findById(fe.getCostCategoryId()).orElse(null);
+                String grp = classifyExpenseTo5Groups(fe, cat);
+                costBreakdownMap.merge(grp, fe.getAmount(), BigDecimal::add);
             }
 
             totalYieldKg = harvestRecordRepository.sumQuantityByLivestockGroupId(targetId);
@@ -618,36 +623,43 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
             throw new BusinessException("BAD_REQUEST", "Unsupported targetType for unit costing: " + targetType);
         }
 
-        // Indirect allocated expenses
+        // Cộng dồn chi phí gián tiếp
         List<CostAllocation> allocations = costAllocationRepository.findByTargetTypeAndTargetId(targetType.toUpperCase(), targetId);
         BigDecimal allocatedCost = allocations.stream()
                 .map(CostAllocation::getAllocatedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Add allocated costs to breakdown
+        // Cộng chi phí gián tiếp
         for (CostAllocation ca : allocations) {
             farmExpenseRepository.findById(ca.getExpenseId()).ifPresent(fe -> {
-                costCategoryRepository.findById(fe.getCostCategoryId()).ifPresent(cat -> {
-                    String ct = cat.getCostType() != null ? cat.getCostType() : "OTHER";
-                    costBreakdownMap.merge(ct, ca.getAllocatedAmount(), BigDecimal::add);
-                });
+                CostCategory cat = costCategoryRepository.findById(fe.getCostCategoryId()).orElse(null);
+                String grp = classifyExpenseTo5Groups(fe, cat);
+                costBreakdownMap.merge(grp, ca.getAllocatedAmount(), BigDecimal::add);
             });
         }
-
+        //chia đơn giá
         BigDecimal totalCost = directCost.add(allocatedCost);
         BigDecimal unitCostPerKg = BigDecimal.ZERO;
         if (totalYieldKg.compareTo(BigDecimal.ZERO) > 0) {
             unitCostPerKg = totalCost.divide(totalYieldKg, 2, RoundingMode.HALF_UP);
         }
 
+        Map<String, String> groupNames = Map.of(
+            "SEEDS_BREED", "Giống Cây Trồng / Con Giống",
+            "FERTILIZER_FEED", "Phân Bón / Thức Ăn Chăn Nuôi",
+            "PESTICIDE_VET", "Thuốc BVTV / Thú Y & Vắc-xin",
+            "LABOR", "Nhân Công Trực Tiếp Phân Bổ",
+            "OVERHEAD", "Khấu Hao Máy Móc, Điện Nước & Chung"
+        );
+
         List<UnitCostReportResponse.CostBreakdownDto> breakdownList = new ArrayList<>();
         for (Map.Entry<String, BigDecimal> entry : costBreakdownMap.entrySet()) {
             double pct = totalCost.compareTo(BigDecimal.ZERO) > 0
-                    ? entry.getValue().multiply(new BigDecimal("100")).divide(totalCost, 2, RoundingMode.HALF_UP).doubleValue()
+                    ? entry.getValue().multiply(new BigDecimal("100")).divide(totalCost, 4, RoundingMode.HALF_UP).doubleValue()
                     : 0.0;
             breakdownList.add(UnitCostReportResponse.CostBreakdownDto.builder()
                     .costType(entry.getKey())
-                    .costTypeName(entry.getKey())
+                    .costTypeName(groupNames.getOrDefault(entry.getKey(), entry.getKey()))
                     .amount(entry.getValue())
                     .percentage(pct)
                     .build());
@@ -665,6 +677,44 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
                 .unitCostPerKg(unitCostPerKg)
                 .costBreakdown(breakdownList)
                 .build();
+    }
+
+    private String classifyExpenseTo5Groups(FarmExpense fe, CostCategory cat) {
+        String source = fe != null && fe.getExpenseSource() != null ? fe.getExpenseSource().toUpperCase() : "";
+        String code = cat != null && cat.getCode() != null ? cat.getCode().toUpperCase() : "";
+        String name = cat != null && cat.getName() != null ? cat.getName().toLowerCase() : "";
+        String costType = cat != null && cat.getCostType() != null ? cat.getCostType().toUpperCase() : "";
+
+        // 1. Giống Cây Trồng / Con Giống
+        if ("BREED_PURCHASE".equals(source) || "CST-002".equals(code) || "BREED_COST".equals(code) || name.contains("giống")) {
+            return "SEEDS_BREED";
+        }
+        // 2. Phân Bón / Thức Ăn Chăn Nuôi
+        if ("CST-001".equals(code) || "CST-003".equals(code) || "CST-004".equals(code) || "FEED_COST".equals(code)
+                || name.contains("thức ăn") || name.contains("cám") || name.contains("phân bón")) {
+            return "FERTILIZER_FEED";
+        }
+        // 3. Thuốc BVTV / Thú Y & Vắc-xin (Chỉ thuốc thú y, vắc-xin, chế phẩm BVTV sinh học)
+        if ("CST-005".equals(code) || "CST-006".equals(code)
+                || name.contains("thuốc") || name.contains("thú y") || name.contains("vắc-xin") || name.contains("vaccine") || name.contains("sát trùng")) {
+            return "PESTICIDE_VET";
+        }
+        // 4. Nhân Công Trực Tiếp
+        if ("PAYROLL_ALLOCATION".equals(source) || "DIRECT_LABOR".equals(costType) || "CST-008".equals(code) || "CST-009".equals(code) || "CST-010".equals(code)
+                || name.contains("nhân công") || name.contains("lương")) {
+            return "LABOR";
+        }
+        // 5. Khấu Hao, Máy Móc, Điện Nước & Chi Phí Chung (Bao gồm Thẻ tai RFID, Bao bì đóng gói, Vật tư phụ & dụng cụ)
+        if ("UTILITY_BILL".equals(source) || "TAGGING_BACKFLUSH".equals(source) || "TAG_COST".equals(code) || "CST-007".equals(code) || "CST-019".equals(code)
+                || "MACHINERY_FUEL".equals(costType) || "DEPRECIATION".equals(costType) || "INDIRECT_OVERHEAD".equals(costType)
+                || name.contains("khấu hao") || name.contains("điện") || name.contains("nhiên liệu") || name.contains("thẻ tai") || name.contains("bao bì") || name.contains("dụng cụ")) {
+            return "OVERHEAD";
+        }
+
+        if ("MATERIALS".equals(costType)) {
+            return "FERTILIZER_FEED";
+        }
+        return "OVERHEAD";
     }
 
     private Farm validateFarm(Long farmId) {
@@ -717,6 +767,26 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
                     .build();
         }).collect(Collectors.toList());
 
+        String itemSummary = null;
+        if ("BREED_PURCHASE".equalsIgnoreCase(expense.getExpenseSource()) && expense.getLivestockGroupId() != null) {
+            LivestockGroup lg = livestockGroupRepository.findById(expense.getLivestockGroupId()).orElse(null);
+            if (lg != null) {
+                String bName = (livestockBreedRepository != null)
+                        ? livestockBreedRepository.findById(lg.getBreedId()).map(com.farm.saas.modules.masterdata.entity.LivestockBreed::getBreedName).orElse("Con giống")
+                        : "Con giống";
+                itemSummary = bName + " (" + lg.getInitialQuantity() + " con)";
+            }
+        } else if ("TAGGING_BACKFLUSH".equalsIgnoreCase(expense.getExpenseSource())) {
+            itemSummary = "Thẻ Tai RFID Điện Tử Thông Minh";
+            if (org.springframework.util.StringUtils.hasText(expense.getNotes()) && expense.getNotes().contains("thẻ tai RFID")) {
+                itemSummary = expense.getNotes().replace("Chi phí xuất kho ", "").replaceAll(" cho đàn.*", "");
+            }
+        } else if (org.springframework.util.StringUtils.hasText(expense.getNotes())) {
+            itemSummary = expense.getNotes();
+        } else {
+            itemSummary = costCatName;
+        }
+
         return FarmExpenseDetailResponse.builder()
                 .id(expense.getId())
                 .farmId(expense.getFarmId())
@@ -739,6 +809,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
                 .recipientName(expense.getRecipientName())
                 .receiptPhotoUrl(expense.getReceiptPhotoUrl())
                 .notes(expense.getNotes())
+                .itemSummary(itemSummary)
                 .status(expense.getStatus())
                 .totalAllocatedAmount(totalAllocated)
                 .allocations(allocationDtos)

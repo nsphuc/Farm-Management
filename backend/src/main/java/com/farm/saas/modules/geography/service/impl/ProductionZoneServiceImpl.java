@@ -324,6 +324,7 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                 .status(status)
                 .areaM2(request.getAreaM2())
                 .capacity(request.getCapacity())
+                .capacityUnit(request.getCapacityUnit())
                 .createdAt(Instant.now())
                 .createdBy(SecurityUtils.getCurrentUserId())
                 .build();
@@ -357,6 +358,9 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
         location.setDescription(request.getDescription());
         location.setAreaM2(request.getAreaM2());
         location.setCapacity(request.getCapacity());
+        if (request.getCapacityUnit() != null) {
+            location.setCapacityUnit(request.getCapacityUnit().trim());
+        }
         if (request.getWarehouseId() != null) {
             warehouseRepository.findByFarmIdAndId(farmId, request.getWarehouseId())
                     .orElseThrow(() -> new ResourceNotFoundException("Kho bãi", request.getWarehouseId()));
@@ -465,6 +469,7 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
                 .status(loc.getStatus())
                 .areaM2(loc.getAreaM2())
                 .capacity(loc.getCapacity())
+                .capacityUnit(loc.getCapacityUnit())
                 .createdAt(loc.getCreatedAt())
                 .build();
     }

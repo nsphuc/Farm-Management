@@ -30,7 +30,7 @@ public class UpdatePartnerRequest {
     @Size(max = 30, message = "Số điện thoại tối đa 30 ký tự")
     private String phone;
 
-    @Email(message = "Email không hợp lệ")
+    @Pattern(regexp = "^$|^[A-Za-z0-9._%+-]+@gmail\\.com$", flags = Pattern.Flag.CASE_INSENSITIVE, message = "Email phải có định dạng @gmail.com")
     @Size(max = 150, message = "Email tối đa 150 ký tự")
     private String email;
 

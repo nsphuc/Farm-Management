@@ -31,6 +31,7 @@ export function WarehouseFormModal({
   initialZoneId = null,
   zones = [],
   employees = [],
+  warehouses = [],
   editingItem = null,
   onSuccess,
 }) {
@@ -72,7 +73,7 @@ export function WarehouseFormModal({
       });
     } else {
       setFormData({
-        code: generateEntityCode(CODE_PREFIXES.WAREHOUSE),
+        code: generateEntityCode(CODE_PREFIXES.WAREHOUSE, warehouses),
         name: '',
         warehouseType: 'GENERAL',
         zoneId: initialZoneId ? String(initialZoneId) : '',
@@ -198,7 +199,7 @@ export function WarehouseFormModal({
                 setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
               }
               onRegenerate={() =>
-                setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.WAREHOUSE) }))
+                setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.WAREHOUSE, warehouses) }))
               }
               isEditMode={Boolean(editingItem)}
               error={fieldErrors.code}

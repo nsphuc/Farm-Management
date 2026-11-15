@@ -1,0 +1,507 @@
+﻿-- Add farm_id to partners table to tie partners to specific farms (Idempotent)
+SET @col_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'partners' 
+      AND COLUMN_NAME = 'farm_id'
+);
+
+SET @stmt = IF(
+    @col_exists = 0,
+    'ALTER TABLE partners ADD COLUMN farm_id BIGINT NULL AFTER tenant_id, ADD CONSTRAINT fk_partners_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE RESTRICT, ADD INDEX idx_partners_tenant_farm (tenant_id, farm_id)',
+    'SELECT 1'
+);
+
+PREPARE ddl_stmt FROM @stmt;
+EXECUTE ddl_stmt;
+DEALLOCATE PREPARE ddl_stmt;
+-- 1. Táº¡o/Cáº­p nháº­t Role ROLE_FARM_MANAGER cáº¥p FARM
+INSERT INTO roles (code, name, scope_level, description)
+VALUES ('ROLE_FARM_MANAGER', 'GiÃ¡m Ä‘á»‘c / Quáº£n lÃ½ trang tráº¡i', 'FARM', 'Äiá»u hÃ nh nhÃ¢n sá»±, káº¿ hoáº¡ch mÃ¹a vá»¥, duyá»‡t KCS vÃ  giÃ¡m sÃ¡t kho/tÃ i chÃ­nh táº¡i trang tráº¡i phá»¥ trÃ¡ch')
+ON DUPLICATE KEY UPDATE 
+    name = VALUES(name), 
+    scope_level = VALUES(scope_level), 
+    description = VALUES(description);
+-- 2. Chá»‰ gÃ¡n ÄÃšNG 13 quyá»n chuáº©n theo thiáº¿t káº¿ cá»§a GiÃ¡m Ä‘á»‘c trang tráº¡i (Role 2)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_FARM_MANAGER' AND p.code IN (
+    -- Máº·t báº±ng & PhÃ¢n khu (WS-A)
+    'PERM_FARM_VIEW', 'PERM_FARM_UPDATE', 'PERM_ZONE_MANAGE',
+    -- NhÃ¢n sá»±, Cháº¥m cÃ´ng & Giao viá»‡c (WS-B & WS-G)
+    'PERM_HR_EMPLOYEE_MANAGE', 'PERM_HR_ATTENDANCE', 'PERM_TASK_ASSIGN',
+    -- Kho bÃ£i: CHá»ˆ XEM, khÃ´ng thao tÃ¡c nháº­p/xuáº¥t (WS-C)
+    'PERM_INVENTORY_VIEW',
+    -- MÃ¹a vá»¥ & ÄÃ n nuÃ´i: Láº­p káº¿ hoáº¡ch & Theo dÃµi (WS-E)
+    'PERM_CROP_VIEW', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_VIEW', 'PERM_LIVESTOCK_MANAGE',
+    -- Cháº¥t lÆ°á»£ng KCS: PhÃª duyá»‡t lÃ´ & Thu há»“i (WS-F)
+    'PERM_QC_APPROVE', 'PERM_QC_RECALL',
+    -- TÃ i chÃ­nh: GiÃ¡m sÃ¡t bÃ¡o cÃ¡o & Duyá»‡t káº¿t toÃ¡n (WS-H1 & WS-H2)
+    'PERM_FINANCE_REPORT'
+);
+-- V1_3: Äá»“ng bá»™ vai trÃ² ROLE_FARM_MANAGER cho cÃ¡c tÃ i khoáº£n Ä‘ang phá»¥ trÃ¡ch GiÃ¡m Ä‘á»‘c trang tráº¡i
+-- 1. Cáº­p nháº­t cÃ¡c user Ä‘ang giá»¯ vai trÃ² FARM_MANAGER trong farm_assignments
+UPDATE user_roles ur
+JOIN farm_assignments fa ON ur.user_id = fa.user_id
+JOIN roles r_fm ON r_fm.code = 'ROLE_FARM_MANAGER'
+JOIN roles r_curr ON ur.role_id = r_curr.id
+SET ur.role_id = r_fm.id
+WHERE fa.role_in_farm = 'FARM_MANAGER'
+  AND fa.is_active = TRUE
+  AND r_curr.code = 'ROLE_TECHNICAL_STAFF';
+
+-- 2. Äá»“ng bá»™ cÃ¡c user lÃ  manager_user_id trong báº£ng farms
+UPDATE user_roles ur
+JOIN farms f ON ur.user_id = f.manager_user_id
+JOIN roles r_fm ON r_fm.code = 'ROLE_FARM_MANAGER'
+JOIN roles r_curr ON ur.role_id = r_curr.id
+SET ur.role_id = r_fm.id
+WHERE r_curr.code = 'ROLE_TECHNICAL_STAFF';
+-- ==============================================================================
+-- Migration File: V1_4__standardize_4_tier_rbac_matrix.sql
+-- Má»¥c tiÃªu: Chuáº©n hÃ³a toÃ n bá»™ 7 Roles & 30 Permissions khá»›p 100% Ma tráº­n PhÃ¢n quyá»n 4 Cáº¥p
+-- Cáº¥p 1: ROLE_SUPER_ADMIN     (Scope: SYSTEM - 1 quyá»n)
+-- Cáº¥p 2: ROLE_FARM_OWNER      (Scope: TENANT - 12 quyá»n)
+-- Cáº¥p 3: ROLE_FARM_MANAGER    (Scope: FARM   - 25 quyá»n)
+-- Cáº¥p 4: ROLE_TECHNICAL_STAFF (Scope: FARM   - 11 quyá»n)
+-- Cáº¥p 4: ROLE_WAREHOUSE_STAFF (Scope: FARM   - 10 quyá»n)
+-- Cáº¥p 4: ROLE_ACCOUNTANT      (Scope: FARM   - 8 quyá»n)
+-- Cáº¥p 4: ROLE_FIELD_STAFF     (Scope: FARM   - 6 quyá»n)
+-- ==============================================================================
+
+-- 1. Chuáº©n hÃ³a láº¡i danh má»¥c 7 Vai trÃ² (Roles) vÃ  Scope Level chuáº©n 4 Cáº¥p
+INSERT INTO roles (code, name, scope_level, description) VALUES
+('ROLE_SUPER_ADMIN',     'Cáº¥p 1: Quáº£n trá»‹ viÃªn ná»n táº£ng',            'SYSTEM', 'Quáº£n lÃ½ khÃ¡ch hÃ ng thuÃª bao (Tenant), gÃ³i cÆ°á»›c vÃ  toÃ n ná»n táº£ng SaaS'),
+('ROLE_FARM_OWNER',      'Cáº¥p 2: Chá»§ Ä‘áº§u tÆ° / Chá»§ chuá»—i trang tráº¡i', 'TENANT', 'Táº¡o trang tráº¡i, bá»• nhiá»‡m GiÃ¡m Ä‘á»‘c tráº¡i, duyá»‡t cáº¥p cao vÃ  giÃ¡m sÃ¡t toÃ n chuá»—i'),
+('ROLE_FARM_MANAGER',    'Cáº¥p 3: GiÃ¡m Ä‘á»‘c / Quáº£n lÃ½ trang tráº¡i',     'FARM',   'Äiá»u hÃ nh trá»±c tiáº¿p trang tráº¡i, tuyá»ƒn Cáº¥p 4 vÃ  Ä‘Ã³ng vai trÃ² Checker phÃª duyá»‡t táº¡i tráº¡i'),
+('ROLE_TECHNICAL_STAFF', 'Cáº¥p 4: Ká»¹ thuáº­t / TrÆ°á»Ÿng phÃ¢n khu / KCS',  'FARM',   'LÃªn lá»‹ch mÃ¹a vá»¥, phÃ¡c Ä‘á»“ thÃº y, láº¥y máº«u KCS (Maker) vÃ  giao viá»‡c ká»¹ thuáº­t'),
+('ROLE_WAREHOUSE_STAFF', 'Cáº¥p 4: Thá»§ kho váº­t tÆ° & ThÃ nh pháº©m',       'FARM',   'Quáº£n lÃ½ tá»“n kho, láº­p phiáº¿u nháº­p/xuáº¥t/chuyá»ƒn/kiá»ƒm kÃª (Maker), in tem QR vÃ  xuáº¥t xe'),
+('ROLE_ACCOUNTANT',      'Cáº¥p 4: Káº¿ toÃ¡n trang tráº¡i',                'FARM',   'Láº­p phiáº¿u chi, Ä‘Æ¡n bÃ¡n sá»‰, phiáº¿u thanh toÃ¡n VietQR, phÃ¢n bá»• cÃ´ng ná»£ vÃ  bÃ¡o cÃ¡o tráº¡i'),
+('ROLE_FIELD_STAFF',     'Cáº¥p 4: NhÃ¢n viÃªn hiá»‡n trÆ°á»ng',             'FARM',   'Nháº­n viá»‡c hÃ ng ngÃ y, ghi nháº­t kÃ½ canh tÃ¡c, ghi sáº£n lÆ°á»£ng thu hoáº¡ch vÃ  cháº¥m cÃ´ng')
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    scope_level = VALUES(scope_level),
+    description = VALUES(description);
+
+-- 2. Äáº£m báº£o Ä‘á»§ 30 MÃ£ Quyá»n (Permissions) chuáº©n trong há»‡ thá»‘ng
+INSERT INTO permissions (code, module, action, resource, description) VALUES
+-- 1. SYSTEM
+('PERM_TENANT_MANAGE',       'SYSTEM',    'APPROVE', 'TENANT',         '1. ToÃ n quyá»n quáº£n trá»‹ khÃ¡ch hÃ ng thuÃª ná»n táº£ng'),
+-- 2-5. FARM
+('PERM_FARM_CREATE',         'FARM',      'CREATE',  'FARM',           '2. Äá»™c quyá»n táº¡o má»›i trang tráº¡i (Cáº¥p 2 Owner)'),
+('PERM_FARM_VIEW',           'FARM',      'READ',    'FARM',           '3. Xem thÃ´ng tin trang tráº¡i (Äa tráº¡i hoáº·c tráº¡i trá»±c thuá»™c)'),
+('PERM_FARM_UPDATE',         'FARM',      'UPDATE',  'FARM',           '4. Cáº­p nháº­t cáº¥u hÃ¬nh thÃ´ng tin trang tráº¡i'),
+('PERM_ZONE_MANAGE',         'FARM',      'CREATE',  'ZONE',           '5. Quáº£n lÃ½ phÃ¢n khu sáº£n xuáº¥t, nhÃ  mÃ ng, chuá»“ng tráº¡i & Ã´/luá»‘ng'),
+-- 6-8. CROP
+('PERM_CROP_VIEW',           'CROP',      'READ',    'CROP_SEASON',    '6. Xem tiáº¿n Ä‘á»™ mÃ¹a vá»¥ vÃ  lá»‹ch canh tÃ¡c'),
+('PERM_CROP_PLAN',           'CROP',      'CREATE',  'CROP_SEASON',    '7. LÃªn lá»‹ch/PhÃ¡c Ä‘á»“ vá»¥ mÃ¹a (Maker: Technical) & Duyá»‡t vá»¥ mÃ¹a (Checker: Farm Manager)'),
+('PERM_CROP_LOG',            'CROP',      'CREATE',  'FARMING_LOG',    '8. Nháº­p nháº­t kÃ½ canh tÃ¡c (Field) & Kiá»ƒm tra nháº­t kÃ½ (Farm Manager)'),
+-- 9-11. LIVESTOCK
+('PERM_LIVESTOCK_VIEW',      'LIVESTOCK', 'READ',    'LIVESTOCK',      '9. Xem Ä‘Ã n váº­t nuÃ´i vÃ  lá»‹ch chÄƒm sÃ³c'),
+('PERM_LIVESTOCK_MANAGE',    'LIVESTOCK', 'CREATE',  'LIVESTOCK',      '10. Láº­p káº¿ hoáº¡ch nuÃ´i (Technical) & Duyá»‡t Ä‘Ã n váº­t nuÃ´i (Farm Manager)'),
+('PERM_LIVESTOCK_VET',       'LIVESTOCK', 'CREATE',  'VET_EVENT',      '11. Äá»™c quyá»n khÃ¡m bá»‡nh & lÃªn phÃ¡c Ä‘á»“ Ä‘iá»u trá»‹ thÃº y (Technical)'),
+-- 12-16. INVENTORY
+('PERM_INVENTORY_VIEW',      'INVENTORY', 'READ',    'INVENTORY',      '12. Xem vÃ  Ä‘á»‘i chiáº¿u tá»“n kho FIFO/FEFO'),
+('PERM_INVENTORY_RECEIPT',   'INVENTORY', 'CREATE',  'RECEIPT',        '13. Phiáº¿u nháº­p kho (Maker: Warehouse táº¡o / Checker: Farm Manager duyá»‡t)'),
+('PERM_INVENTORY_ISSUE',     'INVENTORY', 'CREATE',  'ISSUE',          '14. Phiáº¿u xuáº¥t kho (Maker: Warehouse táº¡o / Checker: Farm Manager duyá»‡t)'),
+('PERM_INVENTORY_TRANSFER',  'INVENTORY', 'CREATE',  'TRANSFER',       '15. Äiá»u chuyá»ƒn kho (Maker: Warehouse táº¡o / Checker: Farm Manager duyá»‡t)'),
+('PERM_INVENTORY_STOCKTAKE', 'INVENTORY', 'CREATE',  'STOCKTAKE',      '16. Kiá»ƒm kÃª kho (Maker: Warehouse nháº­p kiá»ƒm Ä‘áº¿m / Checker: Farm Manager duyá»‡t)'),
+-- 17. HARVEST
+('PERM_HARVEST_MANAGE',      'HARVEST',   'CREATE',  'HARVEST_RECORD', '17. Ghi sáº£n lÆ°á»£ng (Field), Tiáº¿p nháº­n kho (Warehouse), ÄÃ¡nh giÃ¡ giá»‘ng (Tech), Duyá»‡t (FM)'),
+-- 18-21. QC
+('PERM_QC_INSPECT',          'QC',        'CREATE',  'QC_INSPECTION',  '18. Maker: Láº¥y máº«u & láº­p biÃªn báº£n kiá»ƒm Ä‘á»‹nh KCS (Äá»™c quyá»n Technical)'),
+('PERM_QC_APPROVE',          'QC',        'APPROVE', 'BATCH',          '19. Checker: PhÃª duyá»‡t lÃ´ thÃ nh pháº©m & sinh mÃ£ QR (Owner & Farm Manager)'),
+('PERM_LABEL_PRINT',         'QC',        'EXPORT',  'LABEL',          '20. In tem nhÃ£n nhiá»‡t dÃ¡n thÃ¹ng (Äá»™c quyá»n Warehouse)'),
+('PERM_QC_RECALL',           'QC',        'APPROVE', 'RECALL',         '21. Ra lá»‡nh thu há»“i lÃ´ thÃ nh pháº©m lá»—i (Owner & Farm Manager)'),
+-- 22. DELIVERY
+('PERM_DELIVERY_MANAGE',     'DELIVERY',  'CREATE',  'DELIVERY',       '22. Xuáº¥t hÃ ng lÃªn xe (Warehouse) & GiÃ¡m sÃ¡t giao váº­n (Farm Manager)'),
+-- 23-25. HR
+('PERM_HR_EMPLOYEE_MANAGE',  'HR',        'CREATE',  'EMPLOYEE',       '23. Tuyá»ƒn dá»¥ng nhÃ¢n sá»± (Owner tuyá»ƒn Cáº¥p 3 / Farm Manager tuyá»ƒn Cáº¥p 4)'),
+('PERM_HR_ATTENDANCE',       'HR',        'READ',    'ATTENDANCE',     '24. Cháº¥m cÃ´ng GPS cÃ¡ nhÃ¢n, Ä‘iá»ƒm danh ca, xem tá»•ng há»£p & duyá»‡t cÃ´ng thÃ¡ng'),
+('PERM_TASK_ASSIGN',         'HR',        'CREATE',  'TASK',           '25. Giao viá»‡c ká»¹ thuáº­t (Technical) & Giao viá»‡c/Nghiá»‡m thu (Farm Manager)'),
+-- 26-30. FINANCE
+('PERM_FINANCE_EXPENSE',     'FINANCE',   'CREATE',  'EXPENSE',        '26. Chi phÃ­ váº­n hÃ nh (Maker: Accountant láº­p phiáº¿u / Checker: Farm Manager duyá»‡t)'),
+('PERM_FINANCE_SALES_ORDER', 'FINANCE',   'CREATE',  'ORDER',          '27. ÄÆ¡n hÃ ng bÃ¡n sá»‰ (Maker: Accountant lÃªn Ä‘Æ¡n / Checker: Farm Manager duyá»‡t)'),
+('PERM_FINANCE_PAYMENT',     'FINANCE',   'CREATE',  'PAYMENT',        '28. Thanh toÃ¡n thu/chi (Maker: Accountant láº­p phiáº¿u / Checker: Farm Manager duyá»‡t)'),
+('PERM_PAYMENT_ALLOCATE',    'FINANCE',   'UPDATE',  'ALLOCATION',     '29. PhÃ¢n bá»•/Cáº¥n trá»« cÃ´ng ná»£ (Accountant) & GiÃ¡m sÃ¡t cÃ´ng ná»£ (Farm Manager)'),
+('PERM_FINANCE_REPORT',      'FINANCE',   'READ',    'REPORT',         '30. BÃ¡o cÃ¡o tÃ i chÃ­nh & káº¿t toÃ¡n (Accountant láº­p, Farm Manager duyá»‡t tráº¡i, Owner toÃ n cÃ´ng ty)')
+ON DUPLICATE KEY UPDATE
+    module = VALUES(module),
+    description = VALUES(description);
+
+-- 3. LÃ m sáº¡ch toÃ n bá»™ báº£ng Ã¡nh xáº¡ role_permissions cÅ© Ä‘á»ƒ gÃ¡n láº¡i chÃ­nh xÃ¡c 100% theo Ma tráº­n
+DELETE FROM role_permissions;
+
+-- 3.1. Cáº¤P 1: ROLE_SUPER_ADMIN (ÄÃºng 1 quyá»n: #1)
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_SUPER_ADMIN' AND p.code IN (
+    'PERM_TENANT_MANAGE'
+);
+
+-- 3.2. Cáº¤P 2: ROLE_FARM_OWNER (ÄÃºng 11 quyá»n: #2, #3, #4, #5, #6, #9, #12, #19, #21, #23, #24, #30 -> 12 mÃ£ bao gá»“m Attendance xem tá»•ng há»£p)
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_FARM_OWNER' AND p.code IN (
+    'PERM_FARM_CREATE',         -- #2: Äá»™c quyá»n táº¡o trang tráº¡i
+    'PERM_FARM_VIEW',           -- #3: Xem Ä‘a tráº¡i
+    'PERM_FARM_UPDATE',         -- #4: Cáº­p nháº­t tráº¡i
+    'PERM_ZONE_MANAGE',         -- #5: Táº¡o/Duyá»‡t phÃ¢n khu
+    'PERM_CROP_VIEW',           -- #6: Xem tiáº¿n Ä‘á»™ mÃ¹a vá»¥
+    'PERM_LIVESTOCK_VIEW',      -- #9: Xem Ä‘Ã n váº­t nuÃ´i
+    'PERM_INVENTORY_VIEW',      -- #12: Xem tá»“n kho
+    'PERM_QC_APPROVE',          -- #19: Duyá»‡t lÃ´ thÃ nh pháº©m
+    'PERM_QC_RECALL',           -- #21: Ra lá»‡nh thu há»“i
+    'PERM_HR_EMPLOYEE_MANAGE',  -- #23: Tuyá»ƒn Cáº¥p 3 (Farm Manager)
+    'PERM_HR_ATTENDANCE',       -- #24: Xem tá»•ng há»£p chuyÃªn cáº§n (KhÃ´ng tá»± cháº¥m cÃ´ng)
+    'PERM_FINANCE_REPORT'       -- #30: BÃ¡o cÃ¡o tÃ i chÃ­nh toÃ n cÃ´ng ty
+);
+
+-- 3.3. Cáº¤P 3: ROLE_FARM_MANAGER (ÄÃºng 25 quyá»n: ToÃ n bá»™ trá»« #1, #2, #11, #18, #20)
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_FARM_MANAGER' AND p.code IN (
+    'PERM_FARM_VIEW',           -- #3: Xem tráº¡i
+    'PERM_FARM_UPDATE',         -- #4: Cáº¥u hÃ¬nh tráº¡i
+    'PERM_ZONE_MANAGE',         -- #5: Khu & Ã”/Luá»‘ng
+    'PERM_CROP_VIEW',           -- #6: GiÃ¡m sÃ¡t mÃ¹a vá»¥
+    'PERM_CROP_PLAN',           -- #7: Duyá»‡t vá»¥ mÃ¹a
+    'PERM_CROP_LOG',            -- #8: Xem/Kiá»ƒm tra nháº­t kÃ½
+    'PERM_LIVESTOCK_VIEW',      -- #9: GiÃ¡m sÃ¡t Ä‘Ã n
+    'PERM_LIVESTOCK_MANAGE',    -- #10: Duyá»‡t Ä‘Ã n
+    'PERM_INVENTORY_VIEW',      -- #12: GiÃ¡m sÃ¡t tá»“n kho
+    'PERM_INVENTORY_RECEIPT',   -- #13: Checker: Xem/Duyá»‡t phiáº¿u nháº­p
+    'PERM_INVENTORY_ISSUE',     -- #14: Checker: Xem/Duyá»‡t phiáº¿u xuáº¥t
+    'PERM_INVENTORY_TRANSFER',  -- #15: Checker: Duyá»‡t lá»‡nh chuyá»ƒn kho
+    'PERM_INVENTORY_STOCKTAKE', -- #16: Checker: Duyá»‡t kiá»ƒm kÃª
+    'PERM_HARVEST_MANAGE',      -- #17: GiÃ¡m sÃ¡t/Duyá»‡t thu hoáº¡ch
+    'PERM_QC_APPROVE',          -- #19: Checker: Duyá»‡t lÃ´ KCS
+    'PERM_QC_RECALL',           -- #21: Ra lá»‡nh thu há»“i
+    'PERM_DELIVERY_MANAGE',     -- #22: GiÃ¡m sÃ¡t giao hÃ ng
+    'PERM_HR_EMPLOYEE_MANAGE',  -- #23: Tuyá»ƒn Cáº¥p 4 cho tráº¡i
+    'PERM_HR_ATTENDANCE',       -- #24: Tá»± cháº¥m cÃ´ng & Duyá»‡t cÃ´ng thÃ¡ng
+    'PERM_TASK_ASSIGN',         -- #25: Giao viá»‡c & Nghiá»‡m thu
+    'PERM_FINANCE_EXPENSE',     -- #26: Checker: Duyá»‡t chi
+    'PERM_FINANCE_SALES_ORDER', -- #27: Checker: Duyá»‡t Ä‘Æ¡n bÃ¡n
+    'PERM_FINANCE_PAYMENT',     -- #28: Checker: Duyá»‡t thanh toÃ¡n
+    'PERM_PAYMENT_ALLOCATE',    -- #29: GiÃ¡m sÃ¡t cÃ´ng ná»£
+    'PERM_FINANCE_REPORT'       -- #30: BÃ¡o cÃ¡o tráº¡i
+);
+
+-- 3.4. Cáº¤P 4: ROLE_TECHNICAL_STAFF (ÄÃºng 11 quyá»n: #3, #6, #7, #9, #10, #11, #12, #17, #18, #24, #25)
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_TECHNICAL_STAFF' AND p.code IN (
+    'PERM_FARM_VIEW',           -- #3: Xem thÃ´ng tin tráº¡i
+    'PERM_CROP_VIEW',           -- #6: Theo dÃµi mÃ¹a vá»¥
+    'PERM_CROP_PLAN',           -- #7: LÃªn lá»‹ch/PhÃ¡c Ä‘á»“ trá»“ng trá»t
+    'PERM_LIVESTOCK_VIEW',      -- #9: Theo dÃµi Ä‘Ã n
+    'PERM_LIVESTOCK_MANAGE',    -- #10: Káº¿ hoáº¡ch nuÃ´i
+    'PERM_LIVESTOCK_VET',       -- #11: KhÃ¡m & PhÃ¡c Ä‘á»“ thÃº y
+    'PERM_INVENTORY_VIEW',      -- #12: Xem váº­t tÆ° trong kho
+    'PERM_HARVEST_MANAGE',      -- #17: Xem Ä‘Ã¡nh giÃ¡ giá»‘ng
+    'PERM_QC_INSPECT',          -- #18: Maker: Láº¥y máº«u KCS (Cáº¥m tá»± duyá»‡t #19)
+    'PERM_HR_ATTENDANCE',       -- #24: Tá»± cháº¥m cÃ´ng & Äiá»ƒm danh tá»•
+    'PERM_TASK_ASSIGN'          -- #25: Giao viá»‡c ká»¹ thuáº­t
+);
+
+-- 3.5. Cáº¤P 4: ROLE_WAREHOUSE_STAFF (ÄÃºng 10 quyá»n: #3, #12, #13, #14, #15, #16, #17, #20, #22, #24)
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_WAREHOUSE_STAFF' AND p.code IN (
+    'PERM_FARM_VIEW',           -- #3: Xem thÃ´ng tin tráº¡i
+    'PERM_INVENTORY_VIEW',      -- #12: Quáº£n lÃ½ tá»“n kho
+    'PERM_INVENTORY_RECEIPT',   -- #13: Maker: Táº¡o phiáº¿u nháº­p kho
+    'PERM_INVENTORY_ISSUE',     -- #14: Maker: Táº¡o phiáº¿u xuáº¥t kho
+    'PERM_INVENTORY_TRANSFER',  -- #15: Maker: Táº¡o yÃªu cáº§u Ä‘iá»u chuyá»ƒn
+    'PERM_INVENTORY_STOCKTAKE', -- #16: Maker: Nháº­p kiá»ƒm Ä‘áº¿m kho
+    'PERM_HARVEST_MANAGE',      -- #17: Tiáº¿p nháº­n nÃ´ng sáº£n nháº­p kho
+    'PERM_LABEL_PRINT',         -- #20: In tem dÃ¡n thÃ¹ng
+    'PERM_DELIVERY_MANAGE',     -- #22: Xuáº¥t hÃ ng lÃªn xe
+    'PERM_HR_ATTENDANCE'        -- #24: Tá»± cháº¥m cÃ´ng & Äiá»ƒm danh kho
+);
+
+-- 3.6. Cáº¤P 4: ROLE_ACCOUNTANT (ÄÃºng 8 quyá»n: #3, #12, #24, #26, #27, #28, #29, #30)
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_ACCOUNTANT' AND p.code IN (
+    'PERM_FARM_VIEW',           -- #3: Xem thÃ´ng tin tráº¡i
+    'PERM_INVENTORY_VIEW',      -- #12: Äá»‘i chiáº¿u sá»• tá»“n kho
+    'PERM_HR_ATTENDANCE',       -- #24: Tá»± cháº¥m cÃ´ng + Xem cÃ´ng chá»‘t Ä‘á»ƒ tÃ­nh lÆ°Æ¡ng
+    'PERM_FINANCE_EXPENSE',     -- #26: Maker: Láº­p phiáº¿u chi
+    'PERM_FINANCE_SALES_ORDER', -- #27: Maker: LÃªn Ä‘Æ¡n bÃ¡n sá»‰
+    'PERM_FINANCE_PAYMENT',     -- #28: Maker: Láº­p phiáº¿u thanh toÃ¡n
+    'PERM_PAYMENT_ALLOCATE',    -- #29: PhÃ¢n bá»•/Cáº¥n trá»« cÃ´ng ná»£
+    'PERM_FINANCE_REPORT'       -- #30: Láº­p bÃ¡o cÃ¡o tÃ i chÃ­nh tráº¡i
+);
+
+-- 3.7. Cáº¤P 4: ROLE_FIELD_STAFF (ÄÃºng 6 quyá»n: #3, #6, #8, #9, #17, #24)
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.code = 'ROLE_FIELD_STAFF' AND p.code IN (
+    'PERM_FARM_VIEW',           -- #3: Xem sÆ¡ Ä‘á»“ tráº¡i
+    'PERM_CROP_VIEW',           -- #6: Xem lá»‹ch canh tÃ¡c
+    'PERM_CROP_LOG',            -- #8: Nháº­p nháº­t kÃ½ canh tÃ¡c hÃ ng ngÃ y
+    'PERM_LIVESTOCK_VIEW',      -- #9: Xem lá»‹ch chÄƒm sÃ³c váº­t nuÃ´i
+    'PERM_HARVEST_MANAGE',      -- #17: Ghi sáº£n lÆ°á»£ng thu hoáº¡ch thá»±c táº¿
+    'PERM_HR_ATTENDANCE'        -- #24: Xem cÃ´ng / Tá»± cháº¥m cÃ´ng GPS
+);
+
+-- 4. Má»Ÿ rá»™ng CHECK constraint cá»§a báº£ng farm_assignments (#15) Ä‘á»ƒ há»— trá»£ thÃªm vá»‹ trÃ­ ACCOUNTANT táº¡i tráº¡i
+ALTER TABLE farm_assignments DROP CHECK chk_farm_assignments_role;
+ALTER TABLE farm_assignments ADD CONSTRAINT chk_farm_assignments_role
+    CHECK (role_in_farm IN ('FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'AGRONOMIST', 'VETERINARIAN', 'WAREHOUSE_KEEPER', 'ACCOUNTANT', 'FIELD_WORKER'));
+
+-- 5. Äá»“ng bá»™ láº¡i dá»¯ liá»‡u Seed: GÃ¡n ROLE_ACCOUNTANT (user_id = 6) vá» Ä‘Ãºng pháº¡m vi Farm 1 (thay vÃ¬ NULL cáº¥p Tenant)
+UPDATE user_roles ur
+JOIN roles r ON ur.role_id = r.id
+SET ur.farm_id = 1
+WHERE r.code = 'ROLE_ACCOUNTANT' AND ur.tenant_id = 1 AND ur.farm_id IS NULL;
+
+-- 6. ThÃªm tÃ i khoáº£n máº«u GiÃ¡m Ä‘á»‘c trang tráº¡i (Cáº¥p 3 - ROLE_FARM_MANAGER) cho Farm 1 Ä‘á»ƒ test Ä‘á»§ 4 cáº¥p
+INSERT INTO users (id, tenant_id, is_super_admin, username, email, password_hash, full_name, phone, status, must_change_password)
+VALUES (8, 1, FALSE, 'farm_manager', 'manager.dalat@greenfarm.vn', '$2a$10$4H94PyL16o.bO1q3iClRA./YtmOjG8kwV3OBy3lKNVUppAaGY1sDu', 'Äá»— VÄƒn GiÃ¡m Äá»‘c Tráº¡i', '0978901234', 'ACTIVE', FALSE)
+ON DUPLICATE KEY UPDATE full_name = VALUES(full_name);
+
+-- GÃ¡n user_id = 8 lÃ m GiÃ¡m Ä‘á»‘c Farm 1 (thay cho Owner user_id = 2)
+UPDATE farms SET manager_user_id = 8 WHERE id = 1;
+
+INSERT INTO user_roles (tenant_id, user_id, role_id, farm_id)
+SELECT 1, 8, r.id, 1 FROM roles r WHERE r.code = 'ROLE_FARM_MANAGER'
+ON DUPLICATE KEY UPDATE farm_id = 1;
+
+INSERT IGNORE INTO user_farm_access (user_id, farm_id, tenant_id) VALUES (8, 1, 1);
+
+-- 7. Äá»“ng bá»™ báº£n ghi farm_assignments cho Farm Manager (user_id = 8) vÃ  Káº¿ toÃ¡n (user_id = 6)
+INSERT INTO farm_assignments (tenant_id, farm_id, user_id, role_in_farm, assigned_from, is_active)
+SELECT 1, 1, 8, 'FARM_MANAGER', CURRENT_DATE, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM farm_assignments WHERE tenant_id = 1 AND farm_id = 1 AND user_id = 8 AND is_active = TRUE);
+
+INSERT INTO farm_assignments (tenant_id, farm_id, user_id, role_in_farm, assigned_from, is_active)
+SELECT 1, 1, 6, 'ACCOUNTANT', CURRENT_DATE, TRUE
+WHERE NOT EXISTS (SELECT 1 FROM farm_assignments WHERE tenant_id = 1 AND farm_id = 1 AND user_id = 6 AND is_active = TRUE);
+-- ======================================================================================
+-- V1_5: Migrate legacy AQUACULTURE, POND and AQUA to standard production types
+-- Standard 3 Farm Types: 'CROP', 'LIVESTOCK', 'MIXED'
+-- Standard 5 Zone Types: 'GREENHOUSE', 'OPEN_FIELD', 'BARN', 'STORAGE', 'ISOLATION'
+-- Standard 5 Livestock Species: 'CATTLE', 'SWINE', 'POULTRY', 'GOAT', 'SHEEP'
+-- ======================================================================================
+
+-- 1. Migrate legacy data
+UPDATE farms 
+SET farm_type = 'MIXED' 
+WHERE farm_type = 'AQUACULTURE';
+
+UPDATE production_zones 
+SET zone_type = 'OPEN_FIELD' 
+WHERE zone_type = 'POND';
+
+UPDATE livestock_breeds 
+SET species = 'POULTRY' 
+WHERE species = 'AQUA';
+
+-- 2. Update CHECK constraints for 3 standardized domains
+ALTER TABLE farms DROP CHECK chk_farms_type;
+ALTER TABLE farms ADD CONSTRAINT chk_farms_type CHECK (farm_type IN ('CROP', 'LIVESTOCK', 'MIXED'));
+
+ALTER TABLE production_zones DROP CHECK chk_production_zones_type;
+ALTER TABLE production_zones ADD CONSTRAINT chk_production_zones_type CHECK (zone_type IN ('GREENHOUSE', 'OPEN_FIELD', 'BARN', 'STORAGE', 'ISOLATION'));
+
+ALTER TABLE livestock_breeds DROP CHECK chk_livestock_breeds_species;
+ALTER TABLE livestock_breeds ADD CONSTRAINT chk_livestock_breeds_species CHECK (species IN ('CATTLE', 'SWINE', 'POULTRY', 'GOAT', 'SHEEP'));
+-- ======================================================================================
+-- V1_6: Link livestock groups to warehouse issues for livestock feed/medicine expense tracking
+-- ======================================================================================
+
+ALTER TABLE warehouse_issues
+ADD COLUMN livestock_group_id BIGINT NULL AFTER season_id,
+ADD CONSTRAINT fk_warehouse_issues_livestock_group_composite FOREIGN KEY (tenant_id, farm_id, livestock_group_id) REFERENCES livestock_groups(tenant_id, farm_id, id) ON DELETE RESTRICT,
+ADD INDEX idx_warehouse_issues_livestock_group (livestock_group_id);
+-- ThÃªm cá»™t area_m2 vÃ  capacity cho báº£ng zone_locations (Idempotent)
+SET @col_exists_area = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'zone_locations' 
+      AND COLUMN_NAME = 'area_m2'
+);
+
+SET @stmt_area = IF(
+    @col_exists_area = 0,
+    'ALTER TABLE zone_locations ADD COLUMN area_m2 DECIMAL(12, 2) NULL DEFAULT NULL AFTER status',
+    'SELECT 1'
+);
+
+PREPARE ddl_stmt_area FROM @stmt_area;
+EXECUTE ddl_stmt_area;
+DEALLOCATE PREPARE ddl_stmt_area;
+
+SET @col_exists_cap = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'zone_locations' 
+      AND COLUMN_NAME = 'capacity'
+);
+
+SET @stmt_cap = IF(
+    @col_exists_cap = 0,
+    'ALTER TABLE zone_locations ADD COLUMN capacity INT NULL DEFAULT NULL AFTER area_m2',
+    'SELECT 1'
+);
+
+PREPARE ddl_stmt_cap FROM @stmt_cap;
+EXECUTE ddl_stmt_cap;
+DEALLOCATE PREPARE ddl_stmt_cap;
+
+-- Expand check_in_photo_url and check_out_photo_url to MEDIUMTEXT to support Base64 fallback and cloud URLs
+ALTER TABLE time_attendances MODIFY COLUMN check_in_photo_url MEDIUMTEXT NULL;
+ALTER TABLE time_attendances MODIFY COLUMN check_out_photo_url MEDIUMTEXT NULL;
+
+-- V1_9: ThÃªm liÃªn káº¿t zone_id (PhÃ¢n khu máº·t báº±ng) vÃ o báº£ng warehouses
+ALTER TABLE warehouses 
+ADD COLUMN zone_id BIGINT NULL AFTER farm_id;
+
+-- KhÃ³a ngoáº¡i tham chiáº¿u Ä‘áº¿n production_zones
+ALTER TABLE warehouses 
+ADD CONSTRAINT fk_warehouses_zone FOREIGN KEY (zone_id) REFERENCES production_zones(id) ON DELETE SET NULL;
+
+-- ÄÃ¡nh chá»‰ má»¥c tÃ¬m kiáº¿m theo zone_id
+ALTER TABLE warehouses 
+ADD INDEX idx_warehouses_zone (zone_id);
+
+-- Cáº­p nháº­t liÃªn káº¿t cho cÃ¡c kho bÃ£i hiá»‡n cÃ³ cá»§a Farm 1 vÃ o PhÃ¢n khu NhÃ  Kho & SÆ¡ Cháº¿ C1 (zone_id = 3)
+UPDATE warehouses 
+SET zone_id = 3 
+WHERE farm_id = 1 AND zone_id IS NULL;
+
+-- V1_10: ThÃªm liÃªn káº¿t warehouse_id vÃ o báº£ng zone_locations (Ká»‡ trá»±c thuá»™c Kho bÃ£i)
+ALTER TABLE zone_locations 
+ADD COLUMN warehouse_id BIGINT NULL AFTER zone_id;
+
+-- RÃ ng buá»™c khÃ³a ngoáº¡i tham chiáº¿u Ä‘áº¿n warehouses
+ALTER TABLE zone_locations 
+ADD CONSTRAINT fk_zone_locations_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE SET NULL;
+
+-- ÄÃ¡nh chá»‰ má»¥c tÃ¬m kiáº¿m theo warehouse_id
+ALTER TABLE zone_locations 
+ADD INDEX idx_zone_locations_warehouse (warehouse_id);
+
+-- Cáº­p nháº­t dá»¯ liá»‡u máº«u cho Farm 1: GÃ¡n cÃ¡c vá»‹ trÃ­ ká»‡ hiá»‡n cÃ³ vÃ o Ä‘Ãºng kho bÃ£i
+-- KE-01 (DÃ£y Ká»‡ K01 - Kho PhÃ¢n BÃ³n) -> Kho 1 (Kho Váº­t TÆ° NÃ´ng Nghiá»‡p & PhÃ¢n BÃ³n)
+UPDATE zone_locations 
+SET warehouse_id = 1 
+WHERE farm_id = 1 AND code = 'KE-01';
+
+-- KE-02 (DÃ£y Ká»‡ K02 - Kho ThÃ¹ng & Tem QR) -> Kho 2 (Kho ThÃ nh Pháº©m NÃ´ng Sáº£n ÄÃ³ng GÃ³i)
+UPDATE zone_locations 
+SET warehouse_id = 2 
+WHERE farm_id = 1 AND code = 'KE-02';
+
+-- BAN-01 (Khu Vá»±c BÃ n SÆ¡ Cháº¿ & ÄÃ³ng GÃ³i) -> Kho 2 (Kho ThÃ nh Pháº©m NÃ´ng Sáº£n ÄÃ³ng GÃ³i)
+UPDATE zone_locations 
+SET warehouse_id = 2 
+WHERE farm_id = 1 AND code = 'BAN-01';
+
+-- Migration V1_11: Add purchase & intake fields to livestock_groups and seed categories for seeds
+
+-- Safely add columns if they do not exist
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'livestock_groups' AND COLUMN_NAME = 'partner_id');
+SET @sql = IF(@col_exists = 0, 'ALTER TABLE livestock_groups ADD COLUMN partner_id BIGINT NULL AFTER breed_id, ADD COLUMN unit_price DECIMAL(14, 2) NULL AFTER initial_quantity, ADD COLUMN total_cost DECIMAL(14, 2) NULL AFTER unit_price, ADD COLUMN avg_initial_weight_kg DECIMAL(8, 2) NULL AFTER total_cost, ADD COLUMN health_certificate VARCHAR(100) NULL AFTER avg_initial_weight_kg, ADD COLUMN origin VARCHAR(255) NULL AFTER health_certificate, ADD COLUMN notes TEXT NULL AFTER origin', 'SELECT 1');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Ensure category for SEEDS exists for tenant 1
+INSERT INTO material_categories (tenant_id, name, code, description, created_at)
+SELECT 1, 'Háº¡t Giá»‘ng & CÃ¢y Giá»‘ng', 'CAT-SEEDS', 'CÃ¡c loáº¡i háº¡t giá»‘ng Ä‘Ã³ng gÃ³i vÃ  khay cÃ¢y giá»‘ng Æ°Æ¡m sáºµn', NOW()
+WHERE NOT EXISTS (
+    SELECT 1 FROM material_categories WHERE code = 'CAT-SEEDS'
+);
+
+-- Ensure sample seed materials exist
+INSERT INTO materials (tenant_id, category_id, sku_code, name, standard_unit, dispatch_strategy, expiry_alert_days, min_stock_level, max_stock_level, unit_price_standard, status, created_at)
+SELECT 1, id, 'MAT-SEED-TOMATO', 'Háº¡t Giá»‘ng CÃ  Chua Beef HÃ  Lan (GÃ³i 1000 háº¡t)', 'GÃ³i', 'FIFO', 30, 5.00, 200.00, 150000.00, 'ACTIVE', NOW()
+FROM material_categories WHERE code = 'CAT-SEEDS'
+AND NOT EXISTS (SELECT 1 FROM materials WHERE sku_code = 'MAT-SEED-TOMATO');
+
+INSERT INTO materials (tenant_id, category_id, sku_code, name, standard_unit, dispatch_strategy, expiry_alert_days, min_stock_level, max_stock_level, unit_price_standard, status, created_at)
+SELECT 1, id, 'MAT-SEED-MELON', 'Háº¡t Giá»‘ng DÆ°a LÆ°á»›i Huá»³nh Long F1 (GÃ³i 500 háº¡t)', 'GÃ³i', 'FIFO', 30, 5.00, 200.00, 220000.00, 'ACTIVE', NOW()
+FROM material_categories WHERE code = 'CAT-SEEDS'
+AND NOT EXISTS (SELECT 1 FROM materials WHERE sku_code = 'MAT-SEED-MELON');
+
+INSERT INTO materials (tenant_id, category_id, sku_code, name, standard_unit, dispatch_strategy, expiry_alert_days, min_stock_level, max_stock_level, unit_price_standard, status, created_at)
+SELECT 1, id, 'MAT-SEEDLING-MELON', 'Khay CÃ¢y Giá»‘ng DÆ°a LÆ°á»›i Æ¯Æ¡m Sáºµn (Khay 84 cÃ¢y)', 'Khay', 'FIFO', 7, 10.00, 500.00, 85000.00, 'ACTIVE', NOW()
+FROM material_categories WHERE code = 'CAT-SEEDS'
+AND NOT EXISTS (SELECT 1 FROM materials WHERE sku_code = 'MAT-SEEDLING-MELON');
+
+-- Ensure cost category for Con Giá»‘ng exists
+INSERT INTO cost_categories (tenant_id, name, code, cost_type, created_at)
+SELECT 1, 'Chi phÃ­ Mua Con giá»‘ng', 'BREED_COST', 'MATERIALS', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM cost_categories WHERE code = 'BREED_COST');
+
+-- Ensure sample Supplier for Con Giá»‘ng exists
+INSERT INTO partners (tenant_id, code, name, partner_type, contact_person, phone, email, address, created_at)
+SELECT 1, 'SUP-BREED-01', 'Tráº¡i Giá»‘ng Gia SÃºc Gia Cáº§m Quá»‘c Gia CP', 'SUPPLIER', 'Nguyá»…n VÄƒn Giá»‘ng', '0912345678', 'giong@cp.com.vn', 'Äá»“ng Nai', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM partners WHERE code = 'SUP-BREED-01');
+
+INSERT INTO partners (tenant_id, code, name, partner_type, contact_person, phone, email, address, created_at)
+SELECT 1, 'SUP-SEED-01', 'CÃ´ng Ty Giá»‘ng CÃ¢y Trá»“ng Miá»n Nam', 'SUPPLIER', 'Tráº§n Thá»‹ Máº§m', '0988776655', 'giong@namseed.vn', 'TP. Há»“ ChÃ­ Minh', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM partners WHERE code = 'SUP-SEED-01');
+-- Migration V1_12: Initialize coordinates and geofence radius for initial farm to avoid GPS outside geofence in local demo/dev
+UPDATE farms 
+SET latitude = 10.776889, longitude = 106.700806, geofence_radius_m = 2000000 
+WHERE id = 1;
+
+-- Migration V1_13: Add management_type to distinguish flock/herd (poultry) from individually tagged livestock (cattle, swine, goats)
+
+-- Safely add management_type to livestock_breeds
+SET @col_exists = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'livestock_breeds' AND COLUMN_NAME = 'management_type');
+SET @sql = IF(@col_exists = 0, 'ALTER TABLE livestock_breeds ADD COLUMN management_type VARCHAR(30) NOT NULL DEFAULT \'FLOCK_HERD\'', 'SELECT 1');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Safely add management_type to livestock_groups
+SET @col_exists2 = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'livestock_groups' AND COLUMN_NAME = 'management_type');
+SET @sql2 = IF(@col_exists2 = 0, 'ALTER TABLE livestock_groups ADD COLUMN management_type VARCHAR(30) NOT NULL DEFAULT \'FLOCK_HERD\'', 'SELECT 1');
+PREPARE stmt2 FROM @sql2;
+EXECUTE stmt2;
+DEALLOCATE PREPARE stmt2;
+
+-- Standardize existing species
+UPDATE livestock_breeds SET management_type = 'INDIVIDUAL_TAGGED' WHERE species IN ('CATTLE', 'SWINE', 'GOAT', 'SHEEP');
+UPDATE livestock_breeds SET management_type = 'FLOCK_HERD' WHERE species = 'POULTRY';
+-- V1_15: Bá»• sung trÆ°á»ng image_url cho danh má»¥c Giá»‘ng CÃ¢y Trá»“ng & Giá»‘ng Váº­t NuÃ´i
+-- Phá»¥c vá»¥ tá»± Ä‘á»™ng hiá»ƒn thá»‹ áº£nh nÃ´ng sáº£n chÃ­nh chá»§ trÃªn Trang tra cá»©u cÃ´ng khai QR
+
+ALTER TABLE crop_types ADD COLUMN image_url VARCHAR(500) NULL AFTER name;
+ALTER TABLE livestock_breeds ADD COLUMN image_url VARCHAR(500) NULL AFTER breed_name;
+
+-- Cáº­p nháº­t dá»¯ liá»‡u máº«u cho cÃ¡c giá»‘ng demo
+UPDATE crop_types 
+SET image_url = 'https://images.unsplash.com/photo-1571575179703-4bde4ee63cc3?auto=format&fit=crop&w=900&q=80' 
+WHERE name LIKE '%DÆ°a LÆ°á»›i%' OR variety_code LIKE '%MELON%';
+
+UPDATE crop_types 
+SET image_url = 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=900&q=80' 
+WHERE name LIKE '%CÃ  Chua%' OR variety_code LIKE '%TOMATO%';
+
+UPDATE livestock_breeds 
+SET image_url = 'https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=900&q=80' 
+WHERE species = 'SWINE' OR breed_name LIKE '%Heo%' OR breed_name LIKE '%Lá»£n%';
+
+UPDATE livestock_breeds 
+SET image_url = 'https://images.unsplash.com/photo-1548550023-2bdb3c5beed7?auto=format&fit=crop&w=900&q=80' 
+WHERE species = 'POULTRY' OR breed_name LIKE '%GÃ %';
+
+-- ==============================================================================
+-- Migration V1_16: Má»Ÿ Rá»™ng TrÆ°á»ng image_url & qr_image_url ThÃ nh MEDIUMTEXT
+-- Há»— trá»£ upload áº£nh trá»±c tiáº¿p tá»« mÃ¡y tÃ­nh (Local Server URL, Cloudinary, Base64 URI)
+-- ==============================================================================
+
+ALTER TABLE crop_types MODIFY COLUMN image_url MEDIUMTEXT NULL;
+ALTER TABLE livestock_breeds MODIFY COLUMN image_url MEDIUMTEXT NULL;
+ALTER TABLE product_batches MODIFY COLUMN qr_image_url MEDIUMTEXT NULL;
+
