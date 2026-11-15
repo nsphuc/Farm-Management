@@ -1,7 +1,17 @@
 import { apiClient } from '../api/apiClient';
 import { API_ENDPOINTS } from '../api/endpoints';
 
-const isValidFarmId = (farmId) => Boolean(farmId && farmId !== 'ALL' && !Number.isNaN(Number(farmId)));
+const resolveFarmId = (farmId) => {
+  if (typeof farmId === 'object' && farmId !== null) {
+    return farmId.farmId ? Number(farmId.farmId) : null;
+  }
+  return farmId && farmId !== 'ALL' ? Number(farmId) : null;
+};
+
+const isValidFarmId = (farmId) => {
+  const resolved = resolveFarmId(farmId);
+  return Boolean(resolved && !Number.isNaN(resolved));
+};
 
 export const geographyService = {
   // Farms
@@ -10,8 +20,9 @@ export const geographyService = {
     return res.data;
   },
   getFarmById: async (farmId) => {
-    if (!isValidFarmId(farmId)) return null;
-    const res = await apiClient.get(API_ENDPOINTS.GEOGRAPHY.FARM_DETAIL(farmId));
+    const targetFarmId = resolveFarmId(farmId);
+    if (!isValidFarmId(targetFarmId)) return null;
+    const res = await apiClient.get(API_ENDPOINTS.GEOGRAPHY.FARM_DETAIL(targetFarmId));
     return res.data;
   },
   createFarm: async (data) => {
@@ -19,17 +30,19 @@ export const geographyService = {
     return res.data;
   },
   updateFarm: async (farmId, data) => {
-    if (!isValidFarmId(farmId)) return null;
-    const res = await apiClient.put(API_ENDPOINTS.GEOGRAPHY.FARM_DETAIL(farmId), data);
+    const targetFarmId = resolveFarmId(farmId);
+    if (!isValidFarmId(targetFarmId)) return null;
+    const res = await apiClient.put(API_ENDPOINTS.GEOGRAPHY.FARM_DETAIL(targetFarmId), data);
     return res.data;
   },
   updateFarmStatus: async (farmId, statusOrPayload) => {
-    if (!isValidFarmId(farmId)) return null;
+    const targetFarmId = resolveFarmId(farmId);
+    if (!isValidFarmId(targetFarmId)) return null;
     const statusVal = typeof statusOrPayload === 'object' && statusOrPayload !== null
       ? statusOrPayload.status
       : statusOrPayload;
     const res = await apiClient.patch(
-      `${API_ENDPOINTS.GEOGRAPHY.FARMS}/${farmId}/status`,
+      `${API_ENDPOINTS.GEOGRAPHY.FARMS}/${targetFarmId}/status`,
       { status: statusVal },
       { params: { status: statusVal } }
     );
@@ -38,10 +51,13 @@ export const geographyService = {
 
   // Zones
   getZones: async (farmId, params = {}) => {
-    if (!isValidFarmId(farmId)) {
+    const targetFarmId = resolveFarmId(farmId);
+    if (!isValidFarmId(targetFarmId)) {
       return [];
     }
-    const res = await apiClient.get(API_ENDPOINTS.GEOGRAPHY.ZONES(farmId), { params });
+    const cleanParams = typeof farmId === 'object' && farmId !== null ? { ...farmId, ...params } : params;
+    delete cleanParams.farmId;
+    const res = await apiClient.get(API_ENDPOINTS.GEOGRAPHY.ZONES(targetFarmId), { params: cleanParams });
     return res.data;
   },
   createZone: async (farmId, data) => {
@@ -62,10 +78,11 @@ export const geographyService = {
 
   // Locations
   getLocations: async (farmId, zoneId, params = {}) => {
-    if (!isValidFarmId(farmId)) {
+    const targetFarmId = resolveFarmId(farmId);
+    if (!isValidFarmId(targetFarmId) || !zoneId) {
       return [];
     }
-    const res = await apiClient.get(API_ENDPOINTS.GEOGRAPHY.ZONE_LOCATIONS(farmId, zoneId), { params });
+    const res = await apiClient.get(API_ENDPOINTS.GEOGRAPHY.ZONE_LOCATIONS(targetFarmId, zoneId), { params });
     return res.data;
   },
   createLocation: async (farmId, zoneId, data) => {

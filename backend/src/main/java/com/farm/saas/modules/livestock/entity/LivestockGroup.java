@@ -1,6 +1,7 @@
 package com.farm.saas.modules.livestock.entity;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import lombok.*;
@@ -28,6 +29,9 @@ public class LivestockGroup {
     @Column(name = "zone_id", nullable = false)
     private Long zoneId;
 
+    @Column(name = "location_id")
+    private Long locationId;
+
     @Column(name = "operational_cycle_id")
     private Long operationalCycleId;
 
@@ -37,8 +41,29 @@ public class LivestockGroup {
     @Column(name = "breed_id", nullable = false)
     private Long breedId;
 
+    @Column(name = "partner_id")
+    private Long partnerId;
+
     @Column(name = "initial_quantity", nullable = false)
     private Integer initialQuantity;
+
+    @Column(name = "unit_price", precision = 14, scale = 2)
+    private BigDecimal unitPrice;
+
+    @Column(name = "total_cost", precision = 14, scale = 2)
+    private BigDecimal totalCost;
+
+    @Column(name = "avg_initial_weight_kg", precision = 8, scale = 2)
+    private BigDecimal avgInitialWeightKg;
+
+    @Column(name = "health_certificate", length = 100)
+    private String healthCertificate;
+
+    @Column(name = "origin", length = 255)
+    private String origin;
+
+    @Column(name = "notes", columnDefinition = "TEXT")
+    private String notes;
 
     @Column(name = "current_quantity", nullable = false)
     private Integer currentQuantity;
@@ -48,6 +73,9 @@ public class LivestockGroup {
 
     @Column(name = "status", nullable = false, length = 30)
     private String status;
+
+    @Column(name = "management_type", length = 30)
+    private String managementType;
 
     @Column(name = "created_at")
     private Instant createdAt;

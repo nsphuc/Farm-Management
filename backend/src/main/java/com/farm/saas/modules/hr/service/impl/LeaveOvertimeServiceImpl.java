@@ -33,6 +33,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashSet;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -46,6 +48,29 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
     private final WorkShiftRepository workShiftRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.geography.repository.FarmAssignmentRepository farmAssignmentRepository;
+
+    private Set<Long> resolveFarmManagerUserIds(Farm farm) {
+        Set<Long> managerIds = new HashSet<>();
+        if (farm != null) {
+            if (farm.getManagerUserId() != null) {
+                managerIds.add(farm.getManagerUserId());
+            }
+            if (farmAssignmentRepository != null) {
+                try {
+                    farmAssignmentRepository.findByFarmIdAndIsActiveTrue(farm.getId())
+                            .stream()
+                            .filter(a -> "FARM_MANAGER".equalsIgnoreCase(a.getRoleInFarm()) && a.getUserId() != null && a.getUserId() > 0)
+                            .forEach(a -> managerIds.add(a.getUserId()));
+                } catch (Exception ex) {
+                    log.warn("Failed resolving farm manager assignments: {}", ex.getMessage());
+                }
+            }
+        }
+        return managerIds;
+    }
 
     @Override
     @Transactional
@@ -80,21 +105,26 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
         log.info("Created leave request id={}, employeeId={}, type={}, days={}", leave.getId(), employee.getId(), leave.getLeaveType(), leave.getTotalDays());
 
         // Bắn thông báo tự động cho Giám đốc trang trại
-        if (notificationService != null && farm.getManagerUserId() != null) {
-            try {
-                notificationService.sendNotification(
-                        tenantId,
-                        farm.getManagerUserId(),
-                        "Đơn xin nghỉ phép mới chờ phê duyệt",
-                        String.format("Nhân viên [%s] vừa gửi đơn xin nghỉ phép (%s ngày) chờ phê duyệt.",
-                                employee.getFullName(), leave.getTotalDays()),
-                        "SYSTEM",
-                        "LEAVE_REQUEST",
-                        leave.getId(),
-                        "/app/personnel"
-                );
-            } catch (Exception ex) {
-                log.warn("Failed to send leave notification to farm manager: {}", ex.getMessage());
+        if (notificationService != null) {
+            Set<Long> managers = resolveFarmManagerUserIds(farm);
+            for (Long managerUserId : managers) {
+                if (!managerUserId.equals(currentUserId)) {
+                    try {
+                        notificationService.sendNotification(
+                                tenantId,
+                                managerUserId,
+                                "Đơn xin nghỉ phép mới chờ phê duyệt",
+                                String.format("Nhân viên [%s] vừa gửi đơn xin nghỉ phép (%s ngày) chờ phê duyệt.",
+                                        employee.getFullName(), leave.getTotalDays()),
+                                "SYSTEM",
+                                "LEAVE_REQUEST",
+                                leave.getId(),
+                                "/app/personnel"
+                        );
+                    } catch (Exception ex) {
+                        log.warn("Failed to send leave notification to farm manager: {}", ex.getMessage());
+                    }
+                }
             }
         }
 
@@ -229,21 +259,26 @@ public class LeaveOvertimeServiceImpl implements LeaveOvertimeService {
         log.info("Created OT request id={}, employeeId={}, hours={}", ot.getId(), employee.getId(), ot.getTotalHours());
 
         // Bắn thông báo tự động cho Giám đốc trang trại
-        if (notificationService != null && farm.getManagerUserId() != null) {
-            try {
-                notificationService.sendNotification(
-                        tenantId,
-                        farm.getManagerUserId(),
-                        "Đơn đăng ký tăng ca mới chờ phê duyệt",
-                        String.format("Nhân viên [%s] vừa gửi đơn đăng ký làm thêm giờ (%s giờ) chờ phê duyệt.",
-                                employee.getFullName(), ot.getTotalHours()),
-                        "SYSTEM",
-                        "OVERTIME_REQUEST",
-                        ot.getId(),
-                        "/app/personnel"
-                );
-            } catch (Exception ex) {
-                log.warn("Failed to send OT notification to farm manager: {}", ex.getMessage());
+        if (notificationService != null) {
+            Set<Long> managers = resolveFarmManagerUserIds(farm);
+            for (Long managerUserId : managers) {
+                if (!managerUserId.equals(currentUserId)) {
+                    try {
+                        notificationService.sendNotification(
+                                tenantId,
+                                managerUserId,
+                                "Đơn đăng ký tăng ca mới chờ phê duyệt",
+                                String.format("Nhân viên [%s] vừa gửi đơn đăng ký làm thêm giờ (%s giờ) chờ phê duyệt.",
+                                        employee.getFullName(), ot.getTotalHours()),
+                                "SYSTEM",
+                                "OVERTIME_REQUEST",
+                                ot.getId(),
+                                "/app/personnel"
+                        );
+                    } catch (Exception ex) {
+                        log.warn("Failed to send OT notification to farm manager: {}", ex.getMessage());
+                    }
+                }
             }
         }
 

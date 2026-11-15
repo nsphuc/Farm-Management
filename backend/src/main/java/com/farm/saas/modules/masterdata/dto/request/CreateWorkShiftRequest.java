@@ -38,4 +38,7 @@ public class CreateWorkShiftRequest {
 
     @Builder.Default
     private Boolean isOvernight = false;
+
+    private Long farmId;
+    private java.util.List<Long> applicableFarmIds;
 }

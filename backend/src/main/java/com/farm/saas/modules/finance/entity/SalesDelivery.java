@@ -44,7 +44,7 @@ public class SalesDelivery {
     @Column(name = "vehicle_plate", length = 50)
     private String vehiclePlate;
 
-    @Column(name = "proof_of_delivery_url", length = 500)
+    @Column(name = "proof_of_delivery_url", columnDefinition = "MEDIUMTEXT")
     private String proofOfDeliveryUrl;
 
     @Column(name = "status", nullable = false, length = 30)

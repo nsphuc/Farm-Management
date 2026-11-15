@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   FolderPlus,
   RefreshCw,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { DataTable } from '@/components/common/DataTable';
@@ -29,6 +31,7 @@ export function MaterialsTab() {
   // Categories state
   const [categories, setCategories] = useState([]);
   const [selectedCatId, setSelectedCatId] = useState(null);
+  const [isCatSidebarCollapsed, setIsCatSidebarCollapsed] = useState(false);
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [editingCat, setEditingCat] = useState(null);
   const [catForm, setCatForm] = useState({ code: '', name: '', description: '' });
@@ -37,6 +40,7 @@ export function MaterialsTab() {
 
   // Materials state
   const [materials, setMaterials] = useState([]);
+  const [allMaterials, setAllMaterials] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
@@ -55,6 +59,17 @@ export function MaterialsTab() {
       setCategories(list);
     } catch (err) {
       console.error('Failed to load material categories', err);
+    }
+  };
+
+  // Fetch All Materials (for global SKU generation across entire tenant)
+  const fetchAllMaterials = async () => {
+    try {
+      const res = await masterDataService.getMaterials({ size: 1000 });
+      const list = Array.isArray(res) ? res : res?.content || [];
+      setAllMaterials(list);
+    } catch (err) {
+      console.error('Failed to load all materials', err);
     }
   };
 
@@ -82,6 +97,7 @@ export function MaterialsTab() {
 
   useEffect(() => {
     fetchCategories();
+    fetchAllMaterials();
   }, []);
 
   useEffect(() => {
@@ -142,6 +158,7 @@ export function MaterialsTab() {
       notifyDataChanged?.('inventory');
       notifyDataChanged?.('all');
       fetchMaterials();
+      fetchAllMaterials();
     } catch (err) {
       const errInfo = extractApiErrors(err);
       alert(errInfo.message || 'Không thể xóa mặt hàng đã phát sinh phiếu kho hoặc tồn kho!');
@@ -163,13 +180,7 @@ export function MaterialsTab() {
       key: 'name',
       title: 'Tên Mặt Hàng Vật Tư',
       render: (item) => (
-        <div>
-          <div className="font-semibold text-slate-900">{item.name}</div>
-          <div className="text-[11px] text-slate-500">
-            {item.categoryName ? `Nhóm: ${item.categoryName}` : ''}
-            {item.activeIngredient ? ` • Hoạt chất: ${item.activeIngredient}` : ''}
-          </div>
-        </div>
+        <span className="font-semibold text-slate-900">{item.name}</span>
       ),
     },
     {
@@ -244,112 +255,146 @@ export function MaterialsTab() {
     },
   ];
 
+  const selectedCategoryObj = categories.find((c) => String(c.id) === String(selectedCatId));
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 animate-in fade-in duration-200">
-      {/* CỘT TRÁI: QUẢN LÝ NHÓM VẬT TƯ (material_categories #27) */}
-      <div className="w-full lg:w-72 shrink-0 space-y-3">
-        <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
-          <div className="flex items-center gap-2">
-            <FolderTree className="h-4 w-4 text-emerald-700" />
-            <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Nhóm Vật Tư ({categories.length})
-            </span>
+      {/* CỘT TRÁI: QUẢN LÝ NHÓM VẬT TƯ (Có thể thu gọn để mở rộng bảng) */}
+      {!isCatSidebarCollapsed && (
+        <div className="w-full lg:w-72 shrink-0 space-y-3">
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+            <div className="flex items-center gap-2">
+              <FolderTree className="h-4 w-4 text-emerald-700" />
+              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Nhóm Vật Tư ({categories.length})
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCat(null);
+                    setCatForm({
+                      code: generateEntityCode(CODE_PREFIXES.MATERIAL_CATEGORY, categories),
+                      name: '',
+                      description: '',
+                    });
+                    setCatErrors({});
+                    setCatModalOpen(true);
+                  }}
+                  className="rounded-lg p-1 text-emerald-700 hover:bg-emerald-50 transition-colors"
+                  title="+ Thêm Nhóm Vật Tư"
+                >
+                  <FolderPlus className="h-4 w-4" />
+                </button>
+              </Can>
+              <button
+                type="button"
+                onClick={() => setIsCatSidebarCollapsed(true)}
+                className="rounded-lg p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                title="Thu gọn cột nhóm vật tư"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-          <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
+
+          <div className="space-y-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xs max-h-[600px] overflow-y-auto">
             <button
               type="button"
-              onClick={() => {
-                setEditingCat(null);
-                setCatForm({
-                  code: generateEntityCode(CODE_PREFIXES.MATERIAL_CATEGORY),
-                  name: '',
-                  description: '',
-                });
-                setCatErrors({});
-                setCatModalOpen(true);
-              }}
-              className="rounded-lg p-1 text-emerald-700 hover:bg-emerald-50 transition-colors"
-              title="+ Thêm Nhóm Vật Tư"
-            >
-              <FolderPlus className="h-4 w-4" />
-            </button>
-          </Can>
-        </div>
-
-        <div className="space-y-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xs max-h-[600px] overflow-y-auto">
-          <button
-            type="button"
-            onClick={() => setSelectedCatId(null)}
-            className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold text-left transition-all ${
-              selectedCatId === null
-                ? 'bg-emerald-50 text-emerald-800 font-bold ring-1 ring-emerald-600/20'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <span>[ Tất Cả Vật Tư ]</span>
-            <span className="text-[11px] text-slate-400 font-mono font-normal">
-              {totalElements}
-            </span>
-          </button>
-
-          {categories.map((cat) => (
-            <div
-              key={cat.id}
-              onClick={() => setSelectedCatId(cat.id)}
-              className={`group flex items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer transition-all ${
-                selectedCatId === cat.id
+              onClick={() => setSelectedCatId(null)}
+              className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold text-left transition-all ${
+                selectedCatId === null
                   ? 'bg-emerald-50 text-emerald-800 font-bold ring-1 ring-emerald-600/20'
                   : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <div className="truncate flex-1 pr-2">
-                <div>{cat.name}</div>
-                <div className="text-[10px] text-slate-400 font-mono font-normal">{cat.code}</div>
+              <span>[ Tất Cả Vật Tư ]</span>
+              <span className="text-[11px] text-slate-400 font-mono font-normal">
+                {totalElements}
+              </span>
+            </button>
+
+            {categories.map((cat) => (
+              <div
+                key={cat.id}
+                onClick={() => setSelectedCatId(cat.id)}
+                className={`group flex items-center justify-between rounded-lg px-3 py-2 text-xs font-semibold cursor-pointer transition-all ${
+                  selectedCatId === cat.id
+                    ? 'bg-emerald-50 text-emerald-800 font-bold ring-1 ring-emerald-600/20'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <div className="truncate flex-1 pr-2">
+                  <div>{cat.name}</div>
+                  <div className="text-[10px] text-slate-400 font-mono font-normal">{cat.code}</div>
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingCat(cat);
+                        setCatForm({
+                          code: cat.code || '',
+                          name: cat.name || '',
+                          description: cat.description || '',
+                        });
+                        setCatErrors({});
+                        setCatModalOpen(true);
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-slate-700"
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteCategory(cat.id, e)}
+                      className="p-0.5 text-slate-400 hover:text-rose-600"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </Can>
+                </div>
               </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingCat(cat);
-                      setCatForm({
-                        code: cat.code || '',
-                        name: cat.name || '',
-                        description: cat.description || '',
-                      });
-                      setCatErrors({});
-                      setCatModalOpen(true);
-                    }}
-                    className="p-0.5 text-slate-400 hover:text-slate-700"
-                  >
-                    <Edit2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteCategory(cat.id, e)}
-                    className="p-0.5 text-slate-400 hover:text-rose-600"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </Can>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* CỘT PHẢI: BẢNG VẬT TƯ (materials #28) */}
-      <div className="flex-1 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm theo SKU, tên vật tư, hoạt chất..."
-              className="pl-9 text-xs"
-            />
+      <div className="flex-1 min-w-0 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 flex-1 max-w-lg">
+            {isCatSidebarCollapsed && (
+              <button
+                type="button"
+                onClick={() => setIsCatSidebarCollapsed(false)}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-emerald-50 hover:text-emerald-800 text-xs font-semibold text-slate-700 shadow-2xs transition-colors shrink-0"
+                title="Mở rộng danh sách nhóm vật tư"
+              >
+                <FolderTree className="h-4 w-4 text-emerald-700 shrink-0" />
+                <span>
+                  Nhóm:{' '}
+                  <strong className="text-emerald-800 font-bold">
+                    {selectedCategoryObj ? selectedCategoryObj.name : 'Tất Cả'}
+                  </strong>
+                </span>
+                <PanelLeftOpen className="h-3.5 w-3.5 text-slate-400" />
+              </button>
+            )}
+
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Tìm theo SKU, tên vật tư, hoạt chất..."
+                className="pl-9 text-xs"
+              />
+            </div>
           </div>
 
           <Can anyPermissions={["PERM_FARM_UPDATE", "PERM_INVENTORY_RECEIPT"]}>
@@ -422,7 +467,7 @@ export function MaterialsTab() {
               onRegenerate={() =>
                 setCatForm((prev) => ({
                   ...prev,
-                  code: generateEntityCode(CODE_PREFIXES.MATERIAL_CATEGORY),
+                  code: generateEntityCode(CODE_PREFIXES.MATERIAL_CATEGORY, categories),
                 }))
               }
               isEditMode={Boolean(editingCat)}
@@ -452,13 +497,28 @@ export function MaterialsTab() {
       {/* Modal Hợp Nhất Vật Tư + Quy Đổi */}
       <MaterialFormModal
         isOpen={materialModalOpen}
-        onClose={() => setMaterialModalOpen(false)}
+        onClose={() => {
+          setMaterialModalOpen(false);
+          setEditingMaterial(null);
+        }}
         editingItem={editingMaterial}
         categories={categories}
-        onSuccess={() => {
+        defaultCategoryId={selectedCatId}
+        allMaterials={allMaterials}
+        onSuccess={(savedItem) => {
           notifyDataChanged?.('inventory');
           notifyDataChanged?.('all');
+          fetchCategories();
+          fetchAllMaterials();
+          if (savedItem && savedItem.id) {
+            setMaterials((prev) =>
+              prev.map((item) => (item.id === savedItem.id ? { ...item, ...savedItem } : item))
+            );
+          }
           fetchMaterials();
+          if (savedItem && selectedCatId && String(savedItem.categoryId) !== String(selectedCatId)) {
+            setSelectedCatId(savedItem.categoryId);
+          }
         }}
       />
     </div>

@@ -10,13 +10,19 @@ import com.farm.saas.modules.crop.entity.CropSeason;
 import com.farm.saas.modules.crop.repository.CropSeasonRepository;
 import com.farm.saas.modules.crop.repository.FarmingLogRepository;
 import com.farm.saas.modules.crop.service.CropSeasonService;
+import com.farm.saas.modules.finance.entity.CostAllocation;
+import com.farm.saas.modules.finance.repository.CostAllocationRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
 import com.farm.saas.modules.geography.entity.ProductionZone;
+import com.farm.saas.modules.geography.entity.ZoneLocation;
+import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.geography.repository.OperationalCycleRepository;
 import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
 import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
+import com.farm.saas.modules.notification.service.NotificationService;
+import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -46,6 +52,22 @@ public class CropSeasonServiceImpl implements CropSeasonService {
     private final LivestockGroupRepository livestockGroupRepository;
     private final CropTypeRepository cropTypeRepository;
     private final com.farm.saas.modules.hr.service.FarmTaskService farmTaskService;
+    private final com.farm.saas.common.codegenerator.CodeGenerator codeGenerator;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private CostAllocationRepository costAllocationRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private HarvestRecordRepository harvestRecordRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private FarmRepository farmRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private NotificationService notificationService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.farm.saas.modules.auth.repository.UserRepository userRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -86,19 +108,43 @@ public class CropSeasonServiceImpl implements CropSeasonService {
                         .orElse(1L);
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
-        String seasonCode = request.getSeasonCode();
-        if (!StringUtils.hasText(seasonCode)) {
-            seasonCode = "CS-" + LocalDate.now().toString().replace("-", "") + "-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        String seasonCode = (request.getSeasonCode() != null && !request.getSeasonCode().isBlank())
+                ? request.getSeasonCode().trim().toUpperCase()
+                : null;
+
+        if (seasonCode != null) {
+            if (cropSeasonRepository.existsByTenantIdAndFarmIdAndSeasonCode(tenantId, farmId, seasonCode)) {
+                throw new BusinessException("DUPLICATE_SEASON_CODE", "Mã vụ mùa đã tồn tại: " + seasonCode);
+            }
+        } else {
+            do {
+                seasonCode = codeGenerator.generateCode("SSN");
+            } while (cropSeasonRepository.existsByTenantIdAndFarmIdAndSeasonCode(tenantId, farmId, seasonCode));
         }
 
-        if (cropSeasonRepository.existsByTenantIdAndFarmIdAndSeasonCode(tenantId, farmId, seasonCode)) {
-            throw new BusinessException("DUPLICATE_SEASON_CODE", "Mã vụ mùa đã tồn tại: " + seasonCode);
+        BigDecimal estYield = request.getEstimatedYieldKg();
+        String estUnit = StringUtils.hasText(request.getEstimatedYieldUnit()) ? request.getEstimatedYieldUnit().trim() : "kg";
+        if (estYield != null && ("tấn".equalsIgnoreCase(estUnit) || "tan".equalsIgnoreCase(estUnit))) {
+            estYield = estYield.multiply(BigDecimal.valueOf(1000));
+        }
+
+        String sUnit = StringUtils.hasText(request.getSeedUnit()) ? request.getSeedUnit().trim() : "gói";
+
+        // Cây thân gỗ lâu năm (PERENNIAL) đã trưởng thành khởi vụ ở trạng thái GROWING (Đang chăm sóc/sinh trưởng)
+        // Cây ngắn ngày (ANNUAL) mới bắt đầu bằng SOIL_PREPARATION (Làm đất)
+        String initialStatus = "SOIL_PREPARATION";
+        if (request.getCropTypeId() != null) {
+            var ctOpt = cropTypeRepository.findById(request.getCropTypeId());
+            if (ctOpt.isPresent() && "PERENNIAL".equalsIgnoreCase(ctOpt.get().getCropCategory())) {
+                initialStatus = "GROWING";
+            }
         }
 
         CropSeason season = CropSeason.builder()
                 .tenantId(tenantId)
                 .farmId(farmId)
                 .zoneId(request.getZoneId())
+                .locationId(request.getLocationId())
                 .operationalCycleId(request.getOperationalCycleId())
                 .seasonCode(seasonCode)
                 .cropTypeId(request.getCropTypeId())
@@ -106,8 +152,10 @@ public class CropSeasonServiceImpl implements CropSeasonService {
                 .expectedHarvestDate(request.getExpectedHarvestDate())
                 .plantedAreaM2(request.getPlantedAreaM2())
                 .seedQuantity(request.getSeedQuantity())
-                .estimatedYieldKg(request.getEstimatedYieldKg())
-                .status("SOIL_PREPARATION")
+                .seedUnit(sUnit)
+                .estimatedYieldKg(estYield)
+                .estimatedYieldUnit(estUnit)
+                .status(initialStatus)
                 .createdAt(Instant.now())
                 .createdBy(currentUserId)
                 .build();
@@ -149,6 +197,7 @@ public class CropSeasonServiceImpl implements CropSeasonService {
 
         final Long targetZoneId = season.getZoneId();
         if (request.getLocationId() != null) {
+            season.setLocationId(request.getLocationId());
             zoneLocationRepository.findById(request.getLocationId()).ifPresent(loc -> {
                 if (Objects.equals(loc.getZoneId(), targetZoneId) && (tenantId == null || tenantId.equals(loc.getTenantId()))) {
                     loc.setStatus("OCCUPIED");
@@ -193,6 +242,35 @@ public class CropSeasonServiceImpl implements CropSeasonService {
             throw new BusinessException("SEASON_ALREADY_CLOSED", "Vụ mùa đã ở trạng thái kết thúc: " + season.getStatus());
         }
 
+        // Quy trình 5: Tự động tổng hợp chi phí và kết toán giá thành đơn vị (Unit Cost Allocation)
+        BigDecimal directExpenses = farmExpenseRepository.sumConfirmedExpensesBySeasonId(season.getId());
+        if (directExpenses == null) directExpenses = BigDecimal.ZERO;
+
+        BigDecimal allocatedCost = BigDecimal.ZERO;
+        if (costAllocationRepository != null) {
+            var allocations = costAllocationRepository.findByTargetTypeAndTargetId("CROP_SEASON", season.getId());
+            if (allocations != null) {
+                allocatedCost = allocations.stream().map(CostAllocation::getAllocatedAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            }
+        }
+        BigDecimal totalCost = directExpenses.add(allocatedCost);
+
+        BigDecimal totalYieldKg = BigDecimal.ZERO;
+        if (harvestRecordRepository != null) {
+            totalYieldKg = harvestRecordRepository.sumQuantityBySeasonId(season.getId());
+        }
+        if ((totalYieldKg == null || totalYieldKg.compareTo(BigDecimal.ZERO) == 0) && season.getActualYieldKg() != null) {
+            totalYieldKg = season.getActualYieldKg();
+        }
+        if (totalYieldKg == null) totalYieldKg = BigDecimal.ZERO;
+
+        final BigDecimal unitCostPerKg = (totalYieldKg.compareTo(BigDecimal.ZERO) > 0)
+                ? totalCost.divide(totalYieldKg, 2, java.math.RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        final String costSummary = String.format("[KẾT TOÁN GIÁ THÀNH: Tổng chi phí = %,.0f đ | Sản lượng thu hoạch = %,.2f kg => Giá thành = %,.0f đ/kg]",
+                totalCost, totalYieldKg, unitCostPerKg);
+
         season.setStatus("CLOSED");
         if (season.getActualHarvestDate() == null) {
             season.setActualHarvestDate(LocalDate.now());
@@ -201,10 +279,34 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         season.setUpdatedBy(SecurityUtils.getCurrentUserId());
         season = cropSeasonRepository.save(season);
 
+        final Long sId = season.getId();
+        final String sCode = season.getSeasonCode();
+
         farmTaskService.cancelPendingRoutineTasksForZone(farmId, season.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
         releaseZoneLocationsIfEmpty(tenantId, farmId, season.getZoneId());
 
-        log.info("Closed crop season id={} on farmId={}", season.getId(), farmId);
+        if (notificationService != null) {
+            try {
+                farmRepository.findById(farmId).ifPresent(f -> {
+                    if (f.getManagerUserId() != null) {
+                        notificationService.sendNotification(
+                                tenantId,
+                                f.getManagerUserId(),
+                                "Đóng vụ mùa & kết toán giá thành vụ " + sCode,
+                                "Vụ mùa " + sCode + " đã kết thúc thành công. " + costSummary,
+                                "INFO",
+                                "CROP_SEASON",
+                                sId,
+                                "/app/farming"
+                        );
+                    }
+                });
+            } catch (Exception ex) {
+                log.warn("Failed to send season close notification: {}", ex.getMessage());
+            }
+        }
+
+        log.info("Closed crop season id={} on farmId={}, costSummary='{}'", season.getId(), farmId, costSummary);
         return mapToDetailResponse(season);
     }
 
@@ -223,6 +325,13 @@ public class CropSeasonServiceImpl implements CropSeasonService {
                     .orElse(null);
         }
 
+        String locationName = null;
+        if (season.getLocationId() != null) {
+            locationName = zoneLocationRepository.findById(season.getLocationId())
+                    .map(ZoneLocation::getName)
+                    .orElse(null);
+        }
+
         String cycleName = null;
         if (season.getOperationalCycleId() != null) {
             cycleName = operationalCycleRepository.findById(season.getOperationalCycleId())
@@ -231,10 +340,11 @@ public class CropSeasonServiceImpl implements CropSeasonService {
         }
 
         String cropTypeName = null;
+        String cropCategory = null;
         if (season.getCropTypeId() != null) {
-            cropTypeName = cropTypeRepository.findById(season.getCropTypeId())
-                    .map(c -> c.getName())
-                    .orElse(null);
+            var ctOpt = cropTypeRepository.findById(season.getCropTypeId());
+            cropTypeName = ctOpt.map(c -> c.getName()).orElse(null);
+            cropCategory = ctOpt.map(c -> c.getCropCategory()).orElse(null);
         }
 
         LocalDate activePhiEndDate = farmingLogRepository.findMaxPhiEndDateBySeasonId(season.getId());
@@ -244,27 +354,41 @@ public class CropSeasonServiceImpl implements CropSeasonService {
             totalExpenses = BigDecimal.ZERO;
         }
 
+        String createdByName = null;
+        if (season.getCreatedBy() != null && userRepository != null) {
+            createdByName = userRepository.findById(season.getCreatedBy())
+                    .map(u -> u.getFullName() != null ? u.getFullName() : u.getUsername())
+                    .orElse(null);
+        }
+
         return CropSeasonDetailResponse.builder()
                 .id(season.getId())
                 .farmId(season.getFarmId())
                 .zoneId(season.getZoneId())
                 .zoneName(zoneName)
+                .locationId(season.getLocationId())
+                .locationName(locationName)
                 .operationalCycleId(season.getOperationalCycleId())
                 .cycleName(cycleName)
                 .seasonCode(season.getSeasonCode())
                 .cropTypeId(season.getCropTypeId())
                 .cropTypeName(cropTypeName)
+                .cropCategory(cropCategory)
                 .startDate(season.getStartDate())
                 .expectedHarvestDate(season.getExpectedHarvestDate())
                 .actualHarvestDate(season.getActualHarvestDate())
                 .plantedAreaM2(season.getPlantedAreaM2())
                 .seedQuantity(season.getSeedQuantity())
+                .seedUnit(season.getSeedUnit())
                 .estimatedYieldKg(season.getEstimatedYieldKg())
+                .estimatedYieldUnit(season.getEstimatedYieldUnit())
                 .actualYieldKg(season.getActualYieldKg())
                 .status(season.getStatus())
                 .activePhiEndDate(activePhiEndDate)
                 .isInPhiQuarantine(isInPhiQuarantine)
                 .totalExpensesAmount(totalExpenses)
+                .createdBy(season.getCreatedBy())
+                .createdByName(createdByName)
                 .createdAt(season.getCreatedAt())
                 .updatedAt(season.getUpdatedAt())
                 .build();

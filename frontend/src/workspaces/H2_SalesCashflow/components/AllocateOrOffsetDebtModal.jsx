@@ -19,23 +19,24 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { toast } from '@/store/useToastStore';
 import { formatCurrency } from '@/utils/formatters';
 
-export function AllocateOrOffsetDebtModal({ isOpen, onClose, onSuccess, initialFarmId, preselectedDebtId }) {
+export function AllocateOrOffsetDebtModal({ isOpen, onClose, onSuccess, initialFarmId, preselectedDebtId, initialDebt }) {
   const { farms, activeFarmId } = useActiveFarmStore();
-  const currentFarmId = (initialFarmId && initialFarmId !== 'ALL') ? initialFarmId : (activeFarmId !== 'ALL' ? activeFarmId : '');
+  const currentFarmId = (initialDebt?.farmId) || ((initialFarmId && initialFarmId !== 'ALL') ? initialFarmId : (activeFarmId !== 'ALL' ? activeFarmId : ''));
 
   const [activeTab, setActiveTab] = useState('ALLOCATE'); // 'ALLOCATE' | 'OFFSET'
   const [selectedFarmId, setSelectedFarmId] = useState(currentFarmId ? String(currentFarmId) : (farms[0]?.id ? String(farms[0].id) : ''));
 
   // Tab 1 state: Allocate payment to debt
   const [debts, setDebts] = useState([]);
-  const [selectedDebtId, setSelectedDebtId] = useState(preselectedDebtId ? String(preselectedDebtId) : '');
+  const [payments, setPayments] = useState([]);
+  const [selectedDebtId, setSelectedDebtId] = useState(initialDebt?.id ? String(initialDebt.id) : (preselectedDebtId ? String(preselectedDebtId) : ''));
   const [paymentId, setPaymentId] = useState('');
-  const [allocatedAmount, setAllocatedAmount] = useState('');
+  const [allocatedAmount, setAllocatedAmount] = useState(initialDebt?.remainingDebt ? String(initialDebt.remainingDebt) : '');
   const [allocateNotes, setAllocateNotes] = useState('');
 
   // Tab 2 state: 2-way debt offset
   const [partners, setPartners] = useState([]);
-  const [selectedPartnerId, setSelectedPartnerId] = useState('');
+  const [selectedPartnerId, setSelectedPartnerId] = useState(initialDebt?.partnerId ? String(initialDebt.partnerId) : '');
   const [receivableDebts, setReceivableDebts] = useState([]);
   const [payableDebts, setPayableDebts] = useState([]);
   const [selectedReceivableId, setSelectedReceivableId] = useState('');
@@ -48,17 +49,22 @@ export function AllocateOrOffsetDebtModal({ isOpen, onClose, onSuccess, initialF
 
   useEffect(() => {
     if (isOpen) {
-      const defFarm = currentFarmId ? String(currentFarmId) : (farms[0]?.id ? String(farms[0].id) : '');
+      const defFarm = initialDebt?.farmId ? String(initialDebt.farmId) : (currentFarmId ? String(currentFarmId) : (farms[0]?.id ? String(farms[0].id) : ''));
+      const defDebtId = initialDebt?.id ? String(initialDebt.id) : (preselectedDebtId ? String(preselectedDebtId) : '');
+      const defPartnerId = initialDebt?.partnerId ? String(initialDebt.partnerId) : '';
+      const defAmount = initialDebt?.remainingDebt ? String(initialDebt.remainingDebt) : '';
+
       setSelectedFarmId(defFarm);
-      setSelectedDebtId(preselectedDebtId ? String(preselectedDebtId) : '');
+      setSelectedDebtId(defDebtId);
+      setSelectedPartnerId(defPartnerId);
       setPaymentId('');
-      setAllocatedAmount('');
-      setAllocateNotes('');
+      setAllocatedAmount(defAmount);
+      setAllocateNotes(initialDebt ? `Phân bổ thanh toán cho khoản nợ ${initialDebt.orderCode || initialDebt.id}` : '');
       setOffsetAmount('');
       setOffsetNotes('');
       setErrors({});
     }
-  }, [isOpen, currentFarmId, preselectedDebtId, farms]);
+  }, [isOpen, currentFarmId, preselectedDebtId, initialDebt, farms]);
 
   // Load partners
   useEffect(() => {
@@ -71,25 +77,38 @@ export function AllocateOrOffsetDebtModal({ isOpen, onClose, onSuccess, initialF
       .catch(() => setPartners([]));
   }, [isOpen]);
 
-  // Load debts for selected farm
+  // Load debts and payments for selected farm
   useEffect(() => {
     if (!isOpen || !selectedFarmId) {
       setDebts([]);
+      setPayments([]);
       return;
     }
 
-    financeService.getDebts({ farmId: Number(selectedFarmId), size: 100, status: 'OPEN' })
+    financeService.getDebts({ farmId: Number(selectedFarmId), size: 100 })
       .then((res) => {
         const list = res?.content || (Array.isArray(res) ? res : []);
-        setDebts(list);
+        const activeDebts = list.filter((d) => Number(d.remainingDebt || 0) > 0 && d.status !== 'PAID' && d.status !== 'CANCELLED');
+        setDebts(activeDebts);
         if (preselectedDebtId) {
-          const found = list.find((d) => String(d.id) === String(preselectedDebtId));
+          const found = activeDebts.find((d) => String(d.id) === String(preselectedDebtId));
           if (found) {
+            setSelectedDebtId(String(found.id));
             setAllocatedAmount(String(found.remainingDebt || ''));
           }
         }
       })
       .catch(() => setDebts([]));
+
+    financeService.getPayments({ farmId: Number(selectedFarmId), size: 100 })
+      .then((res) => {
+        const list = res?.content || (Array.isArray(res) ? res : []);
+        setPayments(list);
+        if (list.length > 0 && !paymentId) {
+          setPaymentId(String(list[0].id));
+        }
+      })
+      .catch(() => setPayments([]));
   }, [isOpen, selectedFarmId, preselectedDebtId]);
 
   // Load debts for offset when selectedPartnerId changes
@@ -107,19 +126,17 @@ export function AllocateOrOffsetDebtModal({ isOpen, onClose, onSuccess, initialF
             farmId: Number(selectedFarmId),
             partnerId: Number(selectedPartnerId),
             debtType: 'RECEIVABLE',
-            status: 'OPEN',
             size: 50,
           }),
           financeService.getDebts({
             farmId: Number(selectedFarmId),
             partnerId: Number(selectedPartnerId),
             debtType: 'PAYABLE',
-            status: 'OPEN',
             size: 50,
           }),
         ]);
-        const recList = recRes?.content || (Array.isArray(recRes) ? recRes : []);
-        const payList = payRes?.content || (Array.isArray(payRes) ? payRes : []);
+        const recList = (recRes?.content || (Array.isArray(recRes) ? recRes : [])).filter((d) => Number(d.remainingDebt || 0) > 0 && d.status !== 'PAID' && d.status !== 'CANCELLED');
+        const payList = (payRes?.content || (Array.isArray(payRes) ? payRes : [])).filter((d) => Number(d.remainingDebt || 0) > 0 && d.status !== 'PAID' && d.status !== 'CANCELLED');
         setReceivableDebts(recList);
         setPayableDebts(payList);
 
@@ -290,14 +307,32 @@ export function AllocateOrOffsetDebtModal({ isOpen, onClose, onSuccess, initialF
                 </Select>
               </FormField>
 
-              <FormField label="ID Phiếu Thanh Toán (Payment ID) (*)" error={errors.paymentId}>
-                <Input
-                  type="number"
-                  placeholder="Nhập ID phiếu thanh toán (VD: 1, 2...)"
-                  value={paymentId}
-                  onChange={(e) => setPaymentId(e.target.value)}
-                  className="w-full text-xs font-mono font-bold"
-                />
+              <FormField label="Chọn Phiếu Thanh Toán (Payment) (*)" error={errors.paymentId}>
+                {payments.length > 0 ? (
+                  <Select
+                    value={paymentId}
+                    onChange={(e) => setPaymentId(e.target.value)}
+                    className="w-full text-xs font-semibold"
+                  >
+                    <option value="">-- Chọn phiếu thanh toán --</option>
+                    {payments.map((p) => {
+                      const unalloc = Math.max(0, Number(p.amount || 0) - Number(p.allocatedAmount || 0));
+                      return (
+                        <option key={p.id} value={p.id}>
+                          #{p.id} - {p.paymentCode} ({p.paymentType === 'RECEIPT' ? 'Thu' : 'Chi'}) {formatCurrency(p.amount)} (Còn: {formatCurrency(unalloc)})
+                        </option>
+                      );
+                    })}
+                  </Select>
+                ) : (
+                  <Input
+                    type="number"
+                    placeholder="Nhập ID phiếu thanh toán (VD: 1, 2...)"
+                    value={paymentId}
+                    onChange={(e) => setPaymentId(e.target.value)}
+                    className="w-full text-xs font-mono font-bold"
+                  />
+                )}
               </FormField>
             </div>
 

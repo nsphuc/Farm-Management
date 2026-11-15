@@ -34,7 +34,7 @@ public class Enterprise {
     @Column(name = "established_date")
     private LocalDate establishedDate;
 
-    @Column(name = "logo_url", length = 500)
+    @Column(name = "logo_url", columnDefinition = "MEDIUMTEXT")
     private String logoUrl;
 
     @Column(name = "contact_phone", length = 30)

@@ -26,4 +26,8 @@ public class CreateZoneLocationRequest {
     private BigDecimal areaM2;
 
     private Integer capacity;
+
+    private String capacityUnit;
+
+    private Long warehouseId;
 }

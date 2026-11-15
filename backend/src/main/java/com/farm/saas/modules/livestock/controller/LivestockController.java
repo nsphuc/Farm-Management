@@ -118,6 +118,15 @@ public class LivestockController {
         return ResponseEntity.status(HttpStatus.CREATED).body(livestockService.createIndividual(farmId, request));
     }
 
+    @PostMapping("/livestock-individuals/batch")
+    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @Operation(summary = "Gán thẻ tai hàng loạt (Dải số hoặc Excel)", description = "Sinh dải mã thẻ tai tự động hoặc nhập danh sách cá thể từ file Excel trong 1 giao dịch duy nhất")
+    public ResponseEntity<BatchCreateIndividualsResponse> batchCreateIndividuals(
+            @PathVariable Long farmId,
+            @Valid @RequestBody BatchCreateIndividualsRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(livestockService.batchCreateIndividuals(farmId, request));
+    }
+
     @PutMapping("/livestock-individuals/{id}")
     @PreAuthorize("hasAnyAuthority('PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Cập nhật cá thể RFID", description = "Cập nhật cân nặng, tình trạng sức khỏe hoặc chuồng nuôi")
@@ -129,7 +138,7 @@ public class LivestockController {
     }
 
     @DeleteMapping("/livestock-individuals/{id}")
-    @PreAuthorize("hasAuthority('PERM_LIVESTOCK_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAuthority('PERM_LIVESTOCK_MANAGE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Xóa cá thể RFID", description = "Xóa hoặc đào thải cá thể")
     public ResponseEntity<Void> deleteIndividual(
             @PathVariable Long farmId,

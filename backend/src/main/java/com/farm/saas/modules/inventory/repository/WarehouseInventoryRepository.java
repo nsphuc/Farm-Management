@@ -19,6 +19,8 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
     java.util.Optional<WarehouseInventory> findByFarmIdAndInternalBatchBarcode(Long farmId, String internalBatchBarcode);
     java.util.List<WarehouseInventory> findByFarmIdAndMaterialId(Long farmId, Long materialId);
 
+    java.util.List<WarehouseInventory> findByWarehouseIdAndMaterialId(Long warehouseId, Long materialId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM WarehouseInventory e WHERE e.warehouseId = :warehouseId AND e.materialId = :materialId AND e.batchNumber = :batchNumber")
     Optional<WarehouseInventory> findByWarehouseIdAndMaterialIdAndBatchNumberForUpdate(
@@ -34,7 +36,15 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
     );
 
     java.util.List<WarehouseInventory> findByFarmId(Long farmId);
+    java.util.List<WarehouseInventory> findByWarehouseId(Long warehouseId);
     java.util.List<WarehouseInventory> findByTenantId(Long tenantId);
+    @Query("SELECT wi FROM WarehouseInventory wi WHERE wi.farmId = :farmId AND wi.warehouseId = :warehouseId AND wi.materialId = :materialId AND (wi.quantityOnHand - wi.reservedQuantity) > 0 ORDER BY CASE WHEN wi.expiryDate IS NULL THEN 1 ELSE 0 END, wi.expiryDate ASC, wi.inwardDate ASC, wi.id ASC")
+    java.util.List<WarehouseInventory> findFefoAvailableLots(
+            @Param("farmId") Long farmId,
+            @Param("warehouseId") Long warehouseId,
+            @Param("materialId") Long materialId
+    );
+
     boolean existsByMaterialId(Long materialId);
     boolean existsByWarehouseId(Long warehouseId);
 

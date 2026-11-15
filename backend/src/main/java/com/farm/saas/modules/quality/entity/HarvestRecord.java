@@ -6,6 +6,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import lombok.*;
 
+/**
+ * Thực thể lưu trữ thông tin biên bản thu hoạch nông sản hoặc xuất chuồng vật nuôi (harvest_records).
+ */
 @Getter
 @Setter
 @Builder

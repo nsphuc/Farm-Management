@@ -21,6 +21,12 @@ public class CostCategory {
     @Column(name = "tenant_id", nullable = false)
     private Long tenantId;
 
+    @Column(name = "farm_id")
+    private Long farmId;
+
+    @Column(name = "applicable_farms", length = 255)
+    private String applicableFarms;
+
     @Column(name = "name", nullable = false, length = 150)
     private String name;
 
@@ -29,6 +35,9 @@ public class CostCategory {
 
     @Column(name = "cost_type", nullable = false, length = 50)
     private String costType;
+
+    @Column(name = "description", length = 500)
+    private String description;
 
     @Column(name = "created_at")
     private Instant createdAt;

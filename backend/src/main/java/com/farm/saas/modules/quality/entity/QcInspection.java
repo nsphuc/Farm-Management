@@ -6,6 +6,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import lombok.*;
 
+/**
+ * Thực thể lưu trữ thông tin biên bản kiểm định chất lượng KCS (qc_inspections) cho lô sản phẩm thành phẩm.
+ */
 @Getter
 @Setter
 @Builder

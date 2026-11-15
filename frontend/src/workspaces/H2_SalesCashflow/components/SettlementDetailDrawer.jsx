@@ -411,7 +411,13 @@ export function SettlementDetailDrawer({
               Đóng
             </Button>
 
-            {manager && !isClosed && (
+            {status === 'PLANNING' && (
+              <span className="text-xs font-semibold text-slate-500 italic bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                Chu kỳ đang lập kế hoạch — Chưa đến kỳ kết toán &amp; chốt sổ
+              </span>
+            )}
+
+            {manager && !isClosed && status !== 'PLANNING' && (
               <Button
                 variant="primary"
                 size="sm"
@@ -424,7 +430,7 @@ export function SettlementDetailDrawer({
               </Button>
             )}
 
-            {owner && !isClosed && (
+            {owner && !isClosed && status !== 'PLANNING' && (
               <Button
                 variant="primary"
                 size="sm"

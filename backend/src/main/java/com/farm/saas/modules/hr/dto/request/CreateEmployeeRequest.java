@@ -34,7 +34,7 @@ public class CreateEmployeeRequest {
     private String phone;
 
     @NotBlank(message = "Email không được để trống")
-    @Email(message = "Địa chỉ email không đúng định dạng")
+    @Pattern(regexp = "^[A-Za-z0-9._%+-]+@gmail\\.com$", flags = Pattern.Flag.CASE_INSENSITIVE, message = "Email phải có định dạng @gmail.com (ví dụ: nhanvien@gmail.com)")
     private String email;
 
     @NotBlank(message = "Số CMND/CCCD không được để trống")

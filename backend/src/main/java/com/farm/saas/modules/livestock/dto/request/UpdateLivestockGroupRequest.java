@@ -22,4 +22,6 @@ public class UpdateLivestockGroupRequest {
 
     @Pattern(regexp = "^(ACTIVE|QUARANTINED|SOLD|CULLED)$", message = "Trạng thái đàn không hợp lệ")
     private String status;
+
+    private String managementType;
 }

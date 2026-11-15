@@ -21,9 +21,6 @@ export function AuthShell() {
         <h1 className="mt-4 text-2xl font-black tracking-tight text-white sm:text-3xl">
           AGRI-ERP PLATFORM
         </h1>
-        <p className="mt-1 text-xs text-emerald-300 font-medium tracking-wider uppercase">
-          Hệ Thống Quản Trị Nông Nghiệp Đa Trang Trại Chuẩn 72 Bảng
-        </p>
       </div>
 
       {/* Card Content Outlet */}

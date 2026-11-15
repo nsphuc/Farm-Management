@@ -18,6 +18,8 @@ public class WarehouseResponse {
     private Long tenantId;
     private Long farmId;
     private String farmName;
+    private Long zoneId;
+    private String zoneName;
     private String code;
     private String name;
     private String warehouseType;

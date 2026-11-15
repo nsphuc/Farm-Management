@@ -5,6 +5,7 @@ import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { FormField, Input, CodeInput } from '@/components/ui/FormControls';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
@@ -24,7 +25,9 @@ export function CropTypesTab() {
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
+    imageUrl: '',
     varietyCode: '',
+    cropCategory: 'ANNUAL',
     growthDaysStandard: 90,
     waterNeedM3Day: 0,
     optimalTempMin: 20,
@@ -65,7 +68,9 @@ export function CropTypesTab() {
     if (item) {
       setFormData({
         name: item.name || '',
+        imageUrl: item.imageUrl || '',
         varietyCode: item.varietyCode || '',
+        cropCategory: item.cropCategory || 'ANNUAL',
         growthDaysStandard: item.growthDaysStandard || 90,
         waterNeedM3Day: item.waterNeedM3Day || 0,
         optimalTempMin: item.optimalTempMin ?? 20,
@@ -74,7 +79,9 @@ export function CropTypesTab() {
     } else {
       setFormData({
         name: '',
-        varietyCode: generateEntityCode(CODE_PREFIXES.VARIETY),
+        imageUrl: '',
+        varietyCode: generateEntityCode(CODE_PREFIXES.VARIETY, data),
+        cropCategory: 'ANNUAL',
         growthDaysStandard: 90,
         waterNeedM3Day: 0,
         optimalTempMin: 20,
@@ -143,6 +150,27 @@ export function CropTypesTab() {
 
   const columns = [
     {
+      key: 'image',
+      title: 'Ảnh Giống',
+      className: 'w-16 text-center',
+      render: (item) => (
+        <div className="h-10 w-10 mx-auto rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center">
+          {item.imageUrl ? (
+            <img
+              src={item.imageUrl}
+              alt={item.name}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <Sprout className="h-5 w-5 text-emerald-600 opacity-60" />
+          )}
+        </div>
+      ),
+    },
+    {
       key: 'varietyCode',
       title: 'Mã Giống',
       render: (item) => <span className="font-mono font-bold text-emerald-800">{item.varietyCode}</span>,
@@ -151,6 +179,19 @@ export function CropTypesTab() {
       key: 'name',
       title: 'Tên Giống Cây Trồng',
       render: (item) => <span className="font-semibold text-slate-900">{item.name}</span>,
+    },
+    {
+      key: 'cropCategory',
+      title: 'Phân Loại',
+      render: (item) => (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+          item.cropCategory === 'PERENNIAL'
+            ? 'bg-amber-50 text-amber-800 border-amber-200'
+            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+        }`}>
+          {item.cropCategory === 'PERENNIAL' ? '🌳 Cây thân gỗ' : '🌱 Ngắn ngày'}
+        </span>
+      ),
     },
     {
       key: 'growthDaysStandard',
@@ -287,15 +328,34 @@ export function CropTypesTab() {
                 setFormData((prev) => ({ ...prev, varietyCode: e.target.value.toUpperCase() }))
               }
               onRegenerate={() =>
-                setFormData((prev) => ({ ...prev, varietyCode: generateEntityCode(CODE_PREFIXES.VARIETY) }))
+                setFormData((prev) => ({ ...prev, varietyCode: generateEntityCode(CODE_PREFIXES.VARIETY, data) }))
               }
               isEditMode={Boolean(editingItem)}
               error={fieldErrors.varietyCode}
             />
           </FormField>
 
+          <ImageUploadField
+            value={formData.imageUrl || ''}
+            onChange={(url) => setFormData((prev) => ({ ...prev, imageUrl: url }))}
+            label="Ảnh Đại Diện Giống Cây Trồng"
+            error={fieldErrors.imageUrl}
+            hint="Tải ảnh từ máy tính hoặc dán URL. Ảnh này sẽ dùng làm hình đại diện hiển thị trên tem QR truy xuất."
+          />
+
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Chu Kỳ Sinh Trưởng Chuẩn (Ngày)" required error={fieldErrors.growthDaysStandard}>
+            <FormField label="Phân Loại Cây Trồng" required>
+              <select
+                className="w-full text-xs rounded-xl border border-slate-200 p-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                value={formData.cropCategory}
+                onChange={(e) => setFormData((prev) => ({ ...prev, cropCategory: e.target.value }))}
+              >
+                <option value="ANNUAL">🌱 Cây ngắn ngày / Hoa màu (Gieo hạt)</option>
+                <option value="PERENNIAL">🌳 Cây ăn trái thân gỗ (Lâu năm / Số gốc)</option>
+              </select>
+            </FormField>
+
+            <FormField label="Chu Kỳ Sinh Trưởng / Nuôi Trái (Ngày)" required error={fieldErrors.growthDaysStandard}>
               <Input
                 type="number"
                 min="1"
@@ -305,19 +365,19 @@ export function CropTypesTab() {
                 }
               />
             </FormField>
-
-            <FormField label="Nhu Cầu Nước (m³/ngày)" error={fieldErrors.waterNeedM3Day}>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.waterNeedM3Day}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, waterNeedM3Day: Number(e.target.value) }))
-                }
-              />
-            </FormField>
           </div>
+
+          <FormField label="Nhu Cầu Nước (m³/ngày)" error={fieldErrors.waterNeedM3Day}>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={formData.waterNeedM3Day}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, waterNeedM3Day: Number(e.target.value) }))
+              }
+            />
+          </FormField>
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Nhiệt Độ Tối Thiểu (°C)" error={fieldErrors.optimalTempMin}>

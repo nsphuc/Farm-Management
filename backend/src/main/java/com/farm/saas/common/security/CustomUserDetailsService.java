@@ -38,11 +38,16 @@ public class CustomUserDetailsService implements UserDetailsService {
         );
         Set<String> roles = new HashSet<>(roleCodes);
 
-        // 2. Query permissions (Super Admin automatically gets all permissions)
+        // 2. Query permissions (Super Admin gets all permissions, Farm Owner gets all operational permissions)
         List<String> permissionCodes;
         if (Boolean.TRUE.equals(user.getIsSuperAdmin()) || roles.contains("ROLE_SUPER_ADMIN")) {
             permissionCodes = jdbcTemplate.query(
                     "SELECT code FROM permissions",
+                    (rs, rowNum) -> rs.getString("code")
+            );
+        } else if (roles.contains("ROLE_FARM_OWNER")) {
+            permissionCodes = jdbcTemplate.query(
+                    "SELECT code FROM permissions WHERE code != 'PERM_TENANT_MANAGE'",
                     (rs, rowNum) -> rs.getString("code")
             );
         } else {
@@ -82,11 +87,18 @@ public class CustomUserDetailsService implements UserDetailsService {
         }
 
         // 4. Query accessible farm IDs:
-        // Only ROLE_FARM_OWNER (Cấp 2) automatically loads all farmIds belonging to Tenant.
+        // Tier 1 (Super Admin) loads all farms.
+        // ROLE_FARM_OWNER (Cấp 2) automatically loads all farmIds belonging to Tenant.
         // For ROLE_FARM_MANAGER (Cấp 3) and Tier 4 roles (including ROLE_ACCOUNTANT), accessibleFarmIds is only taken
         // from user_farm_access, user_roles.farm_id, farms.manager_user_id, and farm_assignments of that user.
         Set<Long> accessibleFarmIds = new HashSet<>();
-        if (tierLevel == 2 && user.getTenantId() != null) {
+        if (tierLevel == 1) {
+            List<Long> allFarmIds = jdbcTemplate.query(
+                    "SELECT id FROM farms WHERE status != 'DELETED'",
+                    (rs, rowNum) -> rs.getLong(1)
+            );
+            accessibleFarmIds.addAll(allFarmIds);
+        } else if (tierLevel == 2 && user.getTenantId() != null) {
             List<Long> tenantFarmIds = jdbcTemplate.query(
                     "SELECT id FROM farms WHERE tenant_id = ? AND status != 'DELETED'",
                     (rs, rowNum) -> rs.getLong(1),

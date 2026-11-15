@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { QrCode, Copy, Check, Download, Building, User, Banknote } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency } from '@/utils/formatters';
+import { enterpriseService } from '@/services/modules/enterpriseService';
 
 /**
  * VietQRModal Component (Mục 2.3 File 09, Workspace H2 File 08)
@@ -11,16 +12,34 @@ import { formatCurrency } from '@/utils/formatters';
 export function VietQRModal({
   isOpen,
   onClose,
-  bankBin = '970422', // Mặc định MBBank
-  bankName = 'Ngân hàng Quân Đội (MBBank)',
-  accountNo = '0987654321',
-  accountName = 'CONG TY NONG NGHIEP SO VINAGREEN',
+  bankBin: propBankBin,
+  bankName: propBankName,
+  accountNo: propAccountNo,
+  accountName: propAccountName,
   amount = 0,
   orderCode = '',
   transferContent,
 }) {
   const [copiedMemo, setCopiedMemo] = useState(false);
   const [copiedAccount, setCopiedAccount] = useState(false);
+  const [profileBank, setProfileBank] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!propAccountNo) {
+      enterpriseService.getProfile().then((data) => {
+        if (isMounted && data) {
+          setProfileBank(data);
+        }
+      }).catch(() => {});
+    }
+    return () => { isMounted = false; };
+  }, [propAccountNo]);
+
+  const bankBin = propBankBin || profileBank?.bankBin || '970436';
+  const bankName = propBankName || profileBank?.bankName || 'Vietcombank - Ngân hàng Ngoại thương Việt Nam';
+  const accountNo = propAccountNo || profileBank?.bankAccountNo || '1026790945';
+  const accountName = propAccountName || profileBank?.bankAccountName || 'NGUYEN SI PHUC';
 
   const addInfo = transferContent || (orderCode ? `SO ${orderCode}` : 'THANH TOAN NONG SAN');
   const sanitizedAccountName = (accountName || '').toUpperCase();

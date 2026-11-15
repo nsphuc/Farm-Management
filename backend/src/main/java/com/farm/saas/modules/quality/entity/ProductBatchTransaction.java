@@ -6,6 +6,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import lombok.*;
 
+/**
+ * Thực thể ghi nhận lịch sử biến động số lượng tồn/bán của lô thành phẩm (product_batch_transactions) theo mô hình sổ cái chỉ ghi thêm (Append-only Ledger).
+ */
 @Getter
 @Setter
 @Builder

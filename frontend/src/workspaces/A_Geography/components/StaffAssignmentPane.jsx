@@ -171,7 +171,7 @@ export function StaffAssignmentPane({
 
                   {(owner || (farmManager && a.roleInFarm !== 'FARM_MANAGER')) && (
                     <Can permission="PERM_ZONE_MANAGE">
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <Button
                           type="button"
                           variant="outline"

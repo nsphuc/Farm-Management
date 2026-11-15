@@ -22,13 +22,10 @@ public class CheckInAttendanceRequest {
     @NotNull(message = "Ca làm việc không được để trống")
     private Long shiftId;
 
-    @NotNull(message = "Vĩ độ GPS không được để trống")
     private BigDecimal latitude;
 
-    @NotNull(message = "Kinh độ GPS không được để trống")
     private BigDecimal longitude;
 
-    @NotBlank(message = "Ảnh selfie chấm công không được để trống")
     private String photoUrl;
 
     private Instant checkInTime;

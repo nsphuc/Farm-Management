@@ -6,6 +6,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 
+/**
+ * DTO phản hồi chi tiết thông tin biên bản thu hoạch nông sản hoặc xuất chuồng vật nuôi.
+ */
 @Getter
 @Setter
 @Builder
@@ -35,6 +38,11 @@ public class HarvestRecordDetailResponse {
     private Instant createdAt;
     private Instant updatedAt;
 
+    /**
+     * Lấy sản lượng thu hoạch thực tế (tương thích thuộc tính actualYieldKg trên giao diện).
+     *
+     * @return Sản lượng thu hoạch
+     */
     public BigDecimal getActualYieldKg() {
         return quantity;
     }

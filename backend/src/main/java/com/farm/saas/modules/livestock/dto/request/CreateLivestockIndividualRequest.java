@@ -41,4 +41,11 @@ public class CreateLivestockIndividualRequest {
 
     @Pattern(regexp = "^(HEALTHY|SICK|INJURED|QUARANTINED|DECEASED|SOLD)$", message = "Tình trạng sức khỏe không hợp lệ")
     private String healthStatus;
+
+    // --- Tùy chọn Tự Động Xuất Kho Thẻ Tai RFID & Hạch Toán Kế Toán ---
+    @Builder.Default
+    private Boolean autoDeductTagInventory = false;
+    private Long warehouseId;
+    private Long tagMaterialId;
+    private BigDecimal tagUnitPrice;
 }

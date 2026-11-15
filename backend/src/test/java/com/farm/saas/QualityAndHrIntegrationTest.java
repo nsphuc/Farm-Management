@@ -168,6 +168,7 @@ public class QualityAndHrIntegrationTest {
                         .tenantId(tenantId)
                         .varietyCode("CROP_BELL_PEPPER_01")
                         .name("Ớt Chuông Đà Lạt")
+                        .cropCategory("ANNUAL")
                         .growthDaysStandard(75)
                         .createdAt(Instant.now())
                         .build()));

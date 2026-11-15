@@ -222,20 +222,32 @@ export function InventoryHubWorkspace() {
   const filteredReceipts = receipts.filter((r) => {
     if (!searchTerm) return true;
     const q = searchTerm.toLowerCase();
+    const itemsMatch = r.items?.some(
+      (it) => it.materialName?.toLowerCase().includes(q) || it.skuCode?.toLowerCase().includes(q) || it.batchNumber?.toLowerCase().includes(q)
+    );
     return (
       r.receiptCode?.toLowerCase().includes(q) ||
       r.warehouseName?.toLowerCase().includes(q) ||
-      r.partnerName?.toLowerCase().includes(q)
+      r.partnerName?.toLowerCase().includes(q) ||
+      r.itemSummary?.toLowerCase().includes(q) ||
+      r.notes?.toLowerCase().includes(q) ||
+      itemsMatch
     );
   });
 
   const filteredIssues = issues.filter((i) => {
     if (!searchTerm) return true;
     const q = searchTerm.toLowerCase();
+    const itemsMatch = i.items?.some(
+      (it) => it.materialName?.toLowerCase().includes(q) || it.skuCode?.toLowerCase().includes(q) || it.batchNumber?.toLowerCase().includes(q)
+    );
     return (
       i.issueCode?.toLowerCase().includes(q) ||
       i.warehouseName?.toLowerCase().includes(q) ||
-      i.receiverName?.toLowerCase().includes(q)
+      i.receiverName?.toLowerCase().includes(q) ||
+      i.itemSummary?.toLowerCase().includes(q) ||
+      i.notes?.toLowerCase().includes(q) ||
+      itemsMatch
     );
   });
 
@@ -408,6 +420,42 @@ export function InventoryHubWorkspace() {
     },
     { key: 'warehouseName', header: 'Kho Nhận', width: '150px' },
     {
+      key: 'itemSummary',
+      header: 'Mặt Hàng & Số Lượng',
+      width: '260px',
+      render: (row) => {
+        let summary = row.itemSummary;
+        if (!summary && Array.isArray(row.items) && row.items.length > 0) {
+          const first = row.items[0];
+          const name = first.materialName || 'Vật tư';
+          const qty = first.enteredQuantity != null ? first.enteredQuantity : first.quantity;
+          const unit = first.enteredUnit || first.standardUnit || '';
+          const qtyStr = qty != null ? Number(qty).toLocaleString('vi-VN') : '0';
+          if (row.items.length > 1) {
+            summary = `${name} (${qtyStr} ${unit}) + ${row.items.length - 1} mục khác`;
+          } else {
+            summary = `${name} (${qtyStr} ${unit})`;
+          }
+        }
+        if (!summary && row.notes) {
+          summary = row.notes;
+        }
+
+        return (
+          <div className="min-w-[200px]">
+            <div className="font-bold text-xs text-slate-800 leading-snug">
+              {summary || 'Vật tư nhập kho'}
+            </div>
+            {row.items && row.items.length > 0 && row.items[0].batchNumber && (
+              <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                Lô: {row.items[0].batchNumber}
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       key: 'partnerName',
       header: 'Nhà Cung Cấp',
       width: '180px',
@@ -472,6 +520,49 @@ export function InventoryHubWorkspace() {
     },
     { key: 'warehouseName', header: 'Kho Xuất', width: '150px' },
     {
+      key: 'itemSummary',
+      header: 'Vật Tư Đã Xuất',
+      width: '240px',
+      render: (row) => {
+        let summary = row.itemSummary;
+        if (!summary && Array.isArray(row.items) && row.items.length > 0) {
+          const first = row.items[0];
+          const name = first.materialName || 'Vật tư';
+          const qty = first.enteredQuantity != null ? first.enteredQuantity : first.quantity;
+          const unit = first.enteredUnit || first.standardUnit || '';
+          const qtyStr = qty != null ? Number(qty).toLocaleString('vi-VN') : '0';
+          if (row.items.length > 1) {
+            summary = `${name} (${qtyStr} ${unit}) + ${row.items.length - 1} mục khác`;
+          } else {
+            summary = `${name} (${qtyStr} ${unit})`;
+          }
+        }
+        if (!summary && row.notes) {
+          summary = row.notes;
+        }
+
+        return (
+          <div className="min-w-[180px]">
+            <div className="font-bold text-xs text-slate-800 leading-snug">
+              {summary || 'Vật tư xuất kho'}
+            </div>
+            <div className="flex items-center gap-1 flex-wrap mt-0.5">
+              {row.taskTitle && (
+                <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                  📋 Việc: {row.taskTitle}
+                </span>
+              )}
+              {row.isBackflushed && (
+                <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                  ⚡ Auto-Backflush
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
       key: 'receiverName',
       header: 'Người Nhận Hàng',
       width: '160px',
@@ -493,8 +584,17 @@ export function InventoryHubWorkspace() {
     {
       key: 'status',
       header: 'Trạng Thái',
-      width: '120px',
-      render: (row) => <StatusBadge status={row.status} size="sm" />,
+      width: '130px',
+      render: (row) => (
+        <div className="space-y-0.5">
+          <StatusBadge status={row.status} size="sm" />
+          {row.status === 'DRAFT' && (
+            <span className="block text-[10px] font-semibold text-amber-700">
+              🟡 Chờ thủ kho xuất
+            </span>
+          )}
+        </div>
+      ),
     },
     {
       key: 'actions',
@@ -693,7 +793,7 @@ export function InventoryHubWorkspace() {
             <Warehouse className="h-6 w-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-black text-slate-900 tracking-tight">
                 WS-C: {technicalLead ? 'Tra Cứu Tồn Kho Vật Tư' : 'Giám Sát Kho Vận & Quản Trị Tồn Kho'}
               </h1>
@@ -722,7 +822,7 @@ export function InventoryHubWorkspace() {
         </div>
 
         {/* NÚT TẠO PHIẾU DÀNH CHO MAKER (ROLE_WAREHOUSE_STAFF) VÀ ROLE_FARM_MANAGER */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {activeTab === 'RECEIPTS' && (
             <Can permission="PERM_INVENTORY_RECEIPT" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
               <Button
@@ -964,7 +1064,7 @@ export function InventoryHubWorkspace() {
       {/* ======================================================== */}
       {/* 5. ĐIỀU HƯỚNG 5 TABS THEO DÕI CHI TIẾT (READ-ONLY)       */}
       {/* ======================================================== */}
-      <div className="flex border-b border-slate-200 overflow-x-auto space-x-2">
+      <div className="flex border-b border-slate-200 overflow-x-auto space-x-2 no-scrollbar">
         <button
           type="button"
           onClick={() => setActiveTab('STOCK')}
@@ -1146,16 +1246,24 @@ export function InventoryHubWorkspace() {
 
       {/* Slide-over Drawer xem sổ thẻ kho bất biến của lô (#38) */}
       <StockLedgerDrawer
+        key={selectedStockItem ? `stock-${selectedStockItem.id || selectedStockItem.batchNumber}` : 'stock-empty'}
         isOpen={isStockDrawerOpen}
-        onClose={() => setIsStockDrawerOpen(false)}
+        onClose={() => {
+          setIsStockDrawerOpen(false);
+          setSelectedStockItem(null);
+        }}
         item={selectedStockItem}
         farmId={queryFarmId}
       />
 
       {/* Slide-over Drawer xem chi tiết phiếu nhập mua (#32) */}
       <ReceiptDetailDrawer
+        key={selectedReceipt?.id ? `receipt-${selectedReceipt.id}` : 'receipt-empty'}
         isOpen={isReceiptDrawerOpen}
-        onClose={() => setIsReceiptDrawerOpen(false)}
+        onClose={() => {
+          setIsReceiptDrawerOpen(false);
+          setSelectedReceipt(null);
+        }}
         receipt={selectedReceipt}
         farmId={queryFarmId}
         onSuccess={fetchInventoryHubData}
@@ -1163,8 +1271,12 @@ export function InventoryHubWorkspace() {
 
       {/* Slide-over Drawer xem chi tiết phiếu xuất kho (#34) */}
       <IssueDetailDrawer
+        key={selectedIssue?.id ? `issue-${selectedIssue.id}` : 'issue-empty'}
         isOpen={isIssueDrawerOpen}
-        onClose={() => setIsIssueDrawerOpen(false)}
+        onClose={() => {
+          setIsIssueDrawerOpen(false);
+          setSelectedIssue(null);
+        }}
         issue={selectedIssue}
         farmId={queryFarmId}
         onSuccess={fetchInventoryHubData}
@@ -1172,8 +1284,12 @@ export function InventoryHubWorkspace() {
 
       {/* Slide-over Drawer xem chi tiết điều chuyển kho (#36) */}
       <TransferDetailDrawer
+        key={selectedTransfer?.id ? `transfer-${selectedTransfer.id}` : 'transfer-empty'}
         isOpen={isTransferDrawerOpen}
-        onClose={() => setIsTransferDrawerOpen(false)}
+        onClose={() => {
+          setIsTransferDrawerOpen(false);
+          setSelectedTransfer(null);
+        }}
         transfer={selectedTransfer}
         farmId={queryFarmId}
         onSuccess={fetchInventoryHubData}
@@ -1181,8 +1297,12 @@ export function InventoryHubWorkspace() {
 
       {/* Slide-over Drawer xem chi tiết kiểm kê kho (#39) */}
       <StocktakeDetailDrawer
+        key={selectedStocktake?.id ? `stocktake-${selectedStocktake.id}` : 'stocktake-empty'}
         isOpen={isStocktakeDrawerOpen}
-        onClose={() => setIsStocktakeDrawerOpen(false)}
+        onClose={() => {
+          setIsStocktakeDrawerOpen(false);
+          setSelectedStocktake(null);
+        }}
         stocktake={selectedStocktake}
         farmId={queryFarmId}
         onSuccess={fetchInventoryHubData}

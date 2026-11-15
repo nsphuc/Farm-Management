@@ -14,6 +14,7 @@ import {
   Calendar,
   Layers,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { DataTable } from '@/components/common/DataTable';
@@ -25,6 +26,7 @@ import { formatDate, formatWeight } from '@/utils/formatters';
 import { toast } from '@/store/useToastStore';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { LivestockIndividualModal } from './LivestockIndividualModal';
+import { BatchTaggingModal } from './BatchTaggingModal';
 
 const HEALTH_STATUS_MAP = {
   HEALTHY: { label: 'Khỏe mạnh', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
@@ -52,6 +54,7 @@ export function LivestockIndividualsTab({ item, farmId, onDataChanged }) {
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [editingIndividual, setEditingIndividual] = useState(null);
 
   // Nạp danh sách cá thể
@@ -69,7 +72,7 @@ export function LivestockIndividualsTab({ item, farmId, onDataChanged }) {
 
       const [indivRes, zoneRes, groupRes] = await Promise.all([
         farmingService.getLivestockIndividuals(farmId, params).catch(() => ({ content: [] })),
-        geographyService.getZones({ farmId }).catch(() => ({ content: [] })),
+        geographyService.getZones(farmId).catch(() => ({ content: [] })),
         farmingService.getLivestockGroups(farmId, { size: 100 }).catch(() => ({ content: [] })),
       ]);
 
@@ -252,24 +255,114 @@ export function LivestockIndividualsTab({ item, farmId, onDataChanged }) {
     },
   ];
 
+  const handleExportCsv = () => {
+    if (individuals.length === 0) {
+      toast.warning('Chưa có cá thể nào để xuất file!');
+      return;
+    }
+    const csvContent =
+      'Mã thẻ tai,Giới tính,Cân nặng (kg),Chuồng nuôi,Tình trạng sức khỏe,Mã mẹ,Mã bố\n' +
+      individuals
+        .map(
+          (ind) =>
+            `"${ind.rfidTagCode}","${ind.gender}","${ind.currentWeightKg != null ? ind.currentWeightKg : ''}","${ind.zoneName || ''}","${ind.healthStatus}","${ind.motherTagCode || ''}","${ind.fatherTagCode || ''}"`
+        )
+        .join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Danh_sach_the_tai_${item?.groupCode || 'dan_vat_nuoi'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Đã tải xuống file CSV danh sách cá thể!');
+  };
+
+  const totalGroupQuantity = item ? Number(item.currentQuantity || item.initialQuantity || 0) : 0;
+  const taggedCount = individuals.length;
+  const tagPercent = totalGroupQuantity > 0 ? Math.min(100, Math.round((taggedCount / totalGroupQuantity) * 100)) : 0;
+  const isFlock = item?.managementType === 'FLOCK_HERD';
+
   return (
     <div className="space-y-4 text-xs">
-      {/* Header thanh công cụ */}
+      {/* Thông báo nếu là Đàn Nuôi Bầy (Gia cầm / Thủy cầm) */}
+      {isFlock && (
+        <div className="bg-cyan-50/80 border border-cyan-200 rounded-2xl p-4 text-cyan-950 flex items-start gap-3">
+          <span className="text-2xl">🦆</span>
+          <div className="space-y-1">
+            <h5 className="font-bold text-xs text-cyan-900">
+              Đàn Nuôi Theo Bầy — Không Bắt Buộc Gắn Thẻ Tai Cá Thể
+            </h5>
+            <p className="text-[11px] leading-relaxed text-cyan-800">
+              Đàn <strong>{item.groupCode}</strong> ({item.breedName || 'Gia cầm/Thủy cầm'}) được thiết lập theo phương thức <strong>Nuôi Theo Bầy (Flock/Herd)</strong>. Hệ thống quản lý tập trung theo lứa tuổi, lượng cám FCR, tỷ lệ sống và tiêm vắc-xin tổng thể ở các tab bên cạnh. Bạn chỉ cần gắn thẻ tai nếu có nhu cầu theo dõi một số con giống hậu bị đặc biệt.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Header thanh công cụ & Tiến độ gắn thẻ */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
         <div>
           <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
             <Tag className="h-4 w-4 text-purple-600" />
-            <span>Quản Lý Cá Thể Đeo Thẻ Tai RFID ({filteredIndividuals.length} con)</span>
+            <span>Quản Lý Cá Thể Đeo Thẻ Tai RFID ({taggedCount} con)</span>
           </h4>
           <p className="text-[11px] text-slate-500 mt-0.5">
             {item?.groupCode
               ? `Các cá thể thuộc đàn ${item.groupCode} (${item.breedName || 'Vật nuôi'})`
               : 'Theo dõi chỉ số cá thể đeo thẻ tai RFID toàn trang trại'}
           </p>
+
+          {totalGroupQuantity > 0 && !isFlock && (
+            <div className="mt-2.5 flex items-center gap-3">
+              <div className="w-36 bg-slate-200 h-2 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    tagPercent >= 100 ? 'bg-emerald-500' : 'bg-purple-600'
+                  }`}
+                  style={{ width: `${tagPercent}%` }}
+                />
+              </div>
+              <span className="font-mono text-[11px] font-bold text-slate-700">
+                Đã gắn: {taggedCount} / {totalGroupQuantity} con ({tagPercent}%)
+              </span>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Nút Gắn thẻ tai mới */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Nút Xuất file CSV */}
+          {individuals.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<Download className="h-3.5 w-3.5" />}
+              onClick={handleExportCsv}
+              title="Tải danh sách mã thẻ tai về máy (.csv)"
+              className="text-slate-600 border-slate-300 hover:bg-slate-100"
+            >
+              Xuất File CSV
+            </Button>
+          )}
+
+          {/* Nút Gán Thẻ Hàng Loạt */}
+          {item && (
+            <Can anyPermissions={['PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET']} role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<Sparkles className="h-3.5 w-3.5 text-purple-600" />}
+                onClick={() => setIsBatchModalOpen(true)}
+                className="border-purple-300 text-purple-700 hover:bg-purple-50 font-bold"
+              >
+                Gán Thẻ Hàng Loạt (Dải Số / Excel / Quét)
+              </Button>
+            </Can>
+          )}
+
+          {/* Nút Gắn thẻ tai mới lẻ */}
           <Can anyPermissions={['PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET']} role={['ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF']}>
             <Button
               size="sm"
@@ -281,7 +374,7 @@ export function LivestockIndividualsTab({ item, farmId, onDataChanged }) {
               }}
               className="bg-purple-600 hover:bg-purple-700 text-white font-bold"
             >
-              + Gắn Thẻ Tai RFID Mới
+              + Gắn Thẻ Lẻ
             </Button>
           </Can>
         </div>
@@ -327,10 +420,14 @@ export function LivestockIndividualsTab({ item, farmId, onDataChanged }) {
         columns={columns}
         data={filteredIndividuals}
         isLoading={isLoading}
-        emptyMessage="Chưa có cá thể nào được gắn thẻ tai RFID trong phân nhóm này."
+        emptyMessage={
+          isFlock
+            ? 'Đàn nuôi theo bầy (gia cầm/thủy cầm) chưa gắn thẻ tai lẻ nào.'
+            : 'Chưa có cá thể nào được gắn thẻ tai RFID trong đàn này. Sử dụng nút "Gán Thẻ Hàng Loạt" để tự động sinh mã hoặc quét liên tục.'
+        }
       />
 
-      {/* Modal Thêm / Sửa Cá Thể RFID */}
+      {/* Modal Thêm / Sửa Cá Thể Lẻ */}
       <LivestockIndividualModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -339,11 +436,26 @@ export function LivestockIndividualsTab({ item, farmId, onDataChanged }) {
           if (onDataChanged) onDataChanged();
         }}
         farmId={farmId}
+        item={item}
         defaultGroupId={item?.id}
         defaultZoneId={item?.zoneId}
+        defaultLocationId={item?.locationId}
         zones={zones}
         groups={groups}
         individual={editingIndividual}
+      />
+
+      {/* Modal Gán Thẻ Tai Hàng Loạt (Suite 3 công cụ) */}
+      <BatchTaggingModal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        onSuccess={() => {
+          loadData();
+          if (onDataChanged) onDataChanged();
+        }}
+        farmId={farmId}
+        group={item}
+        zoneId={item?.zoneId}
       />
     </div>
   );

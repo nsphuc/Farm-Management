@@ -7,6 +7,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+/**
+ * DTO phản hồi chi tiết biên bản kiểm định chất lượng KCS (QC Inspection)
+ * kèm danh sách kết quả đo đạc các chỉ tiêu thực tế so với tiêu chuẩn.
+ */
 @Getter
 @Setter
 @Builder
@@ -31,6 +35,9 @@ public class QcInspectionDetailResponse {
     private Instant createdAt;
     private Instant updatedAt;
 
+    /**
+     * DTO chi tiết kết quả kiểm định một chỉ tiêu chất lượng thành phần.
+     */
     @Getter
     @Setter
     @Builder
@@ -45,18 +52,38 @@ public class QcInspectionDetailResponse {
         private Boolean isPassed;
         private String notes;
 
+        /**
+         * Lấy tên chỉ tiêu kiểm định (tương thích alias criterionName).
+         *
+         * @return Tên chỉ tiêu
+         */
         public String getCriterionName() {
             return parameterName;
         }
 
+        /**
+         * Lấy ngưỡng giá trị tiêu chuẩn (tương thích alias standardValue).
+         *
+         * @return Ngưỡng tiêu chuẩn
+         */
         public String getStandardValue() {
             return standardThreshold;
         }
 
+        /**
+         * Lấy giá trị đo thực tế (tương thích alias actualValue).
+         *
+         * @return Giá trị thực tế đo được
+         */
         public String getActualValue() {
             return measuredValue;
         }
 
+        /**
+         * Lấy kết quả đánh giá đạt hay không đạt (tương thích alias passed).
+         *
+         * @return true nếu đạt chuẩn, false nếu không đạt
+         */
         public Boolean getPassed() {
             return isPassed;
         }

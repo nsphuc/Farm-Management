@@ -4,12 +4,18 @@ import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.crop.entity.CropSeason;
 import com.farm.saas.modules.crop.repository.CropSeasonRepository;
+import com.farm.saas.modules.geography.entity.OperationalCycle;
+import com.farm.saas.modules.geography.repository.OperationalCycleRepository;
+import com.farm.saas.modules.finance.entity.Budget;
 import com.farm.saas.modules.finance.entity.DebtRecord;
 import com.farm.saas.modules.finance.entity.FarmExpense;
 import com.farm.saas.modules.finance.entity.SalesOrder;
+import com.farm.saas.modules.finance.entity.SalesOrderItem;
+import com.farm.saas.modules.finance.repository.BudgetRepository;
 import com.farm.saas.modules.finance.repository.CostAllocationRepository;
 import com.farm.saas.modules.finance.repository.DebtRecordRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
+import com.farm.saas.modules.finance.repository.SalesOrderItemRepository;
 import com.farm.saas.modules.finance.repository.SalesOrderRepository;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
@@ -19,11 +25,19 @@ import com.farm.saas.modules.livestock.entity.LivestockGroup;
 import com.farm.saas.modules.livestock.entity.LivestockWeightLog;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.livestock.repository.LivestockWeightLogRepository;
+import com.farm.saas.modules.masterdata.entity.CostCategory;
+import com.farm.saas.modules.masterdata.entity.CropType;
+import com.farm.saas.modules.masterdata.entity.LivestockBreed;
 import com.farm.saas.modules.masterdata.entity.Material;
+import com.farm.saas.modules.masterdata.repository.CostCategoryRepository;
+import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
+import com.farm.saas.modules.masterdata.repository.LivestockBreedRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialRepository;
 import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.PartnerRepository;
+import com.farm.saas.modules.quality.entity.ProductBatch;
 import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
+import com.farm.saas.modules.quality.repository.ProductBatchRepository;
 import com.farm.saas.modules.reports.dto.*;
 import com.farm.saas.modules.reports.service.ReportService;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +69,13 @@ public class ReportServiceImpl implements ReportService {
     private final MaterialRepository materialRepository;
     private final PartnerRepository partnerRepository;
     private final FarmRepository farmRepository;
+    private final BudgetRepository budgetRepository;
+    private final CropTypeRepository cropTypeRepository;
+    private final ProductBatchRepository productBatchRepository;
+    private final SalesOrderItemRepository salesOrderItemRepository;
+    private final CostCategoryRepository costCategoryRepository;
+    private final LivestockBreedRepository livestockBreedRepository;
+    private final OperationalCycleRepository operationalCycleRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -128,6 +149,55 @@ public class ReportServiceImpl implements ReportService {
                 .map(DebtRecord::getRemainingDebt)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // Group revenue and expenses by month
+        Map<Integer, BigDecimal> monthlyRevenueMap = new HashMap<>();
+        for (SalesOrder o : orders) {
+            if (!"CANCELLED".equalsIgnoreCase(o.getStatus()) && o.getOrderDate() != null) {
+                int m = o.getOrderDate().getMonthValue();
+                monthlyRevenueMap.merge(m, o.getFinalAmount() != null ? o.getFinalAmount() : BigDecimal.ZERO, BigDecimal::add);
+            }
+        }
+
+        Map<Integer, BigDecimal> monthlyExpenseMap = new HashMap<>();
+        for (FarmExpense e : expenses) {
+            if (e.getExpenseDate() != null && !"CANCELLED".equalsIgnoreCase(e.getStatus())) {
+                int m = e.getExpenseDate().getMonthValue();
+                monthlyExpenseMap.merge(m, e.getAmount() != null ? e.getAmount() : BigDecimal.ZERO, BigDecimal::add);
+            }
+        }
+
+        List<ExecutiveDashboardResponse.MonthlyFinancialPoint> monthlyFinancials = new ArrayList<>();
+        for (int m = 1; m <= 12; m++) {
+            BigDecimal mRev = monthlyRevenueMap.getOrDefault(m, BigDecimal.ZERO);
+            BigDecimal mExp = monthlyExpenseMap.getOrDefault(m, BigDecimal.ZERO);
+            if (mRev.compareTo(BigDecimal.ZERO) > 0 || mExp.compareTo(BigDecimal.ZERO) > 0) {
+                monthlyFinancials.add(ExecutiveDashboardResponse.MonthlyFinancialPoint.builder()
+                        .month("T" + m)
+                        .revenue(mRev)
+                        .expense(mExp)
+                        .build());
+            }
+        }
+
+        // Expense categories breakdown
+        Map<Long, BigDecimal> categoryAmountMap = new HashMap<>();
+        for (FarmExpense e : expenses) {
+            if (e.getCostCategoryId() != null && !"CANCELLED".equalsIgnoreCase(e.getStatus())) {
+                categoryAmountMap.merge(e.getCostCategoryId(), e.getAmount() != null ? e.getAmount() : BigDecimal.ZERO, BigDecimal::add);
+            }
+        }
+
+        List<ExecutiveDashboardResponse.ExpenseCategoryPoint> expenseCategories = new ArrayList<>();
+        categoryAmountMap.forEach((catId, amt) -> {
+            String catName = costCategoryRepository.findById(catId)
+                    .map(CostCategory::getName)
+                    .orElse("Khoản mục #" + catId);
+            expenseCategories.add(ExecutiveDashboardResponse.ExpenseCategoryPoint.builder()
+                    .name(catName)
+                    .value(amt)
+                    .build());
+        });
+
         return ExecutiveDashboardResponse.builder()
                 .fiscalYear(year)
                 .totalRevenue(totalRevenue)
@@ -140,6 +210,8 @@ public class ReportServiceImpl implements ReportService {
                 .totalInventoryValuation(totalInventoryValuation)
                 .totalReceivableDebt(totalReceivableDebt)
                 .totalPayableDebt(totalPayableDebt)
+                .monthlyFinancials(monthlyFinancials)
+                .expenseCategories(expenseCategories)
                 .build();
     }
 
@@ -233,9 +305,22 @@ public class ReportServiceImpl implements ReportService {
     @Override
     @Transactional(readOnly = true)
     public CropCostProfitResponse getCropCostProfit(Long farmId) {
+        return getCropCostProfit(farmId, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CropCostProfitResponse getCropCostProfit(Long farmId, Long cycleId) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
         List<CropSeason> seasons = (farmId != null)
                 ? cropSeasonRepository.findByFarmId(farmId)
-                : Collections.emptyList();
+                : cropSeasonRepository.findByTenantId(tenantId);
+
+        if (cycleId != null) {
+            seasons = seasons.stream()
+                    .filter(s -> cycleId.equals(s.getOperationalCycleId()))
+                    .toList();
+        }
 
         List<CropCostProfitResponse.CropSeasonFinancialSummary> seasonSummaries = new ArrayList<>();
         BigDecimal overallRev = BigDecimal.ZERO;
@@ -257,10 +342,54 @@ public class ReportServiceImpl implements ReportService {
                 unitCostPerKg = actualCost.divide(actualYieldKg, 2, RoundingMode.HALF_UP);
             }
 
-            // Estimate revenue or from sales order items
+            // Real revenue from sales orders linked to this season's batches
             BigDecimal revenue = BigDecimal.ZERO;
-            if (actualYieldKg.compareTo(BigDecimal.ZERO) > 0) {
-                revenue = actualYieldKg.multiply(unitCostPerKg.multiply(new BigDecimal("1.35"))); // 35% markup estimate
+            List<ProductBatch> batches = productBatchRepository.findByFarmIdOrderByCreatedAtDesc(season.getFarmId()).stream()
+                    .filter(b -> season.getId().equals(b.getSeasonId()))
+                    .toList();
+            Set<Long> batchIds = batches.stream().map(ProductBatch::getId).collect(Collectors.toSet());
+
+            List<SalesOrder> orders = salesOrderRepository.findByFarmId(season.getFarmId());
+            for (SalesOrder o : orders) {
+                if (!"CANCELLED".equalsIgnoreCase(o.getStatus())) {
+                    List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(o.getId());
+                    for (SalesOrderItem item : items) {
+                        if (item.getProductBatchId() != null && batchIds.contains(item.getProductBatchId())) {
+                            revenue = revenue.add(item.getFinalAmount() != null ? item.getFinalAmount() : BigDecimal.ZERO);
+                        }
+                    }
+                }
+            }
+
+            // If not found by batch, and crop type matches, map sales order items matching crop type name
+            CropType cropType = season.getCropTypeId() != null
+                    ? cropTypeRepository.findById(season.getCropTypeId()).orElse(null)
+                    : null;
+            String cropName = cropType != null ? cropType.getName() : season.getSeasonCode();
+
+            if (revenue.compareTo(BigDecimal.ZERO) == 0 && cropType != null) {
+                for (SalesOrder o : orders) {
+                    if (!"CANCELLED".equalsIgnoreCase(o.getStatus())) {
+                        List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(o.getId());
+                        for (SalesOrderItem item : items) {
+                            if (item.getItemName() != null && item.getItemName().toLowerCase().contains(cropType.getName().toLowerCase())) {
+                                revenue = revenue.add(item.getFinalAmount() != null ? item.getFinalAmount() : BigDecimal.ZERO);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Planned budget from BudgetRepository
+            BigDecimal plannedBudget = BigDecimal.ZERO;
+            if (season.getOperationalCycleId() != null) {
+                List<Budget> budgets = budgetRepository.findByFarmIdAndFiscalYear(season.getFarmId(),
+                        season.getStartDate() != null ? season.getStartDate().getYear() : LocalDate.now().getYear());
+                for (Budget b : budgets) {
+                    if (season.getOperationalCycleId().equals(b.getOperationalCycleId())) {
+                        plannedBudget = plannedBudget.add(b.getTotalBudgetAmount() != null ? b.getTotalBudgetAmount() : BigDecimal.ZERO);
+                    }
+                }
             }
 
             BigDecimal grossProfit = revenue.subtract(actualCost);
@@ -274,10 +403,10 @@ public class ReportServiceImpl implements ReportService {
 
             seasonSummaries.add(CropCostProfitResponse.CropSeasonFinancialSummary.builder()
                     .seasonId(season.getId())
-                    .seasonName(season.getSeasonCode())
+                    .seasonName(season.getSeasonCode() + " - " + cropName)
                     .seasonCode(season.getSeasonCode())
-                    .cropName(season.getSeasonCode())
-                    .plannedBudget(BigDecimal.ZERO)
+                    .cropName(cropName)
+                    .plannedBudget(plannedBudget)
                     .actualCost(actualCost)
                     .actualYieldKg(actualYieldKg)
                     .unitCostPerKg(unitCostPerKg)
@@ -291,6 +420,174 @@ public class ReportServiceImpl implements ReportService {
 
         return CropCostProfitResponse.builder()
                 .seasons(seasonSummaries)
+                .overallRevenue(overallRev)
+                .overallCost(overallCost)
+                .overallGrossProfit(overallProfit)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LivestockCostProfitResponse getLivestockCostProfit(Long farmId, Long cycleId) {
+        Long tenantId = SecurityUtils.getCurrentTenantId();
+        List<LivestockGroup> groups = (farmId != null)
+                ? livestockGroupRepository.findByFarmId(farmId)
+                : livestockGroupRepository.findByTenantId(tenantId);
+
+        if (cycleId != null) {
+            groups = groups.stream()
+                    .filter(g -> cycleId.equals(g.getOperationalCycleId()))
+                    .toList();
+        }
+
+        List<LivestockCostProfitResponse.LivestockGroupFinancialSummary> summaries = new ArrayList<>();
+        BigDecimal overallRev = BigDecimal.ZERO;
+        BigDecimal overallCost = BigDecimal.ZERO;
+
+        for (LivestockGroup group : groups) {
+            LivestockBreed breed = group.getBreedId() != null
+                    ? livestockBreedRepository.findById(group.getBreedId()).orElse(null)
+                    : null;
+            String breedName = breed != null ? breed.getBreedName() : "Giống #" + group.getBreedId();
+            String species = breed != null ? breed.getSpecies() : "LIVESTOCK";
+
+            OperationalCycle cycle = group.getOperationalCycleId() != null
+                    ? operationalCycleRepository.findById(group.getOperationalCycleId()).orElse(null)
+                    : null;
+            String cycleName = cycle != null ? cycle.getName() : "Không gắn niên vụ";
+
+            // 1. Chi phí con giống ban đầu
+            BigDecimal initialCost = group.getTotalCost() != null ? group.getTotalCost() : BigDecimal.ZERO;
+            if (initialCost.compareTo(BigDecimal.ZERO) == 0 && group.getUnitPrice() != null && group.getInitialQuantity() != null) {
+                initialCost = group.getUnitPrice().multiply(BigDecimal.valueOf(group.getInitialQuantity()));
+            }
+
+            // 2. Chi phí trực tiếp từ farm_expenses
+            List<FarmExpense> expenses = farmExpenseRepository.findByTenantIdAndFarmId(tenantId, group.getFarmId()).stream()
+                    .filter(e -> group.getId().equals(e.getLivestockGroupId()) && "CONFIRMED".equalsIgnoreCase(e.getStatus()))
+                    .toList();
+
+            BigDecimal breedExpense = BigDecimal.ZERO;
+            BigDecimal careExpense = BigDecimal.ZERO;
+            for (FarmExpense e : expenses) {
+                if (e.getExpenseCode() != null && e.getExpenseCode().contains("BREED")) {
+                    breedExpense = breedExpense.add(e.getAmount() != null ? e.getAmount() : BigDecimal.ZERO);
+                } else {
+                    careExpense = careExpense.add(e.getAmount() != null ? e.getAmount() : BigDecimal.ZERO);
+                }
+            }
+
+            if (initialCost.compareTo(BigDecimal.ZERO) == 0 && breedExpense.compareTo(BigDecimal.ZERO) > 0) {
+                initialCost = breedExpense;
+            }
+            BigDecimal directExpense = careExpense;
+
+            // 3. Chi phí phân bổ
+            BigDecimal allocatedCost = costAllocationRepository.sumAllocatedAmountByTarget("LIVESTOCK_GROUP", group.getId());
+            if (allocatedCost == null) {
+                allocatedCost = BigDecimal.ZERO;
+            }
+
+            // 4. Tổng chi phí
+            BigDecimal totalCost = initialCost.add(directExpense).add(allocatedCost);
+
+            // 5. Sản lượng xuất chuồng / thu hoạch
+            BigDecimal actualYield = harvestRecordRepository.sumQuantityByLivestockGroupId(group.getId());
+            if (actualYield == null) {
+                actualYield = BigDecimal.ZERO;
+            }
+
+            String yieldUnit = "CON";
+            if ("POULTRY".equalsIgnoreCase(species) && (breedName.toLowerCase().contains("trứng") || breedName.toLowerCase().contains("đẻ"))) {
+                yieldUnit = "QUA";
+            } else if ("CATTLE".equalsIgnoreCase(species) && (breedName.toLowerCase().contains("sữa") || breedName.toLowerCase().contains("hf"))) {
+                yieldUnit = "LIT";
+            }
+
+            List<ProductBatch> batches = productBatchRepository.findByFarmIdOrderByCreatedAtDesc(group.getFarmId()).stream()
+                    .filter(b -> group.getId().equals(b.getLivestockGroupId()))
+                    .toList();
+
+            BigDecimal batchQty = BigDecimal.ZERO;
+            for (ProductBatch b : batches) {
+                if (b.getInitialQuantity() != null) {
+                    batchQty = batchQty.add(b.getInitialQuantity());
+                }
+            }
+
+            if (actualYield.compareTo(BigDecimal.ZERO) == 0 && batchQty.compareTo(BigDecimal.ZERO) > 0) {
+                actualYield = batchQty;
+            }
+            if (actualYield.compareTo(BigDecimal.ZERO) == 0) {
+                actualYield = BigDecimal.valueOf(group.getCurrentQuantity() != null ? group.getCurrentQuantity() : 0);
+            }
+
+            // 6. Giá thành đơn vị
+            BigDecimal unitCost = BigDecimal.ZERO;
+            if (actualYield.compareTo(BigDecimal.ZERO) > 0) {
+                unitCost = totalCost.divide(actualYield, 0, RoundingMode.HALF_UP);
+            }
+
+            // 7. Doanh thu bán hàng từ Sales Orders
+            Set<Long> batchIds = batches.stream().map(ProductBatch::getId).collect(Collectors.toSet());
+            BigDecimal revenue = BigDecimal.ZERO;
+            List<SalesOrder> orders = salesOrderRepository.findByFarmId(group.getFarmId());
+            for (SalesOrder o : orders) {
+                if (!"CANCELLED".equalsIgnoreCase(o.getStatus())) {
+                    List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(o.getId());
+                    for (SalesOrderItem item : items) {
+                        if (item.getProductBatchId() != null && batchIds.contains(item.getProductBatchId())) {
+                            revenue = revenue.add(item.getFinalAmount() != null ? item.getFinalAmount() : BigDecimal.ZERO);
+                        } else if (item.getItemName() != null) {
+                            String nameLower = item.getItemName().toLowerCase();
+                            if (nameLower.contains(group.getGroupCode().toLowerCase()) ||
+                                    (breed != null && nameLower.contains(breed.getBreedName().toLowerCase()))) {
+                                revenue = revenue.add(item.getFinalAmount() != null ? item.getFinalAmount() : BigDecimal.ZERO);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 8. Lợi nhuận gộp & biên lợi nhuận
+            BigDecimal grossProfit = revenue.subtract(totalCost);
+            BigDecimal grossMarginPct = BigDecimal.ZERO;
+            if (revenue.compareTo(BigDecimal.ZERO) > 0) {
+                grossMarginPct = grossProfit.multiply(new BigDecimal("100")).divide(revenue, 2, RoundingMode.HALF_UP);
+            }
+
+            overallRev = overallRev.add(revenue);
+            overallCost = overallCost.add(totalCost);
+
+            summaries.add(LivestockCostProfitResponse.LivestockGroupFinancialSummary.builder()
+                    .groupId(group.getId())
+                    .groupCode(group.getGroupCode())
+                    .groupName(group.getGroupCode() + " - " + breedName)
+                    .breedName(breedName)
+                    .species(species)
+                    .operationalCycleId(group.getOperationalCycleId())
+                    .cycleName(cycleName)
+                    .initialQuantity(group.getInitialQuantity())
+                    .currentQuantity(group.getCurrentQuantity())
+                    .initialCost(initialCost)
+                    .directExpense(directExpense)
+                    .allocatedCost(allocatedCost)
+                    .totalCost(totalCost)
+                    .actualYield(actualYield)
+                    .yieldUnit(yieldUnit)
+                    .unitCost(unitCost)
+                    .revenue(revenue)
+                    .grossProfit(grossProfit)
+                    .grossMarginPct(grossMarginPct)
+                    .status(group.getStatus())
+                    .entryDate(group.getEntryDate() != null ? group.getEntryDate().toString() : null)
+                    .build());
+        }
+
+        BigDecimal overallProfit = overallRev.subtract(overallCost);
+
+        return LivestockCostProfitResponse.builder()
+                .groups(summaries)
                 .overallRevenue(overallRev)
                 .overallCost(overallCost)
                 .overallGrossProfit(overallProfit)

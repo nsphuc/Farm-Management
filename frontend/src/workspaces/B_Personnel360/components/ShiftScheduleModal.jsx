@@ -14,6 +14,13 @@ const STATUS_OPTIONS = [
   { value: 'CANCELLED', label: 'CANCELLED - Đã hủy ca' },
 ];
 
+function formatLocalDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /**
  * Sinh danh sách các ngày liên tục giữa startDate và endDate
  */
@@ -26,7 +33,7 @@ function getDatesInRange(startDateStr, endDateStr) {
   }
   const curr = new Date(start);
   while (curr <= end) {
-    dates.push(curr.toISOString().split('T')[0]);
+    dates.push(formatLocalDate(curr));
     curr.setDate(curr.getDate() + 1);
   }
   return dates;
@@ -49,9 +56,9 @@ export function ShiftScheduleModal({
   const [status, setStatus] = useState('SCHEDULED');
 
   const [dateMode, setDateMode] = useState('single'); // 'single' | 'range'
-  const [singleDate, setSingleDate] = useState(new Date().toISOString().split('T')[0]);
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [singleDate, setSingleDate] = useState(() => formatLocalDate(new Date()));
+  const [startDate, setStartDate] = useState(() => formatLocalDate(new Date()));
+  const [endDate, setEndDate] = useState(() => formatLocalDate(new Date()));
   const [selectedEmpIds, setSelectedEmpIds] = useState([]);
   const [empSearch, setEmpSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,16 +75,17 @@ export function ShiftScheduleModal({
 
     if (editingItem) {
       setShiftId(String(editingItem.shiftId || (shifts[0]?.id || '')));
-      setSingleDate(editingItem.workDate || new Date().toISOString().split('T')[0]);
+      setSingleDate(editingItem.workDate || formatLocalDate(new Date()));
       setEditEmployeeId(String(editingItem.employeeId || ''));
       setStatus(editingItem.status || 'SCHEDULED');
     } else {
       if (shifts.length > 0) {
         setShiftId(String(shifts[0].id));
       }
-      setSingleDate(new Date().toISOString().split('T')[0]);
-      setStartDate(new Date().toISOString().split('T')[0]);
-      setEndDate(new Date().toISOString().split('T')[0]);
+      const todayStr = formatLocalDate(new Date());
+      setSingleDate(todayStr);
+      setStartDate(todayStr);
+      setEndDate(todayStr);
       setStatus('SCHEDULED');
       if (activeEmployees.length > 0) {
         setSelectedEmpIds(activeEmployees.map((e) => e.id));

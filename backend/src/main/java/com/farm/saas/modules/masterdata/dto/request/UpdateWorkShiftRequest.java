@@ -34,4 +34,7 @@ public class UpdateWorkShiftRequest {
     private Integer graceLateMinutes;
 
     private Boolean isOvernight;
+
+    private Long farmId;
+    private java.util.List<Long> applicableFarmIds;
 }

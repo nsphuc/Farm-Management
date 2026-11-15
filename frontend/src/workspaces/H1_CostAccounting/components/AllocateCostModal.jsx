@@ -402,11 +402,23 @@ export function AllocateCostModal({ isOpen, onClose, onSuccess, initialFarmId, p
               // Options based on targetType
               let targetOptions = [];
               if (line.targetType === 'CROP_SEASON') {
-                targetOptions = seasons.map((s) => ({ value: s.id, label: `${s.name} (${s.seasonCode || `Mùa #${s.id}`})` }));
+                targetOptions = seasons.map((s) => {
+                  const seasonName = s.cropTypeName
+                    ? (s.cropTypeName.toLowerCase().startsWith('vụ') ? s.cropTypeName : `Vụ ${s.cropTypeName}`)
+                    : (s.seasonName || s.name || `Mùa vụ ${s.seasonCode || s.id}`);
+                  const zone = s.zoneName ? ` • ${s.zoneName}` : '';
+                  return { value: s.id, label: `${seasonName}${zone} [${s.seasonCode || `Mùa #${s.id}`}]` };
+                });
               } else if (line.targetType === 'LIVESTOCK_GROUP') {
-                targetOptions = livestockGroups.map((g) => ({ value: g.id, label: `${g.name} (${g.code || `Đàn #${g.id}`})` }));
+                targetOptions = livestockGroups.map((g) => {
+                  const groupName = g.breedName
+                    ? (g.breedName.toLowerCase().startsWith('đàn') ? g.breedName : `Đàn ${g.breedName}`)
+                    : (g.groupName || g.name || `Đàn nuôi ${g.groupCode || g.id}`);
+                  const zone = g.zoneName ? ` • ${g.zoneName}` : '';
+                  return { value: g.id, label: `${groupName}${zone} [${g.groupCode || g.code || `Đàn #${g.id}`}]` };
+                });
               } else if (line.targetType === 'PRODUCTION_ZONE') {
-                targetOptions = zones.map((z) => ({ value: z.id, label: `${z.name} (${z.code || `Khu #${z.id}`})` }));
+                targetOptions = zones.map((z) => ({ value: z.id, label: `${z.name} [${z.code || `Khu #${z.id}`}]` }));
               }
 
               return (

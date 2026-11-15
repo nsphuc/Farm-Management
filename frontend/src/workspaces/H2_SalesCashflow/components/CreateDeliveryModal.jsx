@@ -12,12 +12,14 @@ import {
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { FormField, Input, Select } from '@/components/ui/FormControls';
+import { FormField, Input, Select, CodeInput } from '@/components/ui/FormControls';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 import { financeService } from '@/services/modules/financeService';
 import { partnerService } from '@/services/modules/partnerService';
+import { generateEntityCode, getNextSequentialCode, commitSequentialCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { toast } from '@/store/useToastStore';
-import { formatNumber } from '@/utils/formatters';
+import { formatCurrency, formatNumber } from '@/utils/formatters';
 
 export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId, preselectedOrderId }) {
   const { farms, activeFarmId } = useActiveFarmStore();
@@ -48,12 +50,7 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
   const [errors, setErrors] = useState({});
 
   const generateDeliveryCode = () => {
-    const today = new Date();
-    const yy = String(today.getFullYear()).slice(-2);
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const random = Math.floor(10 + Math.random() * 90);
-    return `DO-${yy}${mm}${dd}-${random}`;
+    return generateEntityCode(CODE_PREFIXES.DELIVERY_ORDER);
   };
 
   useEffect(() => {
@@ -89,6 +86,20 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
       .catch(() => setLogisticsPartners([]));
   }, [isOpen]);
 
+  // Load existing deliveries to auto-increment deliveryCode
+  useEffect(() => {
+    if (!isOpen || !selectedFarmId) return;
+    financeService.getDeliveries(Number(selectedFarmId), { size: 100 })
+      .then((res) => {
+        const list = res?.content || (Array.isArray(res) ? res : []);
+        const nextCode = getNextSequentialCode(CODE_PREFIXES.DELIVERY_ORDER, list);
+        if (nextCode) {
+          setFormData((prev) => ({ ...prev, deliveryCode: nextCode }));
+        }
+      })
+      .catch((err) => console.error('Failed to calculate next delivery code:', err));
+  }, [isOpen, selectedFarmId]);
+
   // Load sales orders for farm
   useEffect(() => {
     if (!isOpen || !selectedFarmId) {
@@ -102,14 +113,21 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
         setIsLoadingOrders(true);
         const res = await financeService.getSalesOrders({ farmId: Number(selectedFarmId), size: 100 });
         const list = res?.content || (Array.isArray(res) ? res : []);
-        // Filter orders that are CONFIRMED or DELIVERING
-        const eligible = list.filter((o) => o.status === 'CONFIRMED' || o.status === 'DELIVERING');
-        setSalesOrders(eligible.length > 0 ? eligible : list);
+        // Sort newest first
+        const sorted = [...list].sort((a, b) => Number(b.id) - Number(a.id));
+        // Filter orders that are eligible for delivery (CONFIRMED, DELIVERING, PENDING, not CANCELLED/COMPLETED)
+        const eligible = sorted.filter((o) => o.status !== 'CANCELLED' && o.status !== 'COMPLETED');
+        const finalOrders = eligible.length > 0 ? eligible : sorted;
+        setSalesOrders(finalOrders);
 
-        if (eligible.length > 0 && !selectedOrderId) {
-          handleOrderSelect(eligible[0].id, eligible);
-        } else if (selectedOrderId) {
-          handleOrderSelect(selectedOrderId, eligible.length > 0 ? eligible : list);
+        const targetId = preselectedOrderId
+          ? String(preselectedOrderId)
+          : (selectedOrderId && finalOrders.some((o) => String(o.id) === String(selectedOrderId))
+              ? selectedOrderId
+              : (finalOrders[0]?.id ? String(finalOrders[0].id) : ''));
+
+        if (targetId) {
+          handleOrderSelect(targetId, finalOrders);
         }
       } catch (err) {
         console.error('Failed to load sales orders:', err);
@@ -135,7 +153,7 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
           const remaining = Math.max(0, totalQty - shipped);
           return {
             salesOrderItemId: it.id,
-            productBatchId: it.productBatchId || 1,
+            productBatchId: it.productBatchId || null,
             itemName: it.itemName || `Sản phẩm #${it.id}`,
             unit: it.unit || 'kg',
             totalOrderedQuantity: totalQty,
@@ -178,8 +196,8 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
       const qty = parseFloat(it.quantity);
       if (it.quantity === '' || isNaN(qty) || qty <= 0) {
         errs[`qty_${i}`] = `Dòng ${i + 1}: Số lượng giao phải > 0`;
-      } else if (qty > it.remainingQuantity) {
-        errs[`qty_${i}`] = `Dòng ${i + 1}: Vượt số lượng còn lại (${it.remainingQuantity})`;
+      } else if (qty > it.remainingQuantity * 1.1) {
+        errs[`qty_${i}`] = `Dòng ${i + 1}: Vượt quá dung sai cân xuất (+10% so với còn lại: ${it.remainingQuantity})`;
       }
     }
 
@@ -213,6 +231,7 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
       };
 
       await financeService.createDelivery(Number(selectedFarmId), payload);
+      commitSequentialCode(CODE_PREFIXES.DELIVERY_ORDER, formData.deliveryCode);
       toast.success('Lập phiếu xuất giao hàng thành công! Trừ tồn kho và cập nhật tiến độ giao vận.');
       const store = useActiveFarmStore.getState();
       store.notifyDataChanged?.('all');
@@ -292,10 +311,10 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
               onChange={(e) => handleOrderSelect(e.target.value)}
               className="w-full text-xs"
             >
-              <option value="">-- Chọn đơn hàng đã duyệt --</option>
+              <option value="">-- Chọn đơn hàng cần giao --</option>
               {salesOrders.map((o) => (
                 <option key={o.id} value={o.id}>
-                  {o.orderCode} - {o.partnerName} (Trạng thái: {o.status})
+                  {o.orderCode} - {o.partnerName} ({formatCurrency(o.finalAmount || 0)} | {o.status === 'CONFIRMED' ? 'Đã duyệt' : o.status === 'PENDING' ? 'Chờ duyệt' : o.status})
                 </option>
               ))}
             </Select>
@@ -303,25 +322,14 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <FormField label="Mã Phiếu Giao Hàng">
-            <div className="flex items-center gap-1.5">
-              <Input
-                type="text"
-                value={formData.deliveryCode}
-                onChange={(e) => setFormData((prev) => ({ ...prev, deliveryCode: e.target.value }))}
-                placeholder="DO-YYMMDD-XX"
-                className="w-full text-xs font-mono font-bold text-blue-900"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={() => setFormData((prev) => ({ ...prev, deliveryCode: generateDeliveryCode() }))}
-                title="Tạo mã mới"
-              >
-                Gợi Ý
-              </Button>
-            </div>
+          <FormField
+            label="Mã Phiếu Giao Hàng"
+            hint="Mã định danh tự động tăng dần do hệ thống cấp (Chỉ đọc)"
+          >
+            <CodeInput
+              value={formData.deliveryCode}
+              placeholder="DO-001"
+            />
           </FormField>
 
           <FormField label="Ngày Giao Hàng (*)" error={errors.deliveryDate}>
@@ -440,7 +448,7 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
                           <Input
                             type="number"
                             min="0"
-                            max={row.remainingQuantity}
+                            max={row.remainingQuantity * 1.1}
                             step="any"
                             value={row.quantity}
                             onChange={(e) => handleItemQtyChange(idx, e.target.value)}
@@ -460,15 +468,12 @@ export function CreateDeliveryModal({ isOpen, onClose, onSuccess, initialFarmId,
           )}
         </div>
 
-        <FormField label="URL Ảnh Biên Bản Bàn Giao (POD - Proof of Delivery)">
-          <Input
-            type="text"
-            placeholder="https://... ảnh chụp biên bản có chữ ký nhận của khách"
-            value={formData.proofOfDeliveryUrl}
-            onChange={(e) => setFormData((prev) => ({ ...prev, proofOfDeliveryUrl: e.target.value }))}
-            className="w-full text-xs"
-          />
-        </FormField>
+        <ImageUploadField
+          value={formData.proofOfDeliveryUrl || ''}
+          onChange={(url) => setFormData((prev) => ({ ...prev, proofOfDeliveryUrl: url }))}
+          label="Ảnh Biên Bản Bàn Giao (POD - Proof of Delivery)"
+          hint="Tải ảnh biên bản bàn giao từ máy tính hoặc chụp ảnh chữ ký nhận hàng của khách."
+        />
 
         <FormField label="Ghi Chú Đợt Giao">
           <textarea

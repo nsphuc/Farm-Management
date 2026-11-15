@@ -61,13 +61,11 @@ export function CostAccountingWorkspace() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-black text-slate-900 tracking-tight">
-                {manager
-                  ? 'Giám Sát Chi Phí, Giá Thành & Ngân Sách Trang Trại'
-                  : 'Quản Trị Giá Thành & Thống Kê Chi Phí'}
+                Chi Phí Sản Xuất & Quản Trị Giá Thành (WS-H1)
               </h1>
               {owner && (
                 <span className="rounded-full bg-blue-100 text-blue-900 px-2.5 py-0.5 text-[10px] font-bold border border-blue-200">
-                  Chủ Đầu Tư (Owner)
+                  Chủ Đầu Tư
                 </span>
               )}
               {manager && (
@@ -77,14 +75,12 @@ export function CostAccountingWorkspace() {
               )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {manager
-                ? 'Theo dõi sổ chi phí thực tế do Kế toán hạch toán, kiểm soát giá thành trên mỗi kg nông sản (VNĐ/kg) và giám sát giải ngân ngân sách'
-                : 'Tập hợp 4 nguồn chi phí, so sánh giá thành thực tế giữa các trang trại và kiểm soát hạn mức ngân sách'}
+              Theo dõi chi tiết chi phí vật tư đã dùng, chi phí nhân công và giá thành sản xuất (VNĐ/kg) theo từng vụ mùa / đàn nuôi.
             </p>
           </div>
         </div>
 
-        {/* NÚT TÁC VỤ DÀNH CHO MAKER (ROLE_ACCOUNTANT) VÀ ROLE_FARM_MANAGER */}
+        {/* NÚT TÁC VỤ DÀNH CHO KẾ TOÁN VÀ QUẢN LÝ */}
         <div className="flex items-center gap-2">
           <Can permission="PERM_FINANCE_EXPENSE" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
             <Button
@@ -92,6 +88,7 @@ export function CostAccountingWorkspace() {
               size="sm"
               icon={<Plus className="h-4 w-4" />}
               onClick={() => setIsCreateExpenseOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 font-bold"
             >
               + Khai Báo Chi Phí
             </Button>
@@ -100,6 +97,7 @@ export function CostAccountingWorkspace() {
               size="sm"
               icon={<Layers className="h-4 w-4" />}
               onClick={() => setIsAllocateCostOpen(true)}
+              className="font-semibold text-xs"
             >
               Phân Bổ Chi Phí
             </Button>
@@ -108,84 +106,46 @@ export function CostAccountingWorkspace() {
       </div>
 
       {/* ======================================================== */}
-      {/* 2. BANNER HƯỚNG DẪN DÀNH CHO OWNER                       */}
+      {/* 2. THANH ĐIỀU HƯỚNG 3 TABS TINH GỌN, TRỰC QUAN            */}
       {/* ======================================================== */}
-      {owner && (
-        <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 text-xs text-blue-900 shadow-2xs animate-in fade-in">
-          <Info className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
-          <div className="space-y-0.5 leading-relaxed">
-            <strong className="block font-bold text-blue-950">
-              Quy Trình Tài Chính Phân Cấp Dành Cho Chủ Đầu Tư:
-            </strong>
-            <p className="text-blue-800">
-              Chi phí mua phân bón, thức ăn chăn nuôi, trả công thợ và điện nước do Kế toán từng trang trại quản lý, thanh toán và đính kèm hóa đơn. Chủ đầu tư theo dõi bảng so sánh chi phí giữa các trại, kiểm tra giá thành sản xuất thực tế (VNĐ/kg) và phê duyệt trần ngân sách cấp vốn đầu kỳ cho từng trại.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* 3. BANNER HƯỚNG DẪN DÀNH CHO FARM MANAGER                */}
-      {/* ======================================================== */}
-      {manager && (
-        <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs text-emerald-900 shadow-2xs animate-in fade-in">
-          <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
-          <div className="space-y-0.5 leading-relaxed">
-            <strong className="block font-bold text-emerald-950">
-              Chế Độ Giám Sát Chi Phí & Định Mức Giá Thành Của Giám Đốc Trại:
-            </strong>
-            <p className="text-emerald-800">
-              Kế toán trại (Role 5) chịu trách nhiệm hạch toán hóa đơn chứng từ hàng ngày. Bạn theo dõi <strong>Sổ Chi Phí Thực Tế</strong> (mua vật tư, lương, điện nước), kiểm soát <strong>Giá Thành Sản Xuất (VNĐ/kg)</strong> của từng Mùa vụ / Đàn nuôi và theo dõi <strong>Hạn Mức Ngân Sách</strong> do Chủ đầu tư phê duyệt để tránh thất thoát, vượt trần.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* 4. THANH ĐIỀU HƯỚNG 3 TABS DÀNH CHO FARM MANAGER / OWNER */}
-      {/* ======================================================== */}
-      <div className="flex border-b border-slate-200 overflow-x-auto space-x-2">
+      <div className="flex border-b border-slate-200 overflow-x-auto space-x-2 no-scrollbar">
         <button
           type="button"
           onClick={() => setActiveTab('EXPENSES')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all ${
             activeTab === 'EXPENSES'
-              ? 'border-emerald-600 text-emerald-700 bg-emerald-50/40 rounded-t-xl'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/60 rounded-t-xl font-black'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
-          <BookOpen className="h-4 w-4" />
-          <span>
-            {manager ? 'Tab 1. Sổ Chi Phí Thực Tế Của Trại (Read-Only)' : 'Tab 1. Thống Kê & So Sánh Chi Phí'}
-          </span>
+          <BookOpen className="h-4 w-4 text-emerald-600" />
+          <span>Sổ Chi Phí Thực Tế</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('UNIT_COST')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all ${
             activeTab === 'UNIT_COST'
-              ? 'border-emerald-600 text-emerald-700 bg-emerald-50/40 rounded-t-xl'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/60 rounded-t-xl font-black'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
-          <TrendingUp className="h-4 w-4" />
-          <span>Tab 2. Bảng Giá Thành Sản Xuất Đơn Vị (VNĐ/kg)</span>
+          <TrendingUp className="h-4 w-4 text-blue-600" />
+          <span>Giá Thành Đơn Vị (VNĐ/kg)</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('BUDGETS')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold whitespace-nowrap transition-colors ${
+          className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all ${
             activeTab === 'BUDGETS'
-              ? 'border-emerald-600 text-emerald-700 bg-emerald-50/40 rounded-t-xl'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
+              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/60 rounded-t-xl font-black'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
-          <DollarSign className="h-4 w-4" />
-          <span>
-            {manager ? 'Tab 3. Theo Dõi Hạn Mức Ngân Sách Trại' : 'Tab 3. Quản Trị & Phê Duyệt Ngân Sách'}
-          </span>
+          <DollarSign className="h-4 w-4 text-amber-600" />
+          <span>Hạn Mức Ngân Sách</span>
         </button>
       </div>
 

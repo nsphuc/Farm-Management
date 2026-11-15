@@ -61,7 +61,7 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
 
         // Check if user has tenant-wide scope (e.g. ROLE_FARM_OWNER, ROLE_SUPER_ADMIN)
         boolean hasTenantScope = isSuperAdmin || SecurityUtils.getCurrentUser().getRoles().stream()
-                .anyMatch(r -> "ROLE_FARM_OWNER".equals(r) || "ROLE_ACCOUNTANT".equals(r));
+                .anyMatch("ROLE_FARM_OWNER"::equals);
 
         Specification<Farm> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();

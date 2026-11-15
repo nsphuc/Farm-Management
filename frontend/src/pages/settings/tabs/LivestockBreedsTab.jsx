@@ -5,6 +5,7 @@ import { DataTable } from '@/components/common/DataTable';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { FormField, Input, Select } from '@/components/ui/FormControls';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 import { Can } from '@/components/common/Can';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
@@ -33,8 +34,10 @@ export function LivestockBreedsTab() {
   const [formData, setFormData] = useState({
     species: 'POULTRY',
     breedName: '',
+    managementType: 'FLOCK_HERD',
     standardGrowthDays: 60,
     targetWeightKg: 2.5,
+    imageUrl: '',
   });
   const [fieldErrors, setFieldErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
@@ -73,15 +76,20 @@ export function LivestockBreedsTab() {
       setFormData({
         species: item.species || 'POULTRY',
         breedName: item.breedName || '',
+        managementType: item.managementType || (item.species === 'POULTRY' ? 'FLOCK_HERD' : 'INDIVIDUAL_TAGGED'),
         standardGrowthDays: item.standardGrowthDays || 60,
         targetWeightKg: item.targetWeightKg || 2.5,
+        imageUrl: item.imageUrl || '',
       });
     } else {
+      const defaultMgmt = (selectedSpecies === 'POULTRY' || selectedSpecies === 'SWINE') ? 'FLOCK_HERD' : 'INDIVIDUAL_TAGGED';
       setFormData({
         species: selectedSpecies || 'POULTRY',
         breedName: '',
+        managementType: defaultMgmt,
         standardGrowthDays: 60,
         targetWeightKg: 2.5,
+        imageUrl: '',
       });
     }
     setModalOpen(true);
@@ -138,6 +146,27 @@ export function LivestockBreedsTab() {
 
   const columns = [
     {
+      key: 'image',
+      title: 'Ảnh Giống',
+      className: 'w-16 text-center',
+      render: (item) => (
+        <div className="h-10 w-10 mx-auto rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center">
+          {item.imageUrl ? (
+            <img
+              src={item.imageUrl}
+              alt={item.breedName}
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <PawPrint className="h-5 w-5 text-amber-600 opacity-60" />
+          )}
+        </div>
+      ),
+    },
+    {
       key: 'species',
       title: 'Loài Vật Nuôi',
       render: (item) => {
@@ -148,6 +177,20 @@ export function LivestockBreedsTab() {
           </span>
         );
       },
+    },
+    {
+      key: 'managementType',
+      title: 'Hình thức',
+      render: (item) =>
+        item.managementType === 'INDIVIDUAL_TAGGED' ? (
+          <span className="inline-flex items-center gap-1 rounded-md bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700 border border-purple-200">
+            <span>🏷️</span> Cá thể
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 border border-blue-200">
+            <span>👥</span> Theo đàn
+          </span>
+        ),
     },
     {
       key: 'breedName',
@@ -270,13 +313,33 @@ export function LivestockBreedsTab() {
             </div>
           )}
 
-          <FormField label="Loài Vật Nuôi (Species)" required error={fieldErrors.species}>
-            <Select
-              value={formData.species}
-              onChange={(e) => setFormData((prev) => ({ ...prev, species: e.target.value }))}
-              options={SPECIES_OPTIONS}
-            />
-          </FormField>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Loài Vật Nuôi (Species)" required error={fieldErrors.species}>
+              <Select
+                value={formData.species}
+                onChange={(e) => {
+                  const sp = e.target.value;
+                  setFormData((prev) => ({
+                    ...prev,
+                    species: sp,
+                    managementType: sp === 'POULTRY' ? 'FLOCK_HERD' : prev.managementType,
+                  }));
+                }}
+                options={SPECIES_OPTIONS}
+              />
+            </FormField>
+
+            <FormField label="Hình Thức Quản Lý" required error={fieldErrors.managementType}>
+              <Select
+                value={formData.managementType}
+                onChange={(e) => setFormData((prev) => ({ ...prev, managementType: e.target.value }))}
+                options={[
+                  { value: 'FLOCK_HERD', label: '👥 Quản lý theo đàn / bầy' },
+                  { value: 'INDIVIDUAL_TAGGED', label: '🏷️ Quản lý cá thể (Gắn thẻ tai)' },
+                ]}
+              />
+            </FormField>
+          </div>
 
           <FormField label="Tên Giống Vật Nuôi" required error={fieldErrors.breedName}>
             <Input
@@ -285,6 +348,14 @@ export function LivestockBreedsTab() {
               placeholder="VD: Gà Ri lai Lương Phượng F1"
             />
           </FormField>
+
+          <ImageUploadField
+            value={formData.imageUrl || ''}
+            onChange={(url) => setFormData((prev) => ({ ...prev, imageUrl: url }))}
+            label="Ảnh Đại Diện Giống Vật Nuôi"
+            error={fieldErrors.imageUrl}
+            hint="Tải ảnh giống vật nuôi từ máy tính hoặc dán URL. Tự động dùng làm tem QR truy xuất."
+          />
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Chu Kỳ Nuôi Chuẩn (Ngày)" required error={fieldErrors.standardGrowthDays}>

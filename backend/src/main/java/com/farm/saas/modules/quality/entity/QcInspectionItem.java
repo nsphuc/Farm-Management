@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.*;
 
+/**
+ * Thực thể chi tiết từng chỉ tiêu đo lường và đánh giá chất lượng trong biên bản KCS (qc_inspection_items).
+ */
 @Getter
 @Setter
 @Builder

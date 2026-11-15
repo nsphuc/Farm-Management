@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Coins,
   Plus,
@@ -7,6 +7,11 @@ import {
   Trash2,
   AlertTriangle,
   Receipt,
+  Building2,
+  Check,
+  ChevronDown,
+  MapPin,
+  X,
 } from 'lucide-react';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { DataTable } from '@/components/common/DataTable';
@@ -18,6 +23,7 @@ import { extractApiErrors } from '@/utils/apiHelpers';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useAuthStore } from '@/store/useAuthStore';
 
 const COST_TYPES = [
   { value: 'MATERIALS', label: 'MATERIALS - Chi phí Vật tư trực tiếp (621)' },
@@ -27,7 +33,57 @@ const COST_TYPES = [
   { value: 'INDIRECT_OVERHEAD', label: 'INDIRECT_OVERHEAD - Chi phí Sản xuất chung & Gián tiếp (627)' },
 ];
 
+/**
+ * Tự động sinh mã khoản mục chi phí tăng dần tuần tự dựa trên danh sách hiện có.
+ * Hỗ trợ mọi định dạng: CST-001 -> CST-002, CST-VT-01 -> CST-VT-02, CC-01 -> CC-02...
+ */
+function generateCostCategoryCode(existingList = []) {
+  if (!existingList || existingList.length === 0) {
+    return 'CST-001';
+  }
+
+  let bestPrefix = 'CST-';
+  let maxNum = 0;
+  let padLength = 3;
+
+  existingList.forEach((item) => {
+    const code = (item?.code || '').trim().toUpperCase();
+    if (!code) return;
+
+    const match = code.match(/^(.*?)(\d+)$/);
+    if (match) {
+      const prefix = match[1];
+      const numStr = match[2];
+      const num = parseInt(numStr, 10);
+
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+        bestPrefix = prefix;
+        padLength = Math.max(numStr.length, padLength);
+      }
+    }
+  });
+
+  if (maxNum === 0) {
+    return `CST-${String(existingList.length + 1).padStart(3, '0')}`;
+  }
+
+  const nextNum = maxNum + 1;
+  const finalPad = Math.max(padLength, String(nextNum).length);
+  return `${bestPrefix}${String(nextNum).padStart(finalPad, '0')}`;
+}
+
 export function CostCategoriesTab() {
+  const { activeFarmId, farms, fetchFarms } = useActiveFarmStore();
+  const accessibleFarms = useAuthStore((s) => s.userInfo?.accessibleFarms) || [];
+  const farmList = farms && farms.length > 0 ? farms : accessibleFarms;
+
+  useEffect(() => {
+    if ((!farms || farms.length === 0) && typeof fetchFarms === 'function') {
+      fetchFarms();
+    }
+  }, [farms, fetchFarms]);
+
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedCostType, setSelectedCostType] = useState('');
@@ -36,6 +92,10 @@ export function CostCategoriesTab() {
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [selectedFarmIds, setSelectedFarmIds] = useState(['ALL']);
+  const [isFarmDropdownOpen, setIsFarmDropdownOpen] = useState(false);
+  const farmDropdownRef = useRef(null);
+
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -46,12 +106,23 @@ export function CostCategoriesTab() {
   const [generalError, setGeneralError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Close farm dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (farmDropdownRef.current && !farmDropdownRef.current.contains(e.target)) {
+        setIsFarmDropdownOpen(false);
+      }
+    }
+    if (isFarmDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isFarmDropdownOpen]);
+
   const fetchData = async () => {
     try {
       setLoading(true);
-      const res = await masterDataService.getCostCategories({
-        costType: selectedCostType || undefined,
-      });
+      const res = await masterDataService.getCostCategories();
       setData(Array.isArray(res) ? res : res?.content || []);
     } catch (err) {
       console.error('Failed to load cost categories', err);
@@ -62,13 +133,27 @@ export function CostCategoriesTab() {
 
   useEffect(() => {
     fetchData();
-  }, [selectedCostType]);
+  }, []);
 
   const handleOpenModal = (item = null) => {
     setEditingItem(item);
     setFieldErrors({});
     setGeneralError('');
+    setIsFarmDropdownOpen(false);
+
     if (item) {
+      if (!item.applicableFarms || item.applicableFarms === 'ALL' || (!item.farmId && (!item.applicableFarmIds || item.applicableFarmIds.length === 0))) {
+        setSelectedFarmIds(['ALL']);
+      } else if (item.applicableFarmIds && item.applicableFarmIds.length > 0) {
+        setSelectedFarmIds(item.applicableFarmIds.map(String));
+      } else if (item.applicableFarms) {
+        setSelectedFarmIds(item.applicableFarms.split(',').map((s) => s.trim()).filter(Boolean));
+      } else if (item.farmId) {
+        setSelectedFarmIds([String(item.farmId)]);
+      } else {
+        setSelectedFarmIds(['ALL']);
+      }
+
       setFormData({
         code: item.code || '',
         name: item.name || '',
@@ -76,14 +161,57 @@ export function CostCategoriesTab() {
         description: item.description || '',
       });
     } else {
+      setSelectedFarmIds(['ALL']);
       setFormData({
-        code: generateEntityCode(CODE_PREFIXES.COST_CATEGORY),
+        code: generateCostCategoryCode(data),
         name: '',
         costType: selectedCostType || 'MATERIALS',
         description: '',
       });
     }
     setModalOpen(true);
+  };
+
+  const handleToggleFarm = (farmIdStr) => {
+    if (farmIdStr === 'ALL') {
+      setSelectedFarmIds(['ALL']);
+      return;
+    }
+
+    setSelectedFarmIds((prev) => {
+      const current = prev.filter((id) => id !== 'ALL');
+      const targetId = String(farmIdStr);
+      let next;
+      if (current.includes(targetId)) {
+        next = current.filter((id) => id !== targetId);
+      } else {
+        next = [...current, targetId];
+      }
+
+      if (next.length === 0) {
+        return ['ALL'];
+      }
+      if (farmList.length > 0 && next.length === farmList.length) {
+        return ['ALL'];
+      }
+      return next;
+    });
+  };
+
+  const handleRemoveFarmTag = (farmIdStr, e) => {
+    e.stopPropagation();
+    handleToggleFarm(farmIdStr);
+  };
+
+  const getSelectedFarmsLabel = () => {
+    if (selectedFarmIds.includes('ALL') || selectedFarmIds.length === 0) {
+      return 'Toàn bộ trang trại (Toàn doanh nghiệp)';
+    }
+    if (selectedFarmIds.length === 1) {
+      const found = farmList.find((f) => String(f.id) === String(selectedFarmIds[0]));
+      return found ? found.name : `Trang trại #${selectedFarmIds[0]}`;
+    }
+    return `Đã chọn ${selectedFarmIds.length} trang trại`;
   };
 
   const handleSave = async (e) => {
@@ -102,7 +230,12 @@ export function CostCategoriesTab() {
       setFieldErrors({});
       setGeneralError('');
 
+      const isAll = selectedFarmIds.includes('ALL') || selectedFarmIds.length === 0;
+      const cleanFarmIds = isAll ? [] : selectedFarmIds.filter((id) => id !== 'ALL').map(Number);
+
       const payload = {
+        farmId: isAll ? null : cleanFarmIds[0] || null,
+        applicableFarmIds: cleanFarmIds,
         code: formData.code.toUpperCase().trim(),
         name: formData.name.trim(),
         costType: formData.costType,
@@ -141,6 +274,33 @@ export function CostCategoriesTab() {
   };
 
   const filteredData = data.filter((item) => {
+    // 1. Lọc theo Phân loại yếu tố chi phí
+    if (selectedCostType && item.costType !== selectedCostType) {
+      return false;
+    }
+
+    // 2. Lọc theo Trang trại được chọn trên TopBar
+    if (activeFarmId && activeFarmId !== 'ALL') {
+      const isAll =
+        !item.applicableFarms ||
+        item.applicableFarms === 'ALL' ||
+        (!item.farmId && (!item.applicableFarmIds || item.applicableFarmIds.length === 0));
+
+      if (!isAll) {
+        const matchesFarmId = item.farmId && String(item.farmId) === String(activeFarmId);
+        const matchesAppFarmIds = item.applicableFarmIds?.some((id) => String(id) === String(activeFarmId));
+        const matchesAppFarmsStr = item.applicableFarms
+          ?.split(',')
+          .map((p) => p.trim())
+          .includes(String(activeFarmId));
+
+        if (!matchesFarmId && !matchesAppFarmIds && !matchesAppFarmsStr) {
+          return false;
+        }
+      }
+    }
+
+    // 3. Lọc theo từ khóa tìm kiếm
     if (!search) return true;
     const q = search.toLowerCase();
     return item.name?.toLowerCase().includes(q) || item.code?.toLowerCase().includes(q);
@@ -155,12 +315,39 @@ export function CostCategoriesTab() {
     {
       key: 'name',
       title: 'Tên Khoản Mục Chi Phí',
-      render: (item) => (
-        <div>
-          <div className="font-semibold text-slate-900">{item.name}</div>
-          {item.description && <div className="text-[11px] text-slate-500">{item.description}</div>}
-        </div>
-      ),
+      render: (item) => {
+        const isAll =
+          !item.applicableFarms ||
+          item.applicableFarms === 'ALL' ||
+          (!item.farmId && (!item.applicableFarmIds || item.applicableFarmIds.length === 0));
+
+        return (
+          <div className="space-y-1">
+            <div className="font-semibold text-slate-900">{item.name}</div>
+            <div className="flex flex-wrap items-center gap-1">
+              {isAll ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 border border-sky-200">
+                  <Building2 className="h-3 w-3" /> Toàn bộ trang trại
+                </span>
+              ) : item.applicableFarmNames && item.applicableFarmNames.length > 0 ? (
+                item.applicableFarmNames.map((fName, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200"
+                  >
+                    <MapPin className="h-3 w-3" /> {fName}
+                  </span>
+                ))
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+                  <MapPin className="h-3 w-3" /> Riêng trang trại #{item.farmId}
+                </span>
+              )}
+            </div>
+            {item.description && <div className="text-[11px] text-slate-500 pt-0.5">{item.description}</div>}
+          </div>
+        );
+      },
     },
     {
       key: 'costType',
@@ -275,6 +462,122 @@ export function CostCategoriesTab() {
             </div>
           )}
 
+          {/* Phạm vi áp dụng dropdown */}
+          <div className="space-y-1.5" ref={farmDropdownRef}>
+            <label className="text-xs font-bold text-slate-700 block">
+              Phạm Vi Áp Dụng Khoản Mục <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsFarmDropdownOpen(!isFarmDropdownOpen)}
+                className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm transition hover:border-slate-300 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              >
+                <div className="flex items-center gap-2 truncate">
+                  {selectedFarmIds.includes('ALL') ? (
+                    <Building2 className="h-4 w-4 text-sky-600 shrink-0" />
+                  ) : (
+                    <MapPin className="h-4 w-4 text-emerald-600 shrink-0" />
+                  )}
+                  <span className="truncate">{getSelectedFarmsLabel()}</span>
+                </div>
+                <ChevronDown
+                  className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${
+                    isFarmDropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {isFarmDropdownOpen && (
+                <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg animate-in fade-in zoom-in-95">
+                  {/* Toàn bộ trang trại option */}
+                  <div
+                    onClick={() => handleToggleFarm('ALL')}
+                    className={`flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-semibold cursor-pointer transition-colors ${
+                      selectedFarmIds.includes('ALL')
+                        ? 'bg-sky-50 text-sky-900 font-bold'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4 text-sky-600" />
+                      <div>
+                        <div>Toàn bộ trang trại</div>
+                        <div className="text-[10px] font-normal text-slate-500">
+                          Áp dụng chung toàn doanh nghiệp
+                        </div>
+                      </div>
+                    </div>
+                    {selectedFarmIds.includes('ALL') && (
+                      <Check className="h-4 w-4 text-sky-600" />
+                    )}
+                  </div>
+
+                  <div className="my-1 border-t border-slate-100" />
+                  <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Hoặc chọn riêng theo từng trang trại
+                  </div>
+
+                  {farmList.map((farm) => {
+                    const isSelected = selectedFarmIds.includes(String(farm.id));
+                    return (
+                      <div
+                        key={farm.id}
+                        onClick={() => handleToggleFarm(farm.id)}
+                        className={`flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-semibold cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-emerald-50 text-emerald-900 font-bold'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-emerald-600" />
+                          <div>
+                            <div>{farm.name}</div>
+                            {farm.code && (
+                              <div className="text-[10px] font-normal text-slate-500">
+                                Mã: {farm.code}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <Check className="h-4 w-4 text-emerald-600" />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Selected farm pills when specific farms are selected */}
+            {!selectedFarmIds.includes('ALL') && selectedFarmIds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {selectedFarmIds.map((farmId) => {
+                  const farm = farmList.find((f) => String(f.id) === String(farmId));
+                  return (
+                    <span
+                      key={farmId}
+                      className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 border border-emerald-200"
+                    >
+                      <MapPin className="h-3 w-3 text-emerald-600" />
+                      <span>{farm ? farm.name : `Trang trại #${farmId}`}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => handleRemoveFarmTag(farmId, e)}
+                        className="ml-0.5 rounded-full p-0.5 hover:bg-emerald-100 text-emerald-600"
+                        title="Bỏ chọn"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <FormField label="Phân Loại Yếu Tố Chi Phí" required error={fieldErrors.costType}>
             <Select
               value={formData.costType}
@@ -291,7 +594,7 @@ export function CostCategoriesTab() {
                   setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
                 }
                 onRegenerate={() =>
-                  setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.COST_CATEGORY) }))
+                  setFormData((prev) => ({ ...prev, code: generateCostCategoryCode(data) }))
                 }
                 isEditMode={Boolean(editingItem)}
                 error={fieldErrors.code}

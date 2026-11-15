@@ -18,6 +18,7 @@ public interface LivestockService {
     Page<LivestockIndividualDetailResponse> getIndividuals(Long farmId, Long groupId, String healthStatus, Pageable pageable);
     LivestockIndividualDetailResponse getIndividualById(Long farmId, Long id);
     LivestockIndividualDetailResponse createIndividual(Long farmId, CreateLivestockIndividualRequest request);
+    BatchCreateIndividualsResponse batchCreateIndividuals(Long farmId, BatchCreateIndividualsRequest request);
     LivestockIndividualDetailResponse updateIndividual(Long farmId, Long id, UpdateLivestockIndividualRequest request);
     void deleteIndividual(Long farmId, Long id);
 

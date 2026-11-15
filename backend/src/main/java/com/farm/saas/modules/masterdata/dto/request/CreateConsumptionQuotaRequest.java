@@ -32,5 +32,6 @@ public class CreateConsumptionQuotaRequest {
     @NotBlank(message = "Đơn vị tính định mức không được để trống")
     private String unitOfMeasure;
 
+    @jakarta.validation.constraints.Size(max = 255, message = "Tên giai đoạn không được vượt quá 255 ký tự")
     private String stage;
 }

@@ -10,6 +10,9 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+/**
+ * DTO yêu cầu tạo mới biên bản thu hoạch nông sản hoặc xuất chuồng vật nuôi.
+ */
 @Getter
 @Setter
 @Builder
@@ -49,6 +52,11 @@ public class CreateHarvestRecordRequest {
     private BigDecimal lossPercentage;
 
     private String notes;
+
+    private Long warehouseId;
+
+    @Builder.Default
+    private Boolean autoCreateBatchAndReceipt = true;
 
     public void setQualityGrade(String grade) {
         if ("EXPORT".equalsIgnoreCase(grade)) {

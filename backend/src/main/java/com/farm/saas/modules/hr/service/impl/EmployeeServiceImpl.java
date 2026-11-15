@@ -1,5 +1,6 @@
 package com.farm.saas.modules.hr.service.impl;
 
+import com.farm.saas.common.mail.EmailService;
 import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.CustomUserDetails;
@@ -66,6 +67,9 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final TenantSubscriptionRepository tenantSubscriptionRepository;
     private final PasswordEncoder passwordEncoder;
     private final com.farm.saas.common.security.FarmSecurityEvaluator farmSecurity;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private EmailService emailService;
 
     public EmployeeServiceImpl(EmployeeRepository employeeRepository,
                                FarmRepository farmRepository,
@@ -170,6 +174,10 @@ public class EmployeeServiceImpl implements EmployeeService {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
         boolean tenantScope = isTenantScopeUser();
+
+        if (request.getEmail() != null && !request.getEmail().trim().toLowerCase().endsWith("@gmail.com")) {
+            throw new BusinessException("INVALID_EMAIL_DOMAIN", "Email nhân viên bắt buộc phải có đuôi @gmail.com");
+        }
 
         // 1. Age check >= 18
         LocalDate dob = request.getDateOfBirth();
@@ -447,9 +455,31 @@ public class EmployeeServiceImpl implements EmployeeService {
 
             log.info("One-step provisioned user id={}, username={}, role={} for employee id={}",
                     user.getId(), user.getUsername(), targetRoleCode, employee.getId());
+
+            // Tự động gửi email chứa thông tin tài khoản và mật khẩu khởi tạo (Nhiệm vụ 5)
+            if (emailService != null && StringUtils.hasText(user.getEmail())) {
+                emailService.sendAccountCredentialsEmail(
+                        user.getEmail(),
+                        user.getFullName(),
+                        user.getUsername(),
+                        rawPassword,
+                        null
+                );
+            }
         }
 
         return mapToDetailResponse(employee);
+    }
+
+    private String mapToValidRoleInFarm(String roleOrPos, String fallbackPos) {
+        String val = StringUtils.hasText(roleOrPos) ? roleOrPos.trim().toUpperCase() : (fallbackPos != null ? fallbackPos.trim().toUpperCase() : "");
+        if (val.contains("FARM_MANAGER")) return "FARM_MANAGER";
+        if (val.contains("ZONE_MANAGER")) return "ZONE_MANAGER";
+        if (val.contains("WAREHOUSE")) return "WAREHOUSE_KEEPER";
+        if (val.contains("VET")) return "VETERINARIAN";
+        if (val.contains("AGRONOMIST")) return "AGRONOMIST";
+        if (val.contains("TECHNICAL")) return "TECHNICAL_LEAD";
+        return "FIELD_WORKER";
     }
 
     @Override
@@ -457,6 +487,10 @@ public class EmployeeServiceImpl implements EmployeeService {
     public EmployeeDetailResponse updateEmployee(Long id, UpdateEmployeeRequest request) {
         final Long currentTenantId = SecurityUtils.getCurrentTenantId();
         boolean tenantScope = isTenantScopeUser();
+
+        if (request.getEmail() != null && !request.getEmail().isBlank() && !request.getEmail().trim().toLowerCase().endsWith("@gmail.com")) {
+            throw new BusinessException("INVALID_EMAIL_DOMAIN", "Email nhân viên bắt buộc phải có đuôi @gmail.com");
+        }
 
         Employee employee = employeeRepository.findById(id)
                 .filter(e -> currentTenantId == null || e.getTenantId().equals(currentTenantId))
@@ -646,67 +680,62 @@ public class EmployeeServiceImpl implements EmployeeService {
                     employee.setDepartment("Phân khu: " + targetZone.getName());
                 }
 
-                Long assignmentUserId = empUserId != null ? empUserId : employee.getId();
-                List<FarmAssignment> existingList = new ArrayList<>();
-                for (Long uid : candidateUserIds) {
-                    farmAssignmentRepository.findByUserIdAndIsActiveTrue(uid)
-                            .stream()
-                            .filter(fa -> Objects.equals(fa.getFarmId(), empFarmId))
-                            .forEach(existingList::add);
-                }
-
-                String effectiveRoleInFarm = StringUtils.hasText(request.getRoleInFarm())
-                        ? request.getRoleInFarm().trim()
-                        : (employee.getPosition() != null ? employee.getPosition() : "TECHNICAL_STAFF");
-
-                if (!existingList.isEmpty()) {
-                    FarmAssignment existingFa = existingList.get(0);
-                    existingFa.setZoneId(effectiveZoneId);
-                    existingFa.setRoleInFarm(effectiveRoleInFarm);
-                    existingFa.setIsActive(true);
-                    existingFa.setUpdatedAt(Instant.now());
-                    existingFa.setUpdatedBy(SecurityUtils.getCurrentUserId());
-                    farmAssignmentRepository.save(existingFa);
-
-                    for (int i = 1; i < existingList.size(); i++) {
-                        FarmAssignment dup = existingList.get(i);
-                        dup.setIsActive(false);
-                        dup.setAssignedTo(LocalDate.now());
-                        dup.setUpdatedAt(Instant.now());
-                        dup.setUpdatedBy(SecurityUtils.getCurrentUserId());
-                        farmAssignmentRepository.save(dup);
-                    }
-                } else {
-                    FarmAssignment newFa = FarmAssignment.builder()
-                            .tenantId(tenantId)
-                            .farmId(empFarmId)
-                            .zoneId(effectiveZoneId)
-                            .userId(assignmentUserId)
-                            .roleInFarm(effectiveRoleInFarm)
-                            .assignedFrom(LocalDate.now())
-                            .isActive(true)
-                            .createdAt(Instant.now())
-                            .createdBy(SecurityUtils.getCurrentUserId())
-                            .build();
-                    farmAssignmentRepository.save(newFa);
-                }
-            } else {
-                // 3. Đồng bộ vai trò trong phân công hiện trường (farm_assignments) nếu có thay đổi chức vụ / vai trò
-                String newRoleInFarm = StringUtils.hasText(request.getRoleInFarm())
-                        ? request.getRoleInFarm().trim()
-                        : (employee.getPosition() != null ? employee.getPosition().trim() : null);
-
-                if (newRoleInFarm != null) {
+                if (empUserId != null) {
+                    List<FarmAssignment> existingList = new ArrayList<>();
                     for (Long uid : candidateUserIds) {
-                        farmAssignmentRepository.findByUserIdAndIsActiveTrue(uid).forEach(fa -> {
-                            if (Objects.equals(fa.getFarmId(), empFarmId)) {
-                                fa.setRoleInFarm(newRoleInFarm);
-                                fa.setUpdatedAt(Instant.now());
-                                fa.setUpdatedBy(SecurityUtils.getCurrentUserId());
-                                farmAssignmentRepository.save(fa);
-                            }
-                        });
+                        farmAssignmentRepository.findByUserIdAndIsActiveTrue(uid)
+                                .stream()
+                                .filter(fa -> Objects.equals(fa.getFarmId(), empFarmId))
+                                .forEach(existingList::add);
                     }
+
+                    String effectiveRoleInFarm = mapToValidRoleInFarm(request.getRoleInFarm(), employee.getPosition());
+
+                    if (!existingList.isEmpty()) {
+                        FarmAssignment existingFa = existingList.get(0);
+                        existingFa.setZoneId(effectiveZoneId);
+                        existingFa.setRoleInFarm(effectiveRoleInFarm);
+                        existingFa.setIsActive(true);
+                        existingFa.setUpdatedAt(Instant.now());
+                        existingFa.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                        farmAssignmentRepository.save(existingFa);
+
+                        for (int i = 1; i < existingList.size(); i++) {
+                            FarmAssignment dup = existingList.get(i);
+                            dup.setIsActive(false);
+                            dup.setAssignedTo(LocalDate.now());
+                            dup.setUpdatedAt(Instant.now());
+                            dup.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                            farmAssignmentRepository.save(dup);
+                        }
+                    } else {
+                        FarmAssignment newFa = FarmAssignment.builder()
+                                .tenantId(tenantId)
+                                .farmId(empFarmId)
+                                .zoneId(effectiveZoneId)
+                                .userId(empUserId)
+                                .roleInFarm(effectiveRoleInFarm)
+                                .assignedFrom(LocalDate.now())
+                                .isActive(true)
+                                .createdAt(Instant.now())
+                                .createdBy(SecurityUtils.getCurrentUserId())
+                                .build();
+                        farmAssignmentRepository.save(newFa);
+                    }
+                }
+            } else if (empUserId != null) {
+                // 3. Đồng bộ vai trò trong phân công hiện trường (farm_assignments) nếu có thay đổi chức vụ / vai trò
+                String newRoleInFarm = mapToValidRoleInFarm(request.getRoleInFarm(), employee.getPosition());
+
+                for (Long uid : candidateUserIds) {
+                    farmAssignmentRepository.findByUserIdAndIsActiveTrue(uid).forEach(fa -> {
+                        if (Objects.equals(fa.getFarmId(), empFarmId)) {
+                            fa.setRoleInFarm(newRoleInFarm);
+                            fa.setUpdatedAt(Instant.now());
+                            fa.setUpdatedBy(SecurityUtils.getCurrentUserId());
+                            farmAssignmentRepository.save(fa);
+                        }
+                    });
                 }
             }
 
@@ -890,6 +919,10 @@ public class EmployeeServiceImpl implements EmployeeService {
         final Long currentTenantId = SecurityUtils.getCurrentTenantId();
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
+        if (request.getEmail() != null && !request.getEmail().isBlank() && !request.getEmail().trim().toLowerCase().endsWith("@gmail.com")) {
+            throw new BusinessException("INVALID_EMAIL_DOMAIN", "Email tài khoản bắt buộc phải có đuôi @gmail.com");
+        }
+
         Employee employee = employeeRepository.findById(id)
                 .filter(e -> currentTenantId == null || e.getTenantId().equals(currentTenantId))
                 .orElseThrow(() -> new ResourceNotFoundException("Employee", "id", id));
@@ -1037,6 +1070,18 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
 
         log.info("Provisioned user account id={}, username={} for employee id={}", finalUserId, savedUser.getUsername(), savedEmployee.getId());
+
+        // Tự động gửi email thông tin tài khoản cho người dùng (Nhiệm vụ 5)
+        if (emailService != null && StringUtils.hasText(savedUser.getEmail())) {
+            emailService.sendAccountCredentialsEmail(
+                    savedUser.getEmail(),
+                    savedUser.getFullName(),
+                    savedUser.getUsername(),
+                    rawPassword,
+                    null
+            );
+        }
+
         return mapToDetailResponse(savedEmployee);
     }
 

@@ -23,6 +23,10 @@ public class DebtRecordDetailResponse {
     private String orderCode;
     private Long warehouseReceiptId;
     private String receiptCode;
+    private Long livestockGroupId;
+    private String livestockGroupCode;
+    private String notes;
+    private String itemSummary;
     private String debtType;
     private BigDecimal totalDebt;
     private BigDecimal paidAmount;

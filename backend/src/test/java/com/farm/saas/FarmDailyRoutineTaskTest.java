@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -252,5 +253,66 @@ public class FarmDailyRoutineTaskTest {
         assertNull(res.getAssignedToUserId());
         assertEquals(1, res.getAssignees().size());
         assertFalse(res.getAssignees().get(0).getHasUserAccount());
+    }
+
+    @Test
+    @DisplayName("Kiểm tra logic isShiftCoveringTask lọc đúng ca làm việc bao trọn khung giờ của công việc")
+    void testIsShiftCoveringTask() {
+        // Ca sáng của nhân viên A: 06:00 - 14:00
+        var shiftA = com.farm.saas.modules.masterdata.entity.WorkShift.builder()
+                .id(1L)
+                .name("Ca Sáng")
+                .startTime(java.time.LocalTime.of(6, 0))
+                .endTime(java.time.LocalTime.of(14, 0))
+                .isOvernight(false)
+                .build();
+
+        // Ca chiều của nhân viên B: 13:00 - 17:00
+        var shiftB = com.farm.saas.modules.masterdata.entity.WorkShift.builder()
+                .id(2L)
+                .name("Ca Chiều")
+                .startTime(java.time.LocalTime.of(13, 0))
+                .endTime(java.time.LocalTime.of(17, 0))
+                .isOvernight(false)
+                .build();
+
+        // Công việc cho heo ăn: 07:30 - 09:00
+        java.time.LocalTime taskStart = java.time.LocalTime.of(7, 30);
+        java.time.LocalTime taskEnd = java.time.LocalTime.of(9, 0);
+
+        // Nhân viên A đi làm từ 06:00 đến 14:00 -> Bao trọn 07:30 - 09:00 -> TRUE
+        assertTrue(FarmTaskServiceImpl.isShiftCoveringTask(shiftA, taskStart, taskEnd));
+
+        // Nhân viên B đi làm từ 13:00 đến 17:00 -> Lúc 07:30 chưa đi làm -> FALSE (Loại bỏ B)
+        assertFalse(FarmTaskServiceImpl.isShiftCoveringTask(shiftB, taskStart, taskEnd));
+    }
+
+    @Test
+    @DisplayName("Kiểm tra tính toán cảnh báo quá hạn isOverdue và overdueMinutes")
+    void testOverdueEnrichment() {
+        // Task quá hạn 30 phút trước
+        Instant pastDeadline = Instant.now().minus(java.time.Duration.ofMinutes(30));
+        FarmTask overdueTask = FarmTask.builder()
+                .id(55L)
+                .tenantId(10L)
+                .farmId(1L)
+                .taskTitle("Bón phân đợt 1")
+                .taskType("FERTILIZING")
+                .priority("HIGH")
+                .status("TODO")
+                .deadline(pastDeadline)
+                .createdAt(Instant.now().minus(java.time.Duration.ofHours(2)))
+                .build();
+
+        when(farmTaskRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(overdueTask)));
+
+        var pagedRes = farmTaskService.getTasks(1L, Pageable.unpaged());
+        assertNotNull(pagedRes);
+        assertFalse(pagedRes.getContent().isEmpty());
+
+        FarmTaskDetailResponse res = pagedRes.getContent().get(0);
+        assertTrue(res.getIsOverdue(), "Nhiệm vụ đã quá hạn deadline phải có isOverdue = true");
+        assertTrue(res.getOverdueMinutes() >= 29, "overdueMinutes phải xấp xỉ 30 phút");
     }
 }

@@ -22,6 +22,7 @@ import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 const ISSUE_TYPE_LABELS = {
   FIELD_CONSUMPTION: 'Xuất sử dụng đồng ruộng',
   INTERNAL_USE: 'Xuất dùng nội bộ',
+  TASK_DISPATCH: 'Xuất phục vụ công việc',
   DAMAGE_DISPOSAL: 'Xuất hủy hỏng hóc',
   SALE: 'Xuất bán thương mại',
 };
@@ -121,12 +122,32 @@ export function IssueDetailDrawer({ isOpen, onClose, issue, farmId, onSuccess })
     {
       key: 'batchNumber',
       header: 'Lô Xuất Kho',
-      width: '140px',
+      width: '130px',
       render: (row) => (
         <span className="font-mono font-bold text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded text-[11px] border border-slate-200">
           {row.batchNumber}
         </span>
       ),
+    },
+    {
+      key: 'storageBinCode',
+      header: 'Vị Trí Kệ / Ngăn',
+      width: '130px',
+      render: (row) => (
+        <span className="inline-flex items-center gap-1 font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[11px]">
+          📍 {row.storageBinCode || 'Tại kho'}
+        </span>
+      ),
+    },
+    {
+      key: 'expiryDate',
+      header: 'Hạn Dùng (FEFO)',
+      width: '130px',
+      render: (row) => row.expiryDate ? (
+        <span className="font-mono text-[11px] text-slate-700 font-semibold block">
+          📅 {formatDate(row.expiryDate)}
+        </span>
+      ) : <span className="text-slate-400 text-xs">—</span>,
     },
     {
       key: 'quantity',
@@ -178,22 +199,22 @@ export function IssueDetailDrawer({ isOpen, onClose, issue, farmId, onSuccess })
             <StatusBadge status={activeIssue.status} size="sm" />
             {activeIssue.status === 'DRAFT' && (
               <span className="text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-amber-200">
-                Chờ Giám đốc trại phê duyệt
+                Chờ thủ kho xuất hàng
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
             {activeIssue.status === 'DRAFT' && (
-              <Can permission="PERM_INVENTORY_ISSUE" role="ROLE_FARM_MANAGER">
+              <Can permission="PERM_INVENTORY_ISSUE" role={['ROLE_WAREHOUSE_STAFF', 'ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN']}>
                 <Button
                   variant="primary"
                   size="sm"
                   icon={<CheckCircle2 className="h-4 w-4" />}
                   loading={isSubmitting}
                   onClick={handleComplete}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
                 >
-                  Phê Duyệt Xuất Kho
+                  Xác Nhận Xuất Kho & Bàn Giao
                 </Button>
                 <Button
                   variant="danger"
@@ -299,9 +320,11 @@ export function IssueDetailDrawer({ isOpen, onClose, issue, farmId, onSuccess })
           </div>
 
           <div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Vụ Mùa / Đàn Nuôi</span>
-            <span className="text-xs font-medium text-slate-600 block">
-              {activeIssue.seasonId
+            <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nhiệm Vụ / Mùa Vụ</span>
+            <span className="text-xs font-semibold text-slate-800 block truncate" title={activeIssue.taskTitle}>
+              {activeIssue.taskTitle
+                ? `📋 ${activeIssue.taskTitle}`
+                : activeIssue.seasonId
                 ? `Mùa vụ #${activeIssue.seasonId}`
                 : activeIssue.livestockGroupId
                 ? `Đàn nuôi #${activeIssue.livestockGroupId}`

@@ -26,9 +26,13 @@ public class CreateLivestockBreedRequest {
     @NotBlank(message = "Tên giống không được để trống")
     private String breedName;
 
+    private String imageUrl;
+
     @Min(value = 1, message = "Số ngày nuôi chuẩn phải lớn hơn 0")
     private Integer standardGrowthDays;
 
     @DecimalMin(value = "0.01", message = "Trọng lượng mục tiêu phải lớn hơn 0")
     private BigDecimal targetWeightKg;
+
+    private String managementType; // 'FLOCK_HERD' | 'INDIVIDUAL_TAGGED'
 }

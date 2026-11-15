@@ -3,6 +3,9 @@ package com.farm.saas.modules.quality.dto.request;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
 
+/**
+ * DTO yêu cầu từ chối phê duyệt chất lượng lô sản phẩm khi không đạt KCS.
+ */
 @Getter
 @Setter
 @Builder

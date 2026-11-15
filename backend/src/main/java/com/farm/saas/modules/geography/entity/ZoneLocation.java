@@ -28,6 +28,9 @@ public class ZoneLocation {
     @Column(name = "zone_id", nullable = false)
     private Long zoneId;
 
+    @Column(name = "warehouse_id")
+    private Long warehouseId;
+
     @Column(name = "code", nullable = false, length = 50)
     private String code;
 
@@ -45,6 +48,9 @@ public class ZoneLocation {
 
     @Column(name = "capacity")
     private Integer capacity;
+
+    @Column(name = "capacity_unit", length = 50)
+    private String capacityUnit;
 
     @Column(name = "created_at")
     private Instant createdAt;

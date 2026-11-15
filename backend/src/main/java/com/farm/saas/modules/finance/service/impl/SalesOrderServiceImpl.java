@@ -6,14 +6,20 @@ import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.finance.dto.request.CreateSalesOrderRequest;
 import com.farm.saas.modules.finance.dto.response.SalesOrderDetailResponse;
+import com.farm.saas.modules.finance.entity.SalesDelivery;
+import com.farm.saas.modules.finance.entity.SalesDeliveryItem;
 import com.farm.saas.modules.finance.entity.SalesOrder;
 import com.farm.saas.modules.finance.entity.SalesOrderItem;
-import com.farm.saas.modules.finance.repository.DebtRecordRepository;
-import com.farm.saas.modules.finance.repository.SalesOrderItemRepository;
-import com.farm.saas.modules.finance.repository.SalesOrderRepository;
+import com.farm.saas.modules.finance.repository.*;
 import com.farm.saas.modules.finance.service.SalesOrderService;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.inventory.entity.WarehouseInventory;
+import com.farm.saas.modules.inventory.entity.WarehouseIssue;
+import com.farm.saas.modules.inventory.entity.WarehouseIssueItem;
+import com.farm.saas.modules.inventory.repository.WarehouseInventoryRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseIssueItemRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseIssueRepository;
 import com.farm.saas.modules.platform.entity.Enterprise;
 import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.EnterpriseRepository;
@@ -37,6 +43,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import com.farm.saas.common.codegenerator.CodeGenerator;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -46,6 +53,11 @@ public class SalesOrderServiceImpl implements SalesOrderService {
 
     private final SalesOrderRepository salesOrderRepository;
     private final SalesOrderItemRepository salesOrderItemRepository;
+    private final SalesDeliveryRepository salesDeliveryRepository;
+    private final SalesDeliveryItemRepository salesDeliveryItemRepository;
+    private final WarehouseIssueRepository warehouseIssueRepository;
+    private final WarehouseIssueItemRepository warehouseIssueItemRepository;
+    private final WarehouseInventoryRepository warehouseInventoryRepository;
     private final ProductBatchRepository productBatchRepository;
     private final DebtRecordRepository debtRecordRepository;
     private final PartnerRepository partnerRepository;
@@ -53,6 +65,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final CodeGenerator codeGenerator;
 
     @Override
     @Transactional(readOnly = true)
@@ -128,7 +141,10 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             }
         }
 
-        String orderCode = "SO-" + farmId + "-" + (System.currentTimeMillis() % 10000000);
+        String orderCode;
+        do {
+            orderCode = codeGenerator.generateSalesOrderCode();
+        } while (salesOrderRepository.existsByTenantIdAndFarmIdAndOrderCode(tenantId, farmId, orderCode));
 
         SalesOrder order = SalesOrder.builder()
                 .tenantId(tenantId)
@@ -237,6 +253,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
                 }
 
                 batch.setReservedQuantity(batch.getReservedQuantity().add(item.getQuantity()));
+                batch.setStatus("SELLING");
                 batch.setUpdatedAt(Instant.now());
                 productBatchRepository.save(batch);
             }
@@ -246,6 +263,9 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         order.setUpdatedAt(Instant.now());
         order.setUpdatedBy(currentUserId);
         order = salesOrderRepository.save(order);
+
+        // Tự động tạo Phiếu Giao Hàng DRAFT & Phiếu Xuất Kho cho Thủ Kho
+        autoCreateDraftDeliveryAndIssueForOrder(farmId, order, items, currentUserId);
 
         // GAP-ACC-07: 2-way notification on confirmation
         Long tenantId = SecurityUtils.getCurrentTenantId();
@@ -409,6 +429,12 @@ public class SalesOrderServiceImpl implements SalesOrderService {
 
         LocalDate dueDate = order.getOrderDate().plusDays(paymentTermDays);
 
+        Optional<Enterprise> entOpt = enterpriseRepository.findByTenantId(order.getTenantId());
+        String bankBin = entOpt.map(Enterprise::getBankBin).orElse(null);
+        String bankName = entOpt.map(Enterprise::getBankName).orElse(null);
+        String bankAccountNo = entOpt.map(Enterprise::getBankAccountNo).orElse(null);
+        String bankAccountName = entOpt.map(Enterprise::getBankAccountName).orElse(null);
+
         String vietQrUrl = generateVietQrUrl(order.getTenantId(), order.getOrderCode(), order.getDebtAmount());
 
         List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(order.getId());
@@ -461,10 +487,129 @@ public class SalesOrderServiceImpl implements SalesOrderService {
                 .deliveryStatus(order.getStatus())
                 .paymentStatus(order.getPaymentStatus())
                 .vietQrUrl(vietQrUrl)
+                .bankBin(bankBin)
+                .bankName(bankName)
+                .bankAccountNo(bankAccountNo)
+                .bankAccountName(bankAccountName)
                 .items(itemDtos)
                 .creatorFullName(creatorName)
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .build();
+    }
+
+    private void autoCreateDraftDeliveryAndIssueForOrder(Long farmId, SalesOrder order, List<SalesOrderItem> items, Long currentUserId) {
+        try {
+            Long tenantId = order.getTenantId();
+            Partner partner = partnerRepository.findById(order.getPartnerId()).orElse(null);
+            String receiverName = partner != null ? partner.getName() : "Khách hàng mua sỉ";
+            String shippingAddress = partner != null ? partner.getAddress() : null;
+
+            // 1. Tạo Phiếu Giao Hàng SalesDelivery ở trạng thái DRAFT (Chờ xuất bến) nếu chưa có
+            List<SalesDelivery> existingDeliveries = salesDeliveryRepository.findBySalesOrderId(order.getId());
+            if (existingDeliveries.isEmpty()) {
+                String delCode;
+                do {
+                    delCode = codeGenerator.generateDeliveryCode();
+                } while (salesDeliveryRepository.existsByTenantIdAndFarmIdAndDeliveryCode(tenantId, farmId, delCode));
+                SalesDelivery del = SalesDelivery.builder()
+                        .tenantId(tenantId)
+                        .farmId(farmId)
+                        .salesOrderId(order.getId())
+                        .deliveryCode(delCode)
+                        .deliveryDate(order.getDeliveryDate() != null ? order.getDeliveryDate() : LocalDate.now())
+                        .receiverName(receiverName)
+                        .shippingAddress(shippingAddress)
+                        .status("DRAFT")
+                        .totalShippedAmount(order.getFinalAmount())
+                        .notes("Phiếu xuất hàng tự động từ đơn bán sỉ " + order.getOrderCode())
+                        .createdAt(Instant.now())
+                        .updatedAt(Instant.now())
+                        .createdBy(currentUserId)
+                        .updatedBy(currentUserId)
+                        .build();
+                del = salesDeliveryRepository.save(del);
+
+                for (SalesOrderItem it : items) {
+                    SalesDeliveryItem dItem = SalesDeliveryItem.builder()
+                            .deliveryId(del.getId())
+                            .salesOrderItemId(it.getId())
+                            .productBatchId(it.getProductBatchId())
+                            .quantity(it.getQuantity())
+                            .unitPrice(it.getUnitPrice())
+                            .totalPrice(it.getFinalAmount() != null ? it.getFinalAmount() : it.getQuantity().multiply(it.getUnitPrice()))
+                            .notes(it.getItemName())
+                            .createdAt(Instant.now())
+                            .updatedAt(Instant.now())
+                            .build();
+                    salesDeliveryItemRepository.save(dItem);
+                }
+            }
+
+            // 2. Tạo Phiếu Xuất Kho WarehouseIssue (SALE_FULFILLMENT) cho Thủ kho
+            Long primaryWarehouseId = null;
+            for (SalesOrderItem it : items) {
+                if (it.getProductBatchId() != null) {
+                    ProductBatch b = productBatchRepository.findById(it.getProductBatchId()).orElse(null);
+                    if (b != null && b.getWarehouseId() != null) {
+                        primaryWarehouseId = b.getWarehouseId();
+                        break;
+                    }
+                }
+            }
+            if (primaryWarehouseId != null) {
+                String issueCode = "ISS-" + order.getOrderCode();
+                if (!warehouseIssueRepository.existsByTenantIdAndFarmIdAndIssueCode(tenantId, farmId, issueCode)) {
+                    WarehouseIssue issue = WarehouseIssue.builder()
+                            .tenantId(tenantId)
+                            .farmId(farmId)
+                            .warehouseId(primaryWarehouseId)
+                            .issueCode(issueCode)
+                            .issueType("SALE_FULFILLMENT")
+                            .receiverName(receiverName)
+                            .isBackflushed(false)
+                            .issueDate(order.getDeliveryDate() != null ? order.getDeliveryDate() : LocalDate.now())
+                            .totalAmount(order.getFinalAmount())
+                            .notes("Phiếu xuất kho tự động cho đơn bán sỉ " + order.getOrderCode())
+                            .status("DRAFT")
+                            .createdAt(Instant.now())
+                            .createdBy(currentUserId)
+                            .build();
+                    issue = warehouseIssueRepository.save(issue);
+
+                    for (SalesOrderItem it : items) {
+                        if (it.getProductBatchId() != null) {
+                            ProductBatch b = productBatchRepository.findById(it.getProductBatchId()).orElse(null);
+                            Long materialId = 1L;
+                            if (b != null && b.getWarehouseId() != null) {
+                                materialId = warehouseInventoryRepository.findByWarehouseId(b.getWarehouseId())
+                                        .stream()
+                                        .filter(inv -> b.getBatchCode().equalsIgnoreCase(inv.getBatchNumber()))
+                                        .map(WarehouseInventory::getMaterialId)
+                                        .findFirst()
+                                        .orElse(1L);
+                            }
+                            WarehouseIssueItem wItem = WarehouseIssueItem.builder()
+                                    .issueId(issue.getId())
+                                    .tenantId(tenantId)
+                                    .materialId(materialId)
+                                    .batchNumber(b != null ? b.getBatchCode() : "LOT-SALE")
+                                    .enteredUnit(it.getUnit())
+                                    .enteredQuantity(it.getQuantity())
+                                    .conversionFactor(BigDecimal.ONE.setScale(4))
+                                    .quantity(it.getQuantity())
+                                    .unitPrice(it.getUnitPrice())
+                                    .totalPrice(it.getFinalAmount() != null ? it.getFinalAmount() : it.getQuantity().multiply(it.getUnitPrice()))
+                                    .createdAt(Instant.now())
+                                    .createdBy(currentUserId)
+                                    .build();
+                            warehouseIssueItemRepository.save(wItem);
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to auto-create delivery/issue for order {}: {}", order.getOrderCode(), ex.getMessage());
+        }
     }
 }

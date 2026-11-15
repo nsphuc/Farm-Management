@@ -8,7 +8,13 @@ public interface ReportService {
 
     InventoryAgingResponse getInventoryAging(Long farmId);
 
-    CropCostProfitResponse getCropCostProfit(Long farmId);
+    default CropCostProfitResponse getCropCostProfit(Long farmId) {
+        return getCropCostProfit(farmId, null);
+    }
+
+    CropCostProfitResponse getCropCostProfit(Long farmId, Long cycleId);
+
+    LivestockCostProfitResponse getLivestockCostProfit(Long farmId, Long cycleId);
 
     LivestockFcrResponse getLivestockFcr(Long farmId, Long groupId);
 

@@ -24,7 +24,7 @@ public class FarmController {
     private final FarmService farmService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FARM_VIEW')")
+    @PreAuthorize("hasAnyAuthority('PERM_FARM_VIEW', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')")
     public ResponseEntity<Page<FarmDetailResponse>> getFarms(
             @RequestParam(required = false) String farmType,
             @RequestParam(required = false) String keyword,
@@ -33,19 +33,19 @@ public class FarmController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_FARM_CREATE')")
+    @PreAuthorize("hasAnyAuthority('PERM_FARM_CREATE', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')")
     public ResponseEntity<FarmDetailResponse> createFarm(@Valid @RequestBody CreateFarmRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(farmService.createFarm(request));
     }
 
     @GetMapping("/{farmId}")
-    @PreAuthorize("hasAuthority('PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_FARM_VIEW', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<FarmDetailResponse> getFarmById(@PathVariable Long farmId) {
         return ResponseEntity.ok(farmService.getFarmById(farmId));
     }
 
     @PutMapping("/{farmId}")
-    @PreAuthorize("hasAuthority('PERM_FARM_UPDATE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_FARM_UPDATE', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<FarmDetailResponse> updateFarm(
             @PathVariable Long farmId,
             @Valid @RequestBody UpdateFarmRequest request) {

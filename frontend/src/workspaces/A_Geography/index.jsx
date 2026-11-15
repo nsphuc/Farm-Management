@@ -21,9 +21,12 @@ import {
   RefreshCw,
   ExternalLink,
   Navigation,
+  Warehouse,
+  Boxes,
 } from 'lucide-react';
 import { geographyService } from '@/services/modules/geographyService';
 import { employeeService } from '@/services/modules/employeeService';
+import { masterDataService } from '@/services/modules/masterDataService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { toast } from '@/store/useToastStore';
@@ -35,9 +38,9 @@ import { MasterGeographicTree } from './components/MasterGeographicTree';
 import { FarmFormModal } from './components/FarmFormModal';
 import { ZoneFormModal } from './components/ZoneFormModal';
 import { LocationFormModal } from './components/LocationFormModal';
+import { WarehouseFormModal } from './components/WarehouseFormModal';
 import { AssignmentModal } from './components/AssignmentModal';
 import { StaffAssignmentPane } from './components/StaffAssignmentPane';
-import { GeoJsonPolygonEditor } from './components/GeoJsonPolygonEditor';
 import { formatArea } from '@/utils/formatters';
 import { extractApiErrors } from '@/utils/apiHelpers';
 
@@ -60,6 +63,7 @@ export function GeographyWorkspace() {
   // Current selections
   const [selectedFarm, setSelectedFarm] = useState(null);
   const [selectedZone, setSelectedZone] = useState(null);
+  const [selectedWarehouse, setSelectedWarehouse] = useState(null);
   const [zoneLocations, setZoneLocations] = useState([]);
   const [assignments, setAssignments] = useState([]);
 
@@ -75,9 +79,14 @@ export function GeographyWorkspace() {
   const [editingLocation, setEditingLocation] = useState(null);
   const [targetFarmForLocation, setTargetFarmForLocation] = useState(null);
   const [targetZoneForLocation, setTargetZoneForLocation] = useState(null);
+  const [targetWarehouseForLocation, setTargetWarehouseForLocation] = useState(null);
 
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
+
+  const [warehouseModalOpen, setWarehouseModalOpen] = useState(false);
+  const [editingWarehouse, setEditingWarehouse] = useState(null);
+  const [targetZoneForWarehouse, setTargetZoneForWarehouse] = useState(null);
 
   // Auto-expand tree nodes
   const [expandedNodeKeys, setExpandedNodeKeys] = useState({});
@@ -98,24 +107,29 @@ export function GeographyWorkspace() {
       const fullFarms = await Promise.all(
         farmList.map(async (f) => {
           try {
-            const zonesRes = await geographyService.getZones(f.id);
+            const [zonesRes, warehousesRes] = await Promise.all([
+              geographyService.getZones(f.id),
+              masterDataService.getWarehouses(f.id).catch(() => []),
+            ]);
             const zList = Array.isArray(zonesRes) ? zonesRes : zonesRes?.content || [];
+            const whList = Array.isArray(warehousesRes) ? warehousesRes : warehousesRes?.content || [];
 
-            const zonesWithLocations = await Promise.all(
+            const zonesWithDetails = await Promise.all(
               zList.map(async (z) => {
                 try {
                   const locsRes = await geographyService.getLocations(f.id, z.id);
                   const locList = Array.isArray(locsRes) ? locsRes : locsRes?.content || [];
-                  return { ...z, locations: locList };
+                  const zoneWarehouses = whList.filter((w) => Number(w.zoneId) === Number(z.id));
+                  return { ...z, locations: locList, warehouses: zoneWarehouses };
                 } catch {
-                  return { ...z, locations: [] };
+                  return { ...z, locations: [], warehouses: [] };
                 }
               })
             );
 
-            return { ...f, zones: zonesWithLocations };
+            return { ...f, zones: zonesWithDetails, warehouses: whList };
           } catch {
-            return { ...f, zones: [] };
+            return { ...f, zones: [], warehouses: [] };
           }
         })
       );
@@ -222,12 +236,22 @@ export function GeographyWorkspace() {
     if (type === 'FARM') {
       setSelectedFarm(item);
       setSelectedZone(null);
+      setSelectedWarehouse(null);
     } else if (type === 'ZONE') {
       setSelectedFarm(farm);
       setSelectedZone(item);
+      setSelectedWarehouse(null);
+    } else if (type === 'WAREHOUSE') {
+      setSelectedFarm(farm);
+      setSelectedZone(zone);
+      setSelectedWarehouse(item);
     } else if (type === 'LOCATION') {
       setSelectedFarm(farm);
       setSelectedZone(zone);
+      setSelectedWarehouse(null);
+      if (farm?.id && zone?.id) {
+        fetchLocations(farm.id, zone.id);
+      }
     }
   };
 
@@ -263,6 +287,46 @@ export function GeographyWorkspace() {
     setTargetFarmForLocation(selectedFarm?.id || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null) || null);
     setTargetZoneForLocation(selectedZone?.id || null);
     setLocationModalOpen(true);
+  };
+
+  // Mở modal thêm mới kho bãi trong phân khu
+  const handleOpenCreateWarehouse = (zoneId = null) => {
+    if (!farms || farms.length === 0) {
+      toast.warning('Chưa có trang trại nào trong hệ thống! Vui lòng khởi tạo Trang trại trước.');
+      return;
+    }
+    setEditingWarehouse(null);
+    setTargetZoneForWarehouse(zoneId || selectedZone?.id || null);
+    setWarehouseModalOpen(true);
+  };
+
+  // Mở modal chỉnh sửa thông số kho bãi
+  const handleEditWarehouse = (warehouse) => {
+    setEditingWarehouse(warehouse);
+    setTargetZoneForWarehouse(warehouse.zoneId || selectedZone?.id || null);
+    setWarehouseModalOpen(true);
+  };
+
+  // Xóa kho bãi
+  const handleDeleteWarehouse = async (farmId, warehouseId) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa kho bãi này? Toàn bộ kệ và dữ liệu tồn kho liên quan có thể bị ảnh hưởng.')) return;
+    try {
+      await masterDataService.deleteWarehouse(farmId, warehouseId);
+      toast.success('Đã xóa kho bãi thành công!');
+      notifyDataChanged?.('inventory');
+      notifyDataChanged?.('all');
+      fetchHierarchy();
+    } catch (err) {
+      const errInfo = extractApiErrors(err);
+      toast.error(errInfo.message || 'Không thể xóa kho bãi đã phát sinh tồn kho hoặc phiếu kho!');
+    }
+  };
+
+  // Callback sau khi lưu kho bãi thành công
+  const handleWarehouseSaved = async () => {
+    notifyDataChanged?.('inventory');
+    notifyDataChanged?.('all');
+    await fetchHierarchy();
   };
 
   // Nhãn nút Thêm vị trí thích ứng thông minh theo loại phân khu đang chọn
@@ -321,14 +385,9 @@ export function GeographyWorkspace() {
         const parentZone = (parentFarm.zones || []).find((z) => Number(z.id) === Number(targetZoneId));
         if (parentZone) {
           setSelectedZone(parentZone);
-          const freshLoc = (parentZone.locations || []).find(
-            (l) => Number(l.id) === Number(savedLoc?.id) || l.code === savedLoc?.code
-          );
-          if (freshLoc) {
-            setSelectedNode({ type: 'LOCATION', item: freshLoc, farm: parentFarm, zone: parentZone });
-          } else {
-            setSelectedNode({ type: 'ZONE', item: parentZone, farm: parentFarm });
-          }
+          setSelectedWarehouse(null);
+          // Luôn giữ giao diện ở cấp Phân khu để người dùng thấy ngay vị trí/kệ vừa thêm trong danh sách và tiếp tục thao tác
+          setSelectedNode({ type: 'ZONE', item: parentZone, farm: parentFarm });
         }
       }
     }
@@ -556,7 +615,7 @@ export function GeographyWorkspace() {
       {/* MASTER-DETAIL SPLIT-VIEW (2 CỘT) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* CỘT TRÁI (col-span-4): Master Geographic Tree (3 tầng) */}
-        <div className="lg:col-span-4 h-[780px] sticky top-20">
+        <div className="lg:col-span-4 h-auto max-h-[480px] lg:max-h-none lg:h-[780px] lg:sticky lg:top-20">
           <MasterGeographicTree
             farms={farms}
             selectedNode={selectedNode}
@@ -570,11 +629,22 @@ export function GeographyWorkspace() {
               setEditingFarm(farm);
               setFarmModalOpen(true);
             }}
-            onAddLocation={(farm, zone) => {
+            onAddLocation={(farm, zone, warehouseId = null) => {
               setEditingLocation(null);
               setTargetFarmForLocation(farm.id);
               setTargetZoneForLocation(zone.id);
+              setTargetWarehouseForLocation(warehouseId);
               setLocationModalOpen(true);
+            }}
+            onAddWarehouse={(farm, zone) => {
+              setSelectedFarm(farm);
+              setSelectedZone(zone);
+              handleOpenCreateWarehouse(zone.id);
+            }}
+            onEditWarehouse={(farm, zone, wh) => {
+              setSelectedFarm(farm);
+              setSelectedZone(zone);
+              handleEditWarehouse(wh);
             }}
             onEditZone={(farm, zone) => {
               setSelectedFarm(farm);
@@ -594,7 +664,7 @@ export function GeographyWorkspace() {
           />
         </div>
 
-        {/* CỘT PHẢI (col-span-8): Detail, GeoJSON Polygon Map & Staff Assignment Pane */}
+        {/* CỘT PHẢI (col-span-8): Chi tiết phân khu & Phân công nhân sự */}
         <div className="lg:col-span-8 space-y-6">
           {/* TRƯỜNG HỢP 1: ĐANG CHỌN NODE TRANG TRẠI (farms #11) */}
           {selectedNode?.type === 'FARM' && selectedFarm && (
@@ -948,9 +1018,29 @@ export function GeographyWorkspace() {
             </div>
           )}
 
-          {/* TRƯỜNG HỢP 2: ĐANG CHỌN NODE PHÂN KHU (production_zones #13) */}
-          {selectedNode?.type === 'ZONE' && selectedZone && (
+          {/* TRƯỜNG HỢP 2: ĐANG CHỌN NODE PHÂN KHU HOẶC VỊ TRÍ CHI TIẾT */}
+          {(selectedNode?.type === 'ZONE' || selectedNode?.type === 'LOCATION') && selectedZone && (
             <div className="space-y-6 animate-in fade-in duration-150">
+              {/* Thanh thông báo khi đang focus một vị trí/kệ cụ thể */}
+              {selectedNode?.type === 'LOCATION' && selectedNode.item && (
+                <div className="flex items-center justify-between rounded-xl bg-purple-50 border border-purple-200 p-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-purple-700 shrink-0" />
+                    <span className="font-semibold text-purple-900">
+                      Đang xem vị trí: <span className="font-bold">{selectedNode.item.name}</span> ({selectedNode.item.code})
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    onClick={() => setSelectedNode({ type: 'ZONE', item: selectedZone, farm: selectedFarm })}
+                  >
+                    Xem toàn bộ phân khu
+                  </Button>
+                </div>
+              )}
+
               {/* Thẻ Chi Tiết Phân Khu */}
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
@@ -997,18 +1087,38 @@ export function GeographyWorkspace() {
 
                     <Can permission="PERM_ZONE_MANAGE">
                       {selectedZone.status === 'ACTIVE' ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setEditingLocation(null);
-                            setLocationModalOpen(true);
-                          }}
-                          icon={<Plus className="h-4 w-4" />}
-                        >
-                          [+ Thêm Vị Trí / Ô Chuồng]
-                        </Button>
+                        selectedZone.zoneType === 'STORAGE' ? (
+                          <Button
+                            type="button"
+                            variant="primary"
+                            size="sm"
+                            onClick={() => handleOpenCreateWarehouse(selectedZone.id)}
+                            icon={<Plus className="h-4 w-4" />}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs"
+                          >
+                            [+ Thêm Kho Bãi]
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingLocation(null);
+                              setTargetFarmForLocation(selectedFarm?.id);
+                              setTargetZoneForLocation(selectedZone?.id);
+                              setTargetWarehouseForLocation(null);
+                              setLocationModalOpen(true);
+                            }}
+                            icon={<Plus className="h-4 w-4" />}
+                          >
+                            {selectedZone.zoneType === 'BARN'
+                              ? '[+ Thêm Ô / Dãy Chuồng]'
+                              : selectedZone.zoneType === 'ISOLATION'
+                              ? '[+ Thêm Ô Cách Ly]'
+                              : '[+ Thêm Luống / Ô Đất]'}
+                          </Button>
+                        )
                       ) : (
                         <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 font-semibold">
                           ⏳ Chờ Owner duyệt
@@ -1108,147 +1218,404 @@ export function GeographyWorkspace() {
                     </div>
                   </div>
                 </div>
-
-                {/* Sơ đồ đa giác GeoJSON Polygon Preview */}
-                <GeoJsonPolygonEditor
-                  value={selectedZone.mapLayoutJson}
-                  farmCenter={selectedFarm}
-                />
               </div>
 
-              {/* LƯỚI VỊ TRÍ CHI TIẾT TRONG PHÂN KHU (zone_locations #14) */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-purple-700" />
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                      {selectedZone.zoneType === 'BARN'
-                        ? `Danh Sách Ô Chuồng Chăn Nuôi (${zoneLocations.length})`
-                        : selectedZone.zoneType === 'STORAGE'
-                        ? `Danh Sách Kệ / Vị Trí Kho (${zoneLocations.length})`
-                        : `Vị Trí / Luống Canh Tác Trong Phân Khu (${zoneLocations.length})`}
-                    </h3>
+              {/* PHƯƠNG ÁN A: QUẢN TRỊ KHO BÃI & KỆ TRỰC THUỘC TỪNG KHO (WMS HIERARCHY) */}
+              {selectedZone.zoneType === 'STORAGE' ? (
+                <div className="space-y-4">
+                  {/* Danh sách từng Kho bãi và các Kệ con thuộc kho đó */}
+                  {(selectedZone.warehouses || []).length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/50 p-8 text-center space-y-3">
+                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                        <Warehouse className="h-6 w-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="font-bold text-sm text-slate-900">Phân khu chưa có kho bãi trực thuộc</h4>
+                        <p className="text-xs text-slate-500 max-w-md mx-auto">
+                          Tạo các kho bãi thực tế (như Kho Nông Sản, Kho Thức Ăn, Kho Vật Tư...) đặt tại phân khu này để bắt đầu tổ chức các dãy kệ lưu trữ.
+                        </p>
+                      </div>
+                      <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleOpenCreateWarehouse(selectedZone.id)}
+                          icon={<Plus className="h-4 w-4" />}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                        >
+                          + Thêm Kho Bãi Đầu Tiên
+                        </Button>
+                      </Can>
+                    </div>
+                  ) : (
+                    (selectedZone.warehouses || []).map((wh) => {
+                      const whShelves = (zoneLocations || []).filter(
+                        (loc) => Number(loc.warehouseId) === Number(wh.id)
+                      );
+
+                      return (
+                        <div
+                          key={wh.id}
+                          className="rounded-2xl border border-amber-200 bg-white p-5 shadow-xs space-y-4"
+                        >
+                          {/* Header của kho */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-100 pb-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100/70 text-amber-800">
+                                <Warehouse className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-bold text-sm text-slate-900">{wh.name}</h4>
+                                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">
+                                    {wh.code}
+                                  </span>
+                                  <StatusBadge status={wh.status} size="xs" />
+                                </div>
+                                <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-3 mt-0.5">
+                                  <span>Loại: <strong className="text-slate-700">{wh.warehouseType}</strong></span>
+                                  {wh.floorAreaM2 ? (
+                                    <span>Diện tích: <strong>{wh.floorAreaM2} m²</strong></span>
+                                  ) : null}
+                                  {wh.managerFullName ? (
+                                    <span>Thủ kho: <strong>{wh.managerFullName}</strong></span>
+                                  ) : null}
+                                  <span className="text-emerald-700 font-semibold font-mono">
+                                    {wh.currentInventoryLotsCount ? `${wh.currentInventoryLotsCount} lô tồn kho` : '0 lô tồn kho'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Hành động trên kho */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                                <Button
+                                  type="button"
+                                  variant="primary"
+                                  size="xs"
+                                  onClick={() => {
+                                    setEditingLocation(null);
+                                    setTargetFarmForLocation(selectedFarm.id);
+                                    setTargetZoneForLocation(selectedZone.id);
+                                    setTargetWarehouseForLocation(wh.id);
+                                    setLocationModalOpen(true);
+                                  }}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                                  icon={<Plus className="h-3.5 w-3.5" />}
+                                >
+                                  [+ Thêm Kệ Vào Kho Này]
+                                </Button>
+                              </Can>
+
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="xs"
+                                onClick={() => navigate(`/app/inventory?warehouseId=${wh.id}`)}
+                                className="text-amber-800 border-amber-300 hover:bg-amber-50 font-semibold"
+                              >
+                                Sổ Kho &rarr;
+                              </Button>
+
+                              <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditWarehouse(wh)}
+                                  className="p-1.5 text-slate-400 hover:text-amber-800 hover:bg-amber-100/60 rounded-lg transition-colors"
+                                  title="Chỉnh sửa thông số kho bãi"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteWarehouse(selectedFarm.id, wh.id)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                  title="Xóa kho bãi này"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </Can>
+                            </div>
+                          </div>
+
+                        {/* Danh sách các Kệ thực tế thuộc kho này */}
+                        {whShelves.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            {whShelves.map((loc) => {
+                              const isFocused = selectedNode?.type === 'LOCATION' && Number(selectedNode?.item?.id) === Number(loc.id);
+                              return (
+                                <div
+                                  key={loc.id}
+                                  className={`rounded-xl border p-3.5 transition-all flex flex-col justify-between shadow-2xs min-w-0 overflow-hidden ${
+                                    isFocused
+                                      ? 'border-purple-400 bg-purple-50/70 ring-2 ring-purple-500/30'
+                                      : 'border-slate-200 bg-slate-50/60 hover:bg-white hover:border-amber-300'
+                                  }`}
+                                >
+                                <div>
+                                  <div className="flex items-start justify-between gap-2 min-w-0">
+                                    <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                                      <MapPin className="h-3.5 w-3.5 text-purple-600 shrink-0 mt-0.5" />
+                                      <span className="font-bold text-xs text-slate-900 leading-snug line-clamp-2 break-words" title={loc.name}>
+                                        {loc.name}
+                                      </span>
+                                    </div>
+                                    <div className="shrink-0">
+                                      <StatusBadge status={loc.status} size="xs" />
+                                    </div>
+                                  </div>
+                                  <div className="mt-1 text-[11px] font-mono text-slate-500">Mã kệ: {loc.code}</div>
+                                  {loc.description && (
+                                    <p className="mt-1 text-[11px] text-slate-600 line-clamp-2 break-words">{loc.description}</p>
+                                  )}
+                                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                    {loc.areaM2 != null && (
+                                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded font-mono font-semibold">
+                                        📐 {loc.areaM2} m²
+                                      </span>
+                                    )}
+                                    {loc.capacity != null && (
+                                      <span className="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-mono font-semibold">
+                                        Sức chứa: {loc.capacity} {loc.capacityUnit || ''}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-end gap-1">
+                                  <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingLocation(loc);
+                                        setTargetFarmForLocation(selectedFarm.id);
+                                        setTargetZoneForLocation(selectedZone.id);
+                                        setTargetWarehouseForLocation(wh.id);
+                                        setLocationModalOpen(true);
+                                      }}
+                                      className="p-1 text-slate-400 hover:text-slate-800 rounded transition-colors"
+                                      title="Sửa kệ này"
+                                    >
+                                      <Edit2 className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteLocation(loc.id)}
+                                      className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                                      title="Xóa kệ này"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </Can>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-xs text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                            Kho này chưa có vị trí kệ nào. Nhấn nút <strong>[+ Thêm Kệ Vào Kho Này]</strong> ở trên để tạo vị trí kệ đầu tiên.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+
+                  {/* Vị trí chung trong phân khu chưa gán vào kho nào */}
+                  {(() => {
+                    const unassignedShelves = (zoneLocations || []).filter((loc) => !loc.warehouseId);
+                    if (unassignedShelves.length === 0) return null;
+                    return (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                          <h4 className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                            <MapPin className="h-4 w-4 text-slate-500" />
+                            Vị Trí Chung Trong Phân Khu / Chưa Gán Vào Kho Cụ Thể ({unassignedShelves.length})
+                          </h4>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                          {unassignedShelves.map((loc) => (
+                            <div key={loc.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 flex flex-col justify-between min-w-0 overflow-hidden">
+                              <div>
+                                <div className="flex items-start justify-between gap-2 min-w-0">
+                                  <span className="font-bold text-xs text-slate-800 leading-snug line-clamp-2 break-words flex-1 min-w-0" title={loc.name}>
+                                    {loc.name}
+                                  </span>
+                                  <div className="shrink-0">
+                                    <StatusBadge status={loc.status} size="xs" />
+                                  </div>
+                                </div>
+                                <div className="text-[11px] font-mono text-slate-500 mt-1">Mã: {loc.code}</div>
+                              </div>
+                              <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                                <span className="text-[10px] text-amber-700 italic">Chưa gán kho</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingLocation(loc);
+                                    setTargetFarmForLocation(selectedFarm.id);
+                                    setTargetZoneForLocation(selectedZone.id);
+                                    setTargetWarehouseForLocation(null);
+                                    setLocationModalOpen(true);
+                                  }}
+                                  className="text-xs text-blue-600 font-semibold hover:underline"
+                                >
+                                  Gán vào kho &rarr;
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                /* NẾU KHÔNG PHẢI STORAGE THÌ HIỂN THỊ LƯỚI VỊ TRÍ CANH TÁC / Ô CHUỒNG BÌNH THƯỜNG */
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-purple-700" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                        {selectedZone.zoneType === 'BARN'
+                          ? `Danh Sách Ô Chuồng Chăn Nuôi (${zoneLocations.length})`
+                          : `Vị Trí / Luống Canh Tác Trong Phân Khu (${zoneLocations.length})`}
+                      </h3>
+                    </div>
+
+                    <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                      {selectedZone.status === 'ACTIVE' ? (
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          onClick={() => {
+                            setEditingLocation(null);
+                            setTargetFarmForLocation(selectedFarm.id);
+                            setTargetZoneForLocation(selectedZone.id);
+                            setTargetWarehouseForLocation(null);
+                            setLocationModalOpen(true);
+                          }}
+                          icon={<Plus className="h-3.5 w-3.5" />}
+                        >
+                          {selectedZone.zoneType === 'BARN'
+                            ? '[+ Thêm Ô / Dãy Chuồng Mới]'
+                            : '[+ Thêm Luống / Ô Đất Mới]'}
+                        </Button>
+                      ) : (
+                        <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 font-semibold">
+                          ⏳ Cần Owner duyệt để tạo vị trí
+                        </span>
+                      )}
+                    </Can>
                   </div>
 
-                  <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
-                    {selectedZone.status === 'ACTIVE' ? (
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="sm"
-                        onClick={() => {
+                  {zoneLocations.length === 0 ? (
+                    selectedZone.status === 'ACTIVE' ? (
+                      <SmartEmptyState
+                        title={
+                          selectedZone.zoneType === 'BARN'
+                            ? 'Chưa Có Ô Chuồng Chăn Nuôi Nào'
+                            : 'Chưa Có Luống / Lô Đất Canh Tác Nào'
+                        }
+                        description="Chia nhỏ phân khu thành các ô chuồng hoặc luống đất để định danh và phân công hiện trường chi tiết."
+                        actionLabel={
+                          selectedZone.zoneType === 'BARN'
+                            ? '+ Khởi Tạo Ô Chuồng Đầu Tiên'
+                            : '+ Khởi Tạo Luống Canh Tác Đầu Tiên'
+                        }
+                        onAction={() => {
                           setEditingLocation(null);
                           setTargetFarmForLocation(selectedFarm.id);
                           setTargetZoneForLocation(selectedZone.id);
+                          setTargetWarehouseForLocation(null);
                           setLocationModalOpen(true);
                         }}
-                        icon={<Plus className="h-3.5 w-3.5" />}
-                      >
-                        {selectedZone.zoneType === 'BARN'
-                          ? '[+ Thêm Ô / Dãy Chuồng Mới]'
-                          : (selectedZone.zoneType === 'GREENHOUSE' || selectedZone.zoneType === 'OPEN_FIELD')
-                          ? '[+ Thêm Luống / Ô Đất Mới]'
-                          : selectedZone.zoneType === 'STORAGE'
-                          ? '[+ Thêm Kệ / Vị Trí Kho Mới]'
-                          : '[+ Thêm Vị Trí Mới]'}
-                      </Button>
+                      />
                     ) : (
-                      <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 font-semibold">
-                        ⏳ Cần Owner duyệt để tạo vị trí
-                      </span>
-                    )}
-                  </Can>
-                </div>
-
-                {zoneLocations.length === 0 ? (
-                  selectedZone.status === 'ACTIVE' ? (
-                    <SmartEmptyState
-                      title={
-                        selectedZone.zoneType === 'BARN'
-                          ? 'Chưa Có Ô Chuồng Chăn Nuôi Nào'
-                          : selectedZone.zoneType === 'STORAGE'
-                          ? 'Chưa Có Kệ Lưu Trữ Nào'
-                          : 'Chưa Có Luống / Lô Đất Canh Tác Nào'
-                      }
-                      description="Chia nhỏ phân khu thành các ô chuồng, luống đất hoặc vị trí lưu trữ để định danh và phân công hiện trường chi tiết."
-                      actionLabel={
-                        selectedZone.zoneType === 'BARN'
-                          ? '+ Khởi Tạo Ô Chuồng Đầu Tiên'
-                          : selectedZone.zoneType === 'STORAGE'
-                          ? '+ Khởi Tạo Kệ Lưu Trữ Đầu Tiên'
-                          : '+ Khởi Tạo Luống Canh Tác Đầu Tiên'
-                      }
-                      onAction={() => {
-                        setEditingLocation(null);
-                        setTargetFarmForLocation(selectedFarm.id);
-                        setTargetZoneForLocation(selectedZone.id);
-                        setLocationModalOpen(true);
-                      }}
-                    />
-                  ) : (
-                    <div className="text-center py-8 text-xs text-slate-400">
-                      Phân khu đang ở trạng thái ⏳ Chờ Owner phê duyệt. Sau khi được duyệt sang ACTIVE, phân khu mới bắt đầu được mở vị trí / ô chuồng canh tác.
-                    </div>
-                  )
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {zoneLocations.map((loc) => (
-                      <div
-                        key={loc.id}
-                        className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 space-y-2 hover:bg-white hover:border-purple-300 transition-all shadow-2xs"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-xs text-slate-900">{loc.name}</span>
-                          <StatusBadge status={loc.status} size="xs" />
-                        </div>
-                        <div className="font-mono text-[11px] text-slate-500">{loc.code}</div>
-                        {(loc.areaM2 != null || loc.capacity != null) && (
-                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
-                            {loc.areaM2 != null && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
-                                📐 Diện tích: {Number(loc.areaM2).toLocaleString('vi-VN')} m²
-                              </span>
-                            )}
-                            {loc.capacity != null && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold">
-                                🐄 Sức chứa: {Number(loc.capacity).toLocaleString('vi-VN')} con
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        {loc.description && (
-                          <div className="text-[11px] text-slate-500 truncate">{loc.description}</div>
-                        )}
-                        <div className="flex justify-end gap-1 pt-1 border-t border-slate-100">
-                          <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingLocation(loc);
-                                setTargetFarmForLocation(selectedFarm.id);
-                                setTargetZoneForLocation(selectedZone.id);
-                                setLocationModalOpen(true);
-                              }}
-                              className="p-1 text-slate-400 hover:text-slate-800 rounded"
-                              title="[✏️ Sửa Vị Trí]"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteLocation(loc.id)}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                              title="Xóa vị trí"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </Can>
-                        </div>
+                      <div className="text-center py-8 text-xs text-slate-400">
+                        Phân khu đang ở trạng thái ⏳ Chờ Owner phê duyệt. Sau khi được duyệt sang ACTIVE, phân khu mới bắt đầu được mở vị trí / ô chuồng canh tác.
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    )
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      {zoneLocations.map((loc) => {
+                        const isFocused = selectedNode?.type === 'LOCATION' && Number(selectedNode?.item?.id) === Number(loc.id);
+                        return (
+                          <div
+                            key={loc.id}
+                            className={`rounded-xl border p-3.5 space-y-2 transition-all shadow-2xs min-w-0 overflow-hidden ${
+                              isFocused
+                                ? 'border-purple-400 bg-purple-50/70 ring-2 ring-purple-500/30'
+                                : 'border-slate-200 bg-slate-50/60 hover:bg-white hover:border-purple-300'
+                            }`}
+                          >
+                          <div className="flex items-start justify-between gap-2 min-w-0">
+                            <span className="font-bold text-xs text-slate-900 leading-snug line-clamp-2 break-words flex-1 min-w-0" title={loc.name}>
+                              {loc.name}
+                            </span>
+                            <div className="shrink-0">
+                              <StatusBadge status={loc.status} size="xs" />
+                            </div>
+                          </div>
+                          <div className="font-mono text-[11px] text-slate-500">{loc.code}</div>
+                          {(loc.areaM2 != null || loc.capacity != null) && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
+                              {loc.areaM2 != null && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                                  📐 Diện tích: {Number(loc.areaM2).toLocaleString('vi-VN')} m²
+                                </span>
+                              )}
+                              {loc.capacity != null && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-semibold">
+                                  {selectedZone?.zoneType === 'BARN' || selectedZone?.zoneType === 'ISOLATION'
+                                    ? `🐾 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} ${loc.capacityUnit || 'con'}`
+                                    : selectedZone?.zoneType === 'STORAGE'
+                                    ? `📦 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} ${loc.capacityUnit || 'kiện/thùng'}`
+                                    : `🌱 Sức chứa: ${Number(loc.capacity).toLocaleString('vi-VN')} ${loc.capacityUnit || 'cây'}`}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {loc.description && (
+                            <div className="text-[11px] text-slate-500 truncate">{loc.description}</div>
+                          )}
+                          <div className="flex justify-end gap-1 pt-1 border-t border-slate-100">
+                            <Can permission="PERM_ZONE_MANAGE" role={["ROLE_FARM_OWNER", "ROLE_FARM_MANAGER"]}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingLocation(loc);
+                                  setTargetFarmForLocation(selectedFarm.id);
+                                  setTargetZoneForLocation(selectedZone.id);
+                                  setTargetWarehouseForLocation(null);
+                                  setLocationModalOpen(true);
+                                }}
+                                className="p-1 text-slate-400 hover:text-slate-800 rounded"
+                                title="[✏️ Sửa Vị Trí]"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteLocation(loc.id)}
+                                className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                                title="Xóa vị trí"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </Can>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Phân Công Nhân Sự Tại Phân Khu (Ẩn đối với Owner để giao diện sạch gọn) */}
               {!owner && (
@@ -1260,6 +1627,93 @@ export function GeographyWorkspace() {
                   onDeleteAssignment={handleDeleteAssignment}
                 />
               )}
+            </div>
+          )}
+
+          {/* TRƯỜNG HỢP 2.5: ĐANG CHỌN NODE KHO BÃI (WAREHOUSE) */}
+          {selectedNode?.type === 'WAREHOUSE' && selectedWarehouse && (
+            <div className="space-y-6 animate-in fade-in duration-150">
+              <div className="rounded-2xl border border-amber-300 bg-white p-6 shadow-xs space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-100 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-amber-200">
+                      <Warehouse className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-bold text-slate-900">{selectedWarehouse.name}</h2>
+                        <StatusBadge status={selectedWarehouse.status} size="sm" />
+                      </div>
+                      <span className="font-mono text-xs text-slate-500">
+                        Mã kho: {selectedWarehouse.code} &bull; Phân khu: {selectedZone?.name || selectedWarehouse.zoneName || 'Toàn trại'} &bull; Trang trại: {selectedFarm?.name}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={() => navigate('/app/inventory?warehouseId=' + selectedWarehouse.id)}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                      icon={<ExternalLink className="h-4 w-4" />}
+                    >
+                      Mở Bàn Quản Lý Kho Này (WS-C)
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Thông số kho */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase">Loại Kho</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5">{selectedWarehouse.warehouseType}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase">Diện Tích Sàn</div>
+                    <div className="text-sm font-bold text-blue-700 mt-0.5 font-mono">
+                      {selectedWarehouse.floorAreaM2 ? `${selectedWarehouse.floorAreaM2} m²` : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase">Dung Tích Chứa</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5 font-mono">
+                      {selectedWarehouse.capacityM3 ? `${selectedWarehouse.capacityM3} m³` : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase">Thủ Kho Phụ Trách</div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5">
+                      {selectedWarehouse.managerFullName || 'Chưa gán'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Thẻ liên kết kệ kho */}
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 text-emerald-900">
+                    <Boxes className="h-5 w-5 text-emerald-700 shrink-0" />
+                    <div>
+                      <strong>Kho này đặt tại Phân khu {selectedZone?.name || selectedWarehouse.zoneName}.</strong>
+                      <p className="text-emerald-800 mt-0.5">
+                        Thủ kho khi lập phiếu nhập vào kho này sẽ được tự động gợi ý các vị trí kệ đã cấu hình trong phân khu.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      onClick={() => navigate('/app/settings?tab=warehouses')}
+                      className="bg-white border-emerald-300 text-emerald-900 font-semibold"
+                    >
+                      Cài Đặt Kho Bãi
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1292,6 +1746,7 @@ export function GeographyWorkspace() {
         onClose={() => setFarmModalOpen(false)}
         editingItem={editingFarm}
         employees={employees}
+        existingFarms={farms}
         onSuccess={() => {
           fetchHierarchy();
           notifyDataChanged?.('farms');
@@ -1315,6 +1770,7 @@ export function GeographyWorkspace() {
         farms={farms}
         initialFarmId={targetFarmForLocation || selectedFarm?.id}
         initialZoneId={targetZoneForLocation || selectedZone?.id}
+        initialWarehouseId={targetWarehouseForLocation}
         editingItem={editingLocation}
         onOpenZoneModal={(farmId) => {
           setLocationModalOpen(false);
@@ -1323,6 +1779,19 @@ export function GeographyWorkspace() {
           setZoneModalOpen(true);
         }}
         onSuccess={handleLocationSaved}
+      />
+
+      {/* Modal Warehouse */}
+      <WarehouseFormModal
+        isOpen={warehouseModalOpen}
+        onClose={() => setWarehouseModalOpen(false)}
+        farmId={selectedFarm?.id || (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : null)}
+        initialZoneId={targetZoneForWarehouse}
+        zones={selectedFarm?.zones || []}
+        warehouses={selectedFarm?.warehouses || []}
+        employees={employees}
+        editingItem={editingWarehouse}
+        onSuccess={handleWarehouseSaved}
       />
 
       {/* Modal Assignment */}

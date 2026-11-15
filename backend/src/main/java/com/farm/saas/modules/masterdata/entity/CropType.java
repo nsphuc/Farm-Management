@@ -25,11 +25,17 @@ public class CropType {
     @Column(name = "name", nullable = false, length = 150)
     private String name;
 
+    @Column(name = "image_url", columnDefinition = "MEDIUMTEXT")
+    private String imageUrl;
+
     @Column(name = "variety_code", nullable = false, length = 50)
     private String varietyCode;
 
     @Column(name = "growth_days_standard", nullable = false)
     private Integer growthDaysStandard;
+
+    @Column(name = "crop_category", nullable = false, length = 30)
+    private String cropCategory;
 
     @Column(name = "water_need_m3_day", precision = 8, scale = 2)
     private BigDecimal waterNeedM3Day;

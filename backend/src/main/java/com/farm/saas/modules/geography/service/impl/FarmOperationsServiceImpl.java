@@ -107,6 +107,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                             .employeeId(emp.getId())
                             .username(null)
                             .userFullName(emp.getFullName())
+                            .employeeFullName(emp.getFullName())
                             .department(emp.getDepartment())
                             .position(emp.getPosition() != null ? emp.getPosition() : "FIELD_WORKER")
                             .employeeCode(emp.getEmployeeCode())
@@ -142,17 +143,28 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
         User user = null;
         Employee employee = null;
 
-        Optional<User> userOpt = userRepository.findById(request.getUserId());
-        if (userOpt.isPresent()) {
-            user = userOpt.get();
-            employee = employeeRepository.findByUserId(user.getId()).orElse(null);
-        } else {
-            // Trường hợp client truyền ID của bản ghi Employee
-            Optional<Employee> empOpt = employeeRepository.findById(request.getUserId());
-            if (empOpt.isPresent()) {
-                employee = empOpt.get();
-                if (employee.getUserId() != null) {
-                    user = userRepository.findById(employee.getUserId()).orElse(null);
+        if (request.getEmployeeId() != null) {
+            employee = employeeRepository.findById(request.getEmployeeId()).orElse(null);
+            if (employee != null && employee.getUserId() != null) {
+                user = userRepository.findById(employee.getUserId()).orElse(null);
+            }
+        }
+
+        if (user == null && request.getUserId() != null) {
+            Optional<User> userOpt = userRepository.findById(request.getUserId());
+            if (userOpt.isPresent()) {
+                user = userOpt.get();
+                if (employee == null) {
+                    employee = employeeRepository.findByUserId(user.getId()).orElse(null);
+                }
+            } else if (employee == null) {
+                // Trường hợp client truyền ID của bản ghi Employee
+                Optional<Employee> empOpt = employeeRepository.findById(request.getUserId());
+                if (empOpt.isPresent()) {
+                    employee = empOpt.get();
+                    if (employee.getUserId() != null) {
+                        user = userRepository.findById(employee.getUserId()).orElse(null);
+                    }
                 }
             }
         }
@@ -220,6 +232,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                     .employeeId(savedEmp.getId())
                     .username(null)
                     .userFullName(savedEmp.getFullName())
+                    .employeeFullName(savedEmp.getFullName())
                     .department(savedEmp.getDepartment())
                     .position(savedEmp.getPosition())
                     .employeeCode(savedEmp.getEmployeeCode())
@@ -233,13 +246,12 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
 
         Long targetUserId = user != null ? user.getId() : (employee != null && employee.getUserId() != null ? employee.getUserId() : request.getUserId());
 
-        // Tập hợp danh sách User IDs / Employee IDs có thể đại diện cho nhân sự này
+        // Tập hợp danh sách User IDs thực sự đại diện cho tài khoản người dùng của nhân sự này
         Set<Long> candidateUserIds = new HashSet<>();
         if (targetUserId != null) candidateUserIds.add(targetUserId);
         if (user != null) candidateUserIds.add(user.getId());
-        if (employee != null) {
-            if (employee.getUserId() != null) candidateUserIds.add(employee.getUserId());
-            if (employee.getId() != null) candidateUserIds.add(employee.getId());
+        if (employee != null && employee.getUserId() != null) {
+            candidateUserIds.add(employee.getUserId());
         }
 
         // Tìm kiếm các phân công đang active của nhân sự này tại trang trại
@@ -412,6 +424,16 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                     "Ngày kết thúc chu kỳ phải lớn hơn hoặc bằng ngày bắt đầu.");
         }
 
+        String cycleStatus = "ACTIVE";
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            String s = request.getStatus().trim().toUpperCase();
+            if (VALID_CYCLE_STATUSES.contains(s)) {
+                cycleStatus = s;
+            } else {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CYCLE_STATUS", "Trạng thái chu kỳ không hợp lệ.");
+            }
+        }
+
         OperationalCycle cycle = OperationalCycle.builder()
                 .tenantId(farm.getTenantId())
                 .farmId(farmId)
@@ -419,7 +441,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                 .fiscalYear(request.getFiscalYear())
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
-                .status("ACTIVE")
+                .status(cycleStatus)
                 .createdAt(Instant.now())
                 .createdBy(SecurityUtils.getCurrentUserId())
                 .build();
@@ -457,8 +479,8 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
 
         if (request.getName() != null) cycle.setName(request.getName().trim());
         if (request.getFiscalYear() != null) cycle.setFiscalYear(request.getFiscalYear());
-        if (request.getStatus() != null) {
-            String status = request.getStatus().toUpperCase();
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            String status = request.getStatus().trim().toUpperCase();
             if (!VALID_CYCLE_STATUSES.contains(status)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CYCLE_STATUS", "Trạng thái chu kỳ không hợp lệ.");
             }
@@ -628,6 +650,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                 .employeeId(employeeId)
                 .username(username)
                 .userFullName(userFullName)
+                .employeeFullName(userFullName)
                 .department(department)
                 .position(position)
                 .employeeCode(employeeCode)

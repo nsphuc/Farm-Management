@@ -21,7 +21,9 @@ import com.farm.saas.modules.masterdata.entity.Material;
 import com.farm.saas.modules.masterdata.entity.MaterialCategory;
 import com.farm.saas.modules.masterdata.entity.MaterialUnitConversion;
 import com.farm.saas.modules.masterdata.entity.Warehouse;
+import com.farm.saas.modules.masterdata.entity.CropType;
 import com.farm.saas.modules.masterdata.repository.ConsumptionQuotaRepository;
+import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialCategoryRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialUnitConversionRepository;
@@ -58,6 +60,7 @@ public class MaterialServiceImpl implements MaterialService {
     private final WarehouseReceiptItemRepository receiptItemRepository;
     private final WarehouseIssueItemRepository issueItemRepository;
     private final ConsumptionQuotaRepository consumptionQuotaRepository;
+    private final CropTypeRepository cropTypeRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -222,8 +225,10 @@ public class MaterialServiceImpl implements MaterialService {
             throw new ApiException(HttpStatus.CONFLICT, "SKU_ALREADY_EXISTS", "Mã SKU vật tư đã tồn tại.");
         }
 
-        if (request.getBarcode() != null && !request.getBarcode().isBlank()) {
-            if (materialRepository.existsByTenantIdAndBarcode(tenantId, request.getBarcode().trim())) {
+        String rawBarcode = request.getBarcode();
+        String barcode = (rawBarcode != null && !rawBarcode.isBlank()) ? rawBarcode.trim() : null;
+        if (barcode != null) {
+            if (materialRepository.existsByTenantIdAndBarcode(tenantId, barcode)) {
                 throw new ApiException(HttpStatus.CONFLICT, "BARCODE_ALREADY_EXISTS", "Mã vạch vật tư đã tồn tại.");
             }
         }
@@ -236,8 +241,9 @@ public class MaterialServiceImpl implements MaterialService {
         Material material = Material.builder()
                 .tenantId(tenantId)
                 .categoryId(request.getCategoryId())
+                .cropTypeId(request.getCropTypeId())
                 .skuCode(sku)
-                .barcode(request.getBarcode() != null ? request.getBarcode().trim() : null)
+                .barcode(barcode)
                 .name(request.getName().trim())
                 .standardUnit(request.getStandardUnit().trim().toUpperCase())
                 .dispatchStrategy(request.getDispatchStrategy().toUpperCase())
@@ -264,11 +270,14 @@ public class MaterialServiceImpl implements MaterialService {
                     throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CONVERSION_FACTOR", "Hệ số quy đổi phải lớn hơn 0.");
                 }
 
+                String rawUnitBarcode = c.getUnitBarcode();
+                String unitBarcode = (rawUnitBarcode != null && !rawUnitBarcode.isBlank()) ? rawUnitBarcode.trim() : null;
+
                 MaterialUnitConversion conv = MaterialUnitConversion.builder()
                         .tenantId(tenantId)
                         .materialId(saved.getId())
                         .unitName(c.getUnitName().trim().toUpperCase())
-                        .unitBarcode(c.getUnitBarcode() != null ? c.getUnitBarcode().trim() : null)
+                        .unitBarcode(unitBarcode)
                         .conversionFactor(c.getConversionFactor())
                         .isPurchaseUnit(Boolean.TRUE.equals(c.getIsPurchaseUnit()))
                         .isDispatchUnit(Boolean.TRUE.equals(c.getIsDispatchUnit()))
@@ -304,7 +313,17 @@ public class MaterialServiceImpl implements MaterialService {
         }
 
         material.setCategoryId(request.getCategoryId());
-        material.setBarcode(request.getBarcode());
+        material.setCropTypeId(request.getCropTypeId());
+        String rawUpdateBarcode = request.getBarcode();
+        String updateBarcode = (rawUpdateBarcode != null && !rawUpdateBarcode.isBlank()) ? rawUpdateBarcode.trim() : null;
+        if (updateBarcode != null) {
+            materialRepository.findByTenantIdAndBarcode(tenantId, updateBarcode).ifPresent(existing -> {
+                if (!existing.getId().equals(id)) {
+                    throw new ApiException(HttpStatus.CONFLICT, "BARCODE_ALREADY_EXISTS", "Mã vạch đã được gán cho mặt hàng khác.");
+                }
+            });
+        }
+        material.setBarcode(updateBarcode);
         material.setName(request.getName().trim());
         material.setStandardUnit(request.getStandardUnit().trim().toUpperCase());
         material.setDispatchStrategy(request.getDispatchStrategy().toUpperCase());
@@ -322,6 +341,34 @@ public class MaterialServiceImpl implements MaterialService {
         material.setUpdatedBy(SecurityUtils.getCurrentUserId());
 
         Material updated = materialRepository.save(material);
+
+        // Cập nhật quy cách bao bì / đơn vị quy đổi (conversions)
+        if (request.getConversions() != null) {
+            List<MaterialUnitConversion> oldConvs = conversionRepository.findByMaterialId(id);
+            if (!oldConvs.isEmpty()) {
+                conversionRepository.deleteAll(oldConvs);
+                conversionRepository.flush();
+            }
+            for (CreateMaterialRequest.ConversionItemRequest c : request.getConversions()) {
+                if (c.getConversionFactor() == null || c.getConversionFactor().compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CONVERSION_FACTOR", "Hệ số quy đổi phải lớn hơn 0.");
+                }
+                String rawUnitBarcode = c.getUnitBarcode();
+                String unitBarcode = (rawUnitBarcode != null && !rawUnitBarcode.isBlank()) ? rawUnitBarcode.trim() : null;
+
+                MaterialUnitConversion conv = MaterialUnitConversion.builder()
+                        .tenantId(tenantId)
+                        .materialId(updated.getId())
+                        .unitName(c.getUnitName().trim().toUpperCase())
+                        .unitBarcode(unitBarcode)
+                        .conversionFactor(c.getConversionFactor())
+                        .isPurchaseUnit(Boolean.TRUE.equals(c.getIsPurchaseUnit()))
+                        .isDispatchUnit(Boolean.TRUE.equals(c.getIsDispatchUnit()))
+                        .createdAt(Instant.now())
+                        .build();
+                conversionRepository.save(conv);
+            }
+        }
 
         eventPublisher.publishEvent(AuditTrailEvent.builder()
                 .tenantId(tenantId)
@@ -561,6 +608,9 @@ public class MaterialServiceImpl implements MaterialService {
         String categoryName = categoryRepository.findById(m.getCategoryId())
                 .map(MaterialCategory::getName)
                 .orElse(null);
+        String cropTypeName = m.getCropTypeId() != null
+                ? cropTypeRepository.findById(m.getCropTypeId()).map(CropType::getName).orElse(null)
+                : null;
 
         List<MaterialUnitConversion> conversions = conversionRepository.findByMaterialId(m.getId());
         List<MaterialDetailResponse.ConversionDto> convDtos = conversions.stream()
@@ -591,6 +641,8 @@ public class MaterialServiceImpl implements MaterialService {
                 .name(m.getName())
                 .categoryId(m.getCategoryId())
                 .categoryName(categoryName)
+                .cropTypeId(m.getCropTypeId())
+                .cropTypeName(cropTypeName)
                 .standardUnit(m.getStandardUnit())
                 .dispatchStrategy(m.getDispatchStrategy())
                 .expiryAlertDays(m.getExpiryAlertDays())

@@ -14,6 +14,7 @@ import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
+import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
 import com.farm.saas.modules.masterdata.entity.CostCategory;
 import com.farm.saas.modules.masterdata.repository.CostCategoryRepository;
 import com.farm.saas.modules.notification.service.NotificationService;
@@ -29,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -41,27 +43,35 @@ public class BudgetServiceImpl implements BudgetService {
     private final BudgetRepository budgetRepository;
     private final BudgetLineItemRepository budgetLineItemRepository;
     private final FarmRepository farmRepository;
+    private final FarmExpenseRepository farmExpenseRepository;
     private final CostCategoryRepository costCategoryRepository;
     private final FarmSecurityEvaluator farmSecurityEvaluator;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public Page<BudgetDetailResponse> getBudgets(Long farmId, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Page<Budget> page;
         if (farmId != null && farmId > 0) {
-            validateFarm(farmId);
-            page = budgetRepository.findByTenantIdAndFarmId(tenantId, farmId, pageable);
+            Farm farm = validateFarm(farmId);
+            Long effectiveTenantId = tenantId != null ? tenantId : farm.getTenantId();
+            if (effectiveTenantId != null) {
+                page = budgetRepository.findByTenantIdAndFarmId(effectiveTenantId, farmId, pageable);
+            } else {
+                page = budgetRepository.findByFarmId(farmId, pageable);
+            }
         } else {
-            page = budgetRepository.findByTenantId(tenantId, pageable);
+            page = (tenantId != null)
+                    ? budgetRepository.findByTenantId(tenantId, pageable)
+                    : budgetRepository.findAll(pageable);
         }
         return page.map(this::toDetailResponse);
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public BudgetDetailResponse getBudgetById(Long farmId, Long id) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Budget budget = budgetRepository.findById(id)
@@ -87,15 +97,15 @@ public class BudgetServiceImpl implements BudgetService {
         validateFarm(targetFarmId);
 
         CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
-        boolean isChecker = currentUser != null && (
+        boolean isOwner = currentUser != null && (
                 currentUser.isSuperAdmin() ||
-                currentUser.hasRole("ROLE_FARM_OWNER") ||
-                farmSecurityEvaluator.isFarmManagerOrOwner(targetFarmId)
+                currentUser.hasRole("ROLE_FARM_OWNER")
         );
 
-        // Chuẩn Maker-Checker: Kế toán (ROLE_ACCOUNTANT) lập dự toán -> DRAFT (chờ duyệt)
-        // Nếu Farm Manager / Owner trực tiếp khởi tạo -> ACTIVE
-        String initialStatus = isChecker ? "ACTIVE" : "DRAFT";
+        // Chuẩn Maker-Checker Phương án A:
+        // - Duy nhất Chủ đầu tư (ROLE_FARM_OWNER / SUPER_ADMIN) mới có quyền cấp vốn -> ACTIVE ngay
+        // - Giám đốc trang trại (ROLE_FARM_MANAGER) hoặc Kế toán (ROLE_ACCOUNTANT) lập đề xuất -> DRAFT (chờ Owner duyệt)
+        String initialStatus = isOwner ? "ACTIVE" : "DRAFT";
 
         Budget budget = Budget.builder()
                 .tenantId(tenantId)
@@ -113,13 +123,26 @@ public class BudgetServiceImpl implements BudgetService {
 
         budget = budgetRepository.save(budget);
 
+        LocalDate startDate = LocalDate.of(budget.getFiscalYear(), 1, 1);
+        LocalDate endDate = LocalDate.of(budget.getFiscalYear(), 12, 31);
+
         if (request.getItems() != null && !request.getItems().isEmpty()) {
             for (CreateBudgetRequest.BudgetItemRequest item : request.getItems()) {
+                BigDecimal existingSpent = farmExpenseRepository.sumConfirmedExpensesByFarmAndCategoryAndDateRange(
+                        targetFarmId,
+                        item.getCostCategoryId(),
+                        startDate,
+                        endDate
+                );
+                BigDecimal initialSpent = (existingSpent != null && existingSpent.compareTo(BigDecimal.ZERO) > 0)
+                        ? existingSpent
+                        : BigDecimal.ZERO;
+
                 BudgetLineItem lineItem = BudgetLineItem.builder()
                         .budgetId(budget.getId())
                         .costCategoryId(item.getCostCategoryId())
                         .allocatedAmount(item.getAllocatedAmount())
-                        .spentAmount(BigDecimal.ZERO)
+                        .spentAmount(initialSpent)
                         .notes(item.getNotes())
                         .createdAt(Instant.now())
                         .updatedAt(Instant.now())
@@ -130,15 +153,20 @@ public class BudgetServiceImpl implements BudgetService {
             }
         }
 
-        // GAP-ACC-08: Notify farm manager when budget created in DRAFT
+        // Maker-Checker: Khi Farm Manager hoặc Kế toán tạo dự toán DRAFT -> gửi thông báo tới Chủ đầu tư (Owner)
         if ("DRAFT".equals(budget.getStatus())) {
-            Farm farm = farmRepository.findById(targetFarmId).orElse(null);
-            Long managerUserId = farm != null ? farm.getManagerUserId() : null;
+            Long ownerUserId = userRepository.findByUsername("owner")
+                    .map(User::getId)
+                    .orElseGet(() -> userRepository.findAll().stream()
+                            .filter(u -> tenantId == null || tenantId.equals(u.getTenantId()))
+                            .map(User::getId)
+                            .findFirst()
+                            .orElse(null));
             sendNotificationQuietly(
                     tenantId,
-                    managerUserId,
-                    "Dự toán ngân sách chu kỳ mới chờ phê duyệt: " + budget.getName(),
-                    "Kế toán vừa lập dự toán ngân sách chu kỳ [" + budget.getName() + "] cho năm tài chính " + budget.getFiscalYear() + " đang chờ phê duyệt.",
+                    ownerUserId,
+                    "Đề xuất dự toán ngân sách mới chờ phê duyệt: " + budget.getName(),
+                    "Trang trại vừa lập đề xuất dự toán ngân sách [" + budget.getName() + "] cho năm tài chính " + budget.getFiscalYear() + " đang chờ Chủ đầu tư thẩm định và cấp vốn.",
                     "SYSTEM",
                     "BUDGET",
                     budget.getId(),
@@ -164,9 +192,14 @@ public class BudgetServiceImpl implements BudgetService {
             throw new BusinessException("FORBIDDEN", "Access to budget forbidden");
         }
 
-        // Kiểm tra quyền phê duyệt/thay đổi trạng thái: Chỉ Farm Manager hoặc Owner
-        if (!farmSecurityEvaluator.isFarmManagerOrOwner(budget.getFarmId())) {
-            throw new BusinessException("FORBIDDEN", "Chỉ Giám đốc trang trại hoặc Chủ sở hữu mới có quyền phê duyệt / thay đổi trạng thái ngân sách");
+        // Kiểm tra quyền phê duyệt/thay đổi trạng thái: Đặc quyền của Chủ sở hữu (Owner) hoặc Super Admin
+        CustomUserDetails currentUser = SecurityUtils.getCurrentUser();
+        boolean isOwner = currentUser != null && (
+                currentUser.isSuperAdmin() ||
+                currentUser.hasRole("ROLE_FARM_OWNER")
+        );
+        if (!isOwner) {
+            throw new BusinessException("FORBIDDEN", "Chỉ Chủ sở hữu trang trại (Owner) mới có quyền phê duyệt cấp vốn hoặc thay đổi trạng thái ngân sách");
         }
 
         budget.setStatus(status);
@@ -219,8 +252,27 @@ public class BudgetServiceImpl implements BudgetService {
         BigDecimal totalSpent = BigDecimal.ZERO;
         List<BudgetDetailResponse.BudgetLineItemDto> itemDtos = new ArrayList<>();
 
+        LocalDate startDate = LocalDate.of(budget.getFiscalYear(), 1, 1);
+        LocalDate endDate = LocalDate.of(budget.getFiscalYear(), 12, 31);
+
         for (BudgetLineItem bi : items) {
-            totalSpent = totalSpent.add(bi.getSpentAmount());
+            BigDecimal actualSpent = farmExpenseRepository.sumConfirmedExpensesByFarmAndCategoryAndDateRange(
+                    budget.getFarmId(),
+                    bi.getCostCategoryId(),
+                    startDate,
+                    endDate
+            );
+            BigDecimal effectiveSpent = (actualSpent != null && actualSpent.compareTo(BigDecimal.ZERO) > 0)
+                    ? actualSpent
+                    : (bi.getSpentAmount() != null ? bi.getSpentAmount() : BigDecimal.ZERO);
+
+            if (bi.getSpentAmount() == null || bi.getSpentAmount().compareTo(effectiveSpent) != 0) {
+                bi.setSpentAmount(effectiveSpent);
+                budgetLineItemRepository.save(bi);
+            }
+
+            totalSpent = totalSpent.add(effectiveSpent);
+
             String catName = null;
             String catCode = null;
             String costType = null;
@@ -232,8 +284,8 @@ public class BudgetServiceImpl implements BudgetService {
             }
 
             double usagePct = 0.0;
-            if (bi.getAllocatedAmount().compareTo(BigDecimal.ZERO) > 0) {
-                usagePct = bi.getSpentAmount().multiply(new BigDecimal("100"))
+            if (bi.getAllocatedAmount() != null && bi.getAllocatedAmount().compareTo(BigDecimal.ZERO) > 0) {
+                usagePct = effectiveSpent.multiply(new BigDecimal("100"))
                         .divide(bi.getAllocatedAmount(), 2, RoundingMode.HALF_UP).doubleValue();
             }
 
@@ -244,7 +296,7 @@ public class BudgetServiceImpl implements BudgetService {
                     .costCategoryCode(catCode)
                     .costType(costType)
                     .allocatedAmount(bi.getAllocatedAmount())
-                    .spentAmount(bi.getSpentAmount())
+                    .spentAmount(effectiveSpent)
                     .usagePercentage(usagePct)
                     .notes(bi.getNotes())
                     .build());

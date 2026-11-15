@@ -17,6 +17,9 @@ public class WorkShiftResponse {
     private Long id;
     private Long tenantId;
     private Long farmId;
+    private String applicableFarms;
+    private java.util.List<Long> applicableFarmIds;
+    private java.util.List<String> applicableFarmNames;
     private String name;
     private String shiftCode;
     private LocalTime startTime;

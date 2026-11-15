@@ -13,6 +13,11 @@ import com.farm.saas.modules.finance.repository.*;
 import com.farm.saas.modules.finance.service.SalesDeliveryService;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.repository.FarmRepository;
+import com.farm.saas.modules.inventory.entity.WarehouseInventory;
+import com.farm.saas.modules.inventory.entity.WarehouseInventoryTransaction;
+import com.farm.saas.modules.inventory.repository.WarehouseInventoryRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseInventoryTransactionRepository;
+import com.farm.saas.modules.inventory.repository.WarehouseIssueRepository;
 import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.PartnerRepository;
 import com.farm.saas.modules.quality.entity.ProductBatch;
@@ -32,6 +37,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
+import com.farm.saas.common.codegenerator.CodeGenerator;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -45,11 +51,15 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
     private final SalesOrderItemRepository salesOrderItemRepository;
     private final ProductBatchRepository productBatchRepository;
     private final ProductBatchTransactionRepository productBatchTransactionRepository;
+    private final WarehouseInventoryRepository warehouseInventoryRepository;
+    private final WarehouseInventoryTransactionRepository warehouseInventoryTransactionRepository;
+    private final WarehouseIssueRepository warehouseIssueRepository;
     private final DebtRecordRepository debtRecordRepository;
     private final PartnerRepository partnerRepository;
     private final FarmRepository farmRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final CodeGenerator codeGenerator;
 
     @Override
     @Transactional(readOnly = true)
@@ -91,8 +101,10 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
                 .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Partner not found: " + order.getPartnerId()));
 
         String deliveryCode = request.getDeliveryCode();
-        if (deliveryCode == null || deliveryCode.isBlank()) {
-            deliveryCode = "DEL-" + farmId + "-" + (System.currentTimeMillis() % 10000000);
+        if (deliveryCode == null || deliveryCode.isBlank() || salesDeliveryRepository.existsByTenantIdAndFarmIdAndDeliveryCode(tenantId, farmId, deliveryCode)) {
+            do {
+                deliveryCode = codeGenerator.generateDeliveryCode();
+            } while (salesDeliveryRepository.existsByTenantIdAndFarmIdAndDeliveryCode(tenantId, farmId, deliveryCode));
         }
 
         BigDecimal totalShippedAmount = BigDecimal.ZERO;
@@ -169,6 +181,7 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
 
             batch.setRemainingQuantity(balanceAfter);
             batch.setReservedQuantity(reservedAfter);
+            batch.setStatus("SELLING");
             batch.setUpdatedAt(Instant.now());
             productBatchRepository.save(batch);
 
@@ -186,6 +199,48 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
                     .updatedAt(Instant.now())
                     .build();
             deliveryItem = salesDeliveryItemRepository.save(deliveryItem);
+
+            // Deduct physical inventory from warehouse_inventory if batch has warehouseId
+            if (batch.getWarehouseId() != null) {
+                Optional<WarehouseInventory> invOpt = warehouseInventoryRepository.findByWarehouseId(batch.getWarehouseId())
+                        .stream()
+                        .filter(inv -> batch.getBatchCode().equalsIgnoreCase(inv.getBatchNumber()))
+                        .findFirst();
+                if (invOpt.isPresent()) {
+                    WarehouseInventory inv = invOpt.get();
+                    BigDecimal invBefore = inv.getQuantityOnHand();
+                    BigDecimal invAfter = invBefore.subtract(deliveryQty);
+                    if (invAfter.compareTo(BigDecimal.ZERO) < 0) {
+                        invAfter = BigDecimal.ZERO;
+                    }
+                    inv.setQuantityOnHand(invAfter);
+                    inv.setUpdatedAt(Instant.now());
+                    warehouseInventoryRepository.save(inv);
+
+                    WarehouseInventoryTransaction wit = WarehouseInventoryTransaction.builder()
+                            .tenantId(tenantId)
+                            .farmId(farmId)
+                            .warehouseId(batch.getWarehouseId())
+                            .materialId(inv.getMaterialId())
+                            .batchNumber(batch.getBatchCode())
+                            .transactionType("OUTWARD")
+                            .referenceDocType("SALES_DELIVERY")
+                            .referenceDocId(delivery.getId())
+                            .referenceItemId(deliveryItem.getId())
+                            .direction("OUT")
+                            .quantity(deliveryQty)
+                            .unitPrice(orderItem.getUnitPrice())
+                            .totalAmount(totalPrice)
+                            .balanceBefore(invBefore)
+                            .balanceAfter(invAfter)
+                            .transactionDate(delivery.getDeliveryDate())
+                            .notes("Xuất kho giao hàng theo đơn bán sỉ " + order.getOrderCode())
+                            .createdAt(Instant.now())
+                            .createdBy(currentUserId)
+                            .build();
+                    warehouseInventoryTransactionRepository.save(wit);
+                }
+            }
 
             // Record in immutable product_batch_transactions ledger
             ProductBatchTransaction pbt = ProductBatchTransaction.builder()
@@ -332,20 +387,29 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
             ProductBatch batch = productBatchRepository.findByIdForUpdate(item.getProductBatchId())
                     .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Product batch not found: " + item.getProductBatchId()));
 
-            BigDecimal balanceBefore = batch.getRemainingQuantity();
+            BigDecimal balanceBefore = batch.getRemainingQuantity() != null ? batch.getRemainingQuantity() : BigDecimal.ZERO;
             BigDecimal balanceAfter = balanceBefore.add(item.getQuantity());
+            if (balanceAfter.compareTo(batch.getInitialQuantity()) > 0) {
+                balanceAfter = batch.getInitialQuantity();
+            }
             batch.setRemainingQuantity(balanceAfter);
 
             // If order was confirmed/active, restore reservedQuantity
             if (order != null && !"CANCELLED".equalsIgnoreCase(order.getStatus())) {
-                batch.setReservedQuantity(batch.getReservedQuantity().add(item.getQuantity()));
+                BigDecimal currentReserved = batch.getReservedQuantity() != null ? batch.getReservedQuantity() : BigDecimal.ZERO;
+                BigDecimal newReserved = currentReserved.add(item.getQuantity());
+                if (newReserved.compareTo(balanceAfter) > 0) {
+                    newReserved = balanceAfter;
+                }
+                batch.setReservedQuantity(newReserved);
             }
             batch.setUpdatedAt(Instant.now());
             productBatchRepository.save(batch);
 
             // Update sales order item shipped quantity
             salesOrderItemRepository.findById(item.getSalesOrderItemId()).ifPresent(orderItem -> {
-                BigDecimal newShipped = orderItem.getShippedQuantity().subtract(item.getQuantity());
+                BigDecimal currentShipped = orderItem.getShippedQuantity() != null ? orderItem.getShippedQuantity() : BigDecimal.ZERO;
+                BigDecimal newShipped = currentShipped.subtract(item.getQuantity());
                 if (newShipped.compareTo(BigDecimal.ZERO) < 0) {
                     newShipped = BigDecimal.ZERO;
                 }
@@ -355,37 +419,41 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
             });
 
             // Ledger entry: ProductBatchTransaction
-            ProductBatchTransaction pbt = ProductBatchTransaction.builder()
-                    .tenantId(tenantId)
-                    .farmId(farmId)
-                    .productBatchId(batch.getId())
-                    .transactionType("DELIVERY_CANCEL")
-                    .referenceType("SALES_DELIVERY")
-                    .referenceId(delivery.getId())
-                    .referenceItemId(item.getId())
-                    .direction("IN")
-                    .quantity(item.getQuantity())
-                    .balanceBefore(balanceBefore)
-                    .balanceAfter(balanceAfter)
-                    .transactionDate(LocalDate.now())
-                    .notes("Hoàn nhập tồn kho do hủy chuyến giao hàng " + delivery.getDeliveryCode())
-                    .createdAt(Instant.now())
-                    .createdBy(currentUserId)
-                    .build();
-            productBatchTransactionRepository.save(pbt);
+            BigDecimal actualAddedQty = balanceAfter.subtract(balanceBefore);
+            if (actualAddedQty.compareTo(BigDecimal.ZERO) > 0) {
+                ProductBatchTransaction pbt = ProductBatchTransaction.builder()
+                        .tenantId(tenantId)
+                        .farmId(farmId)
+                        .productBatchId(batch.getId())
+                        .transactionType("DELIVERY_CANCEL")
+                        .referenceType("SALES_DELIVERY")
+                        .referenceId(delivery.getId())
+                        .referenceItemId(item.getId())
+                        .direction("IN")
+                        .quantity(actualAddedQty)
+                        .balanceBefore(balanceBefore)
+                        .balanceAfter(balanceAfter)
+                        .transactionDate(LocalDate.now())
+                        .notes("Hoàn nhập tồn kho do hủy chuyến giao hàng " + delivery.getDeliveryCode())
+                        .createdAt(Instant.now())
+                        .createdBy(currentUserId)
+                        .build();
+                productBatchTransactionRepository.save(pbt);
+            }
         }
 
         // 2. Adjust SalesOrder status
         if (order != null && !"CANCELLED".equalsIgnoreCase(order.getStatus())) {
             List<SalesOrderItem> allItems = salesOrderItemRepository.findBySalesOrderId(order.getId());
             BigDecimal totalShipped = allItems.stream()
-                    .map(SalesOrderItem::getShippedQuantity)
+                    .map(it -> it.getShippedQuantity() != null ? it.getShippedQuantity() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             if (totalShipped.compareTo(BigDecimal.ZERO) <= 0) {
                 order.setStatus("CONFIRMED");
             } else {
                 boolean allFulfilled = allItems.stream()
-                        .allMatch(it -> it.getShippedQuantity().compareTo(it.getQuantity()) >= 0);
+                        .allMatch(it -> (it.getShippedQuantity() != null ? it.getShippedQuantity() : BigDecimal.ZERO)
+                                .compareTo(it.getQuantity()) >= 0);
                 order.setStatus(allFulfilled ? "COMPLETED" : "DELIVERED");
             }
             order.setUpdatedAt(Instant.now());
@@ -484,7 +552,9 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
         List<SalesDeliveryItem> items = salesDeliveryItemRepository.findByDeliveryId(delivery.getId());
         List<SalesDeliveryDetailResponse.SalesDeliveryItemDto> itemDtos = items.stream().map(it -> {
             String batchCode = productBatchRepository.findById(it.getProductBatchId()).map(ProductBatch::getBatchCode).orElse(null);
-            String itemName = salesOrderItemRepository.findById(it.getSalesOrderItemId()).map(SalesOrderItem::getItemName).orElse("Item");
+            SalesOrderItem soItem = salesOrderItemRepository.findById(it.getSalesOrderItemId()).orElse(null);
+            String itemName = soItem != null ? soItem.getItemName() : "Item";
+            String itemUnit = soItem != null ? soItem.getUnit() : null;
             return SalesDeliveryDetailResponse.SalesDeliveryItemDto.builder()
                     .id(it.getId())
                     .salesOrderItemId(it.getSalesOrderItemId())
@@ -492,6 +562,7 @@ public class SalesDeliveryServiceImpl implements SalesDeliveryService {
                     .batchCode(batchCode)
                     .itemName(itemName)
                     .quantity(it.getQuantity())
+                    .unit(itemUnit)
                     .unitPrice(it.getUnitPrice())
                     .totalPrice(it.getTotalPrice())
                     .notes(it.getNotes())

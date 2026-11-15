@@ -40,6 +40,10 @@ public class CreateCropSeasonRequest {
     @DecimalMin(value = "0.00", message = "Lượng hạt giống không được âm")
     private BigDecimal seedQuantity;
 
+    private String seedUnit;
+
     @DecimalMin(value = "0.00", message = "Sản lượng ước tính không được âm")
     private BigDecimal estimatedYieldKg;
+
+    private String estimatedYieldUnit;
 }

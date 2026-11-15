@@ -15,6 +15,7 @@ import {
 import { enterpriseService } from '@/services/modules/enterpriseService';
 import { FormField, Input, Select, Textarea } from '@/components/ui/FormControls';
 import { Button } from '@/components/ui/Button';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 import { Can } from '@/components/common/Can';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useNotificationStore } from '@/store/useNotificationStore';
@@ -162,12 +163,21 @@ export function EnterpriseProfileTab() {
     setGeneralError('');
     setSuccessMsg('');
 
+    if (formData.contactEmail?.trim() && !formData.contactEmail.trim().toLowerCase().endsWith('@gmail.com')) {
+      setFieldErrors({ contactEmail: 'Email doanh nghiệp bắt buộc phải có đuôi @gmail.com' });
+      setSaving(false);
+      return;
+    }
+
     try {
       const payload = {
         ...formData,
         certificationsJson: JSON.stringify(certifications),
       };
       await enterpriseService.updateProfile(payload);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('enterprise_profile_updated', { detail: { logoUrl: formData.logoUrl } }));
+      }
       setSuccessMsg('Hồ sơ doanh nghiệp & Cấu hình VietQR đã được lưu thành công!');
       setTimeout(() => setSuccessMsg(''), 4000);
     } catch (err) {
@@ -275,26 +285,29 @@ export function EnterpriseProfileTab() {
             />
           </FormField>
 
-          <FormField label="Email Doanh Nghiệp" error={fieldErrors.contactEmail}>
+          <FormField label="Email Doanh Nghiệp (@gmail.com)" error={fieldErrors.contactEmail}>
             <Input
               type="email"
               name="contactEmail"
               value={formData.contactEmail}
               onChange={handleChange}
-              placeholder="VD: contact@vinagreen.vn"
+              placeholder="VD: contact.greenfarm@gmail.com"
+              pattern=".+@gmail\.com"
+              title="Email phải có đuôi @gmail.com"
               disabled={!canEdit}
             />
           </FormField>
 
-          <FormField label="Đường Dẫn Logo (URL)" error={fieldErrors.logoUrl}>
-            <Input
-              name="logoUrl"
+          <div className="col-span-1 md:col-span-2 lg:col-span-3">
+            <ImageUploadField
+              label="Logo Doanh Nghiệp (Logo Pháp Nhân)"
               value={formData.logoUrl}
-              onChange={handleChange}
-              placeholder="https://..."
+              onChange={(url) => setFormData((prev) => ({ ...prev, logoUrl: url }))}
+              error={fieldErrors.logoUrl}
+              hint="Tải ảnh logo từ máy tính (PNG, JPG, WEBP, SVG) hoặc dán đường dẫn ảnh. Logo sẽ hiển thị trên thanh Menu điều hướng, hồ sơ pháp nhân và tem QR truy xuất nguồn gốc."
               disabled={!canEdit}
             />
-          </FormField>
+          </div>
 
           <div className="col-span-1 md:col-span-2 lg:col-span-3">
             <FormField label="Địa Chỉ Trụ Sở Chính" error={fieldErrors.headquarterAddress}>

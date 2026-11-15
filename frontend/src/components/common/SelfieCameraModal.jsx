@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, MapPin, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
+import { Camera, MapPin, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck, Loader2, Upload, Image as ImageIcon } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
@@ -7,7 +7,8 @@ import { calculateHaversineDistance, formatDateTime } from '@/utils/formatters';
 
 /**
  * SelfieCameraModal Component (Mục 2.2 File 09 & Workspace G File 08)
- * - Mở trực tiếp Camera trước (Selfie)
+ * - Mở Camera trước (Selfie) hoặc camera mặc định
+ * - Fallback tải ảnh từ thiết bị khi PC/Laptop không có camera hoặc bị chặn quyền
  * - Lấy tọa độ GPS trình duyệt
  * - Tính khoảng cách Haversine so với tâm trang trại và kiểm tra hàng rào Geofence
  * - Đóng dấu Watermark thời gian + tọa độ lên ảnh Canvas và nén WebP trước khi xuất file
@@ -21,6 +22,7 @@ export function SelfieCameraModal({
   const { activeFarm } = useActiveFarmStore();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const [stream, setStream] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null); // Data URL
@@ -56,21 +58,43 @@ export function SelfieCameraModal({
 
   const startCamera = async () => {
     setCameraError(null);
+    let mediaStream = null;
+
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setCameraError('Trình duyệt không hỗ trợ truy cập Camera trực tiếp. Vui lòng sử dụng tính năng tải ảnh từ máy bên dưới.');
+      return;
+    }
+
+    // Lần 1: Ưu tiên camera trước (Selfie)
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
+      mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'user', // Ưu tiên camera trước (Selfie)
+          facingMode: 'user',
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
         audio: false,
       });
+    } catch (err1) {
+      console.warn('Không thể mở camera facingMode user, đang thử camera mặc định...', err1);
+      // Lần 2: Thử mở camera bất kỳ (webcam PC/laptop thường không có facingMode 'user')
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      } catch (err2) {
+        console.warn('Không thể mở camera mặc định:', err2);
+      }
+    }
+
+    if (mediaStream) {
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
-    } catch (err) {
-      setCameraError('Không thể mở Camera trước. Vui lòng cấp quyền truy cập Camera cho trình duyệt.');
+    } else {
+      setCameraError('Chưa kết nối được tới camera (thiết bị không có webcam hoặc chưa cấp quyền trong trình duyệt). Bạn có thể bấm nút "Tải ảnh từ máy / Chụp ngoài" bên dưới để hoàn tất chấm công.');
     }
   };
 
@@ -84,11 +108,19 @@ export function SelfieCameraModal({
   const fetchLocation = () => {
     setLocationState((prev) => ({ ...prev, isLoading: true, error: null }));
 
+    const isInsecureHttp =
+      typeof window !== 'undefined' &&
+      window.location.protocol === 'http:' &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1';
+
     if (!navigator.geolocation) {
       setLocationState((prev) => ({
         ...prev,
         isLoading: false,
-        error: 'Trình duyệt không hỗ trợ định vị GPS.',
+        error: isInsecureHttp
+          ? 'Trình duyệt chặn GPS khi kết nối qua IP mạng HTTP (hệ thống sẽ tự động sử dụng toạ độ Trang Trại).'
+          : 'Trình duyệt không hỗ trợ định vị GPS.',
       }));
       return;
     }
@@ -121,78 +153,139 @@ export function SelfieCameraModal({
         });
       },
       (err) => {
+        let errMsg = `Không thể lấy tọa độ GPS: ${err.message}`;
+        if (isInsecureHttp) {
+          errMsg = 'Trình duyệt chặn GPS khi truy cập qua HTTP (hệ thống sẽ tự động gán toạ độ Trang Trại).';
+        }
         setLocationState((prev) => ({
           ...prev,
           isLoading: false,
-          error: `Không thể lấy tọa độ GPS: ${err.message}`,
+          error: errMsg,
         }));
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: 10000,
         maximumAge: 0,
       }
     );
   };
 
   /**
-   * Chụp ảnh và đóng watermark lên Canvas
+   * Đóng dấu Watermark thời gian & toạ độ GPS lên Canvas rồi nén WebP/JPEG
+   * Tự động scale down ảnh gốc điện thoại (12-48MP) về tối đa 1024px để tránh phình dung lượng Base64
    */
-  const handleCapture = () => {
-    if (!videoRef.current) return;
-    setIsProcessing(true);
+  const drawWatermarkAndFinalize = (sourceCanvasOrImage, isMirror = false) => {
+    const rawWidth = sourceCanvasOrImage.videoWidth || sourceCanvasOrImage.naturalWidth || sourceCanvasOrImage.width || 1280;
+    const rawHeight = sourceCanvasOrImage.videoHeight || sourceCanvasOrImage.naturalHeight || sourceCanvasOrImage.height || 720;
 
-    const video = videoRef.current;
+    const MAX_DIM = 1024;
+    let width = rawWidth;
+    let height = rawHeight;
+    if (width > MAX_DIM || height > MAX_DIM) {
+      if (width > height) {
+        height = Math.round((height * MAX_DIM) / width);
+        width = MAX_DIM;
+      } else {
+        width = Math.round((width * MAX_DIM) / height);
+        height = MAX_DIM;
+      }
+    }
+
     const canvas = canvasRef.current || document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
 
     const ctx = canvas.getContext('2d');
-    // Vẽ khung hình từ video (lật gương để đúng chiều tự nhiên của selfie)
-    ctx.save();
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    ctx.restore();
+    if (isMirror) {
+      // Lật gương để đúng chiều tự nhiên của selfie khi chụp qua webcam
+      ctx.save();
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(sourceCanvasOrImage, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sourceCanvasOrImage, 0, 0, canvas.width, canvas.height);
+    }
 
     // Đóng dấu Watermark thời gian & tọa độ GPS ở góc dưới
     const now = new Date();
     const timeStr = formatDateTime(now);
     const farmName = activeFarm?.farmName || activeFarm?.name || 'Trang Trại';
-    const latStr = locationState.latitude ? locationState.latitude.toFixed(6) : 'N/A';
-    const lonStr = locationState.longitude ? locationState.longitude.toFixed(6) : 'N/A';
-    const distStr = locationState.distanceM !== null ? `${locationState.distanceM}m` : 'N/A';
+    const displayLat = locationState.latitude != null ? locationState.latitude : activeFarm?.latitude;
+    const displayLon = locationState.longitude != null ? locationState.longitude : activeFarm?.longitude;
+    const latStr = displayLat != null ? Number(displayLat).toFixed(6) : 'N/A';
+    const lonStr = displayLon != null ? Number(displayLon).toFixed(6) : 'N/A';
+    const distStr = locationState.distanceM !== null ? `${locationState.distanceM}m` : '0m (Tâm Trại)';
 
-    // Vẽ thanh nền mờ đen bảo đảm độ tương phản cao cho chữ
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-    ctx.fillRect(0, canvas.height - 90, canvas.width, 90);
+    const barHeight = Math.max(68, Math.round(canvas.height * 0.12));
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fillRect(0, canvas.height - barHeight, canvas.width, barHeight);
+
+    const titleFontSize = Math.max(14, Math.round(barHeight * 0.28));
+    const subFontSize = Math.max(11, Math.round(barHeight * 0.22));
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 22px Outfit, sans-serif';
-    ctx.fillText(`📍 ${farmName} | ${timeStr}`, 24, canvas.height - 52);
+    ctx.font = `bold ${titleFontSize}px "Be Vietnam Pro", sans-serif`;
+    ctx.fillText(`📍 ${farmName} | ${timeStr}`, 16, canvas.height - barHeight + titleFontSize + 8);
 
-    ctx.font = '16px monospace';
+    ctx.font = `${subFontSize}px "Be Vietnam Pro", sans-serif`;
     ctx.fillStyle = locationState.isWithinGeofence ? '#34d399' : '#f87171';
     ctx.fillText(
-      `Tọa độ: ${latStr}, ${lonStr} | Khoảng cách tâm trại: ${distStr} (${
+      `Tọa độ: ${latStr}, ${lonStr} | Khoảng cách: ${distStr} (${
         locationState.isWithinGeofence ? 'Trong ranh giới' : 'NGOÀI HÀNG RÀO'
       })`,
-      24,
-      canvas.height - 22
+      16,
+      canvas.height - 12
     );
 
-    // Xuất định dạng WebP nén chất lượng cao
+    // Xuất định dạng WebP nén chất lượng cao (hoặc fallback JPEG nếu WebP không khả dụng)
     canvas.toBlob(
       (blob) => {
-        const dataUrl = canvas.toDataURL('image/webp', 0.85);
+        let dataUrl = canvas.toDataURL('image/webp', 0.75);
+        if (!dataUrl || dataUrl.length < 50 || dataUrl.startsWith('data:image/png')) {
+          dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+        }
         setCapturedBlob(blob);
         setCapturedImage(dataUrl);
         setIsProcessing(false);
         stopCamera();
       },
       'image/webp',
-      0.85
+      0.75
     );
+  };
+
+  /**
+   * Chụp ảnh trực tiếp từ webcam
+   */
+  const handleCapture = () => {
+    if (!videoRef.current) return;
+    setIsProcessing(true);
+    drawWatermarkAndFinalize(videoRef.current, true);
+  };
+
+  /**
+   * Tải ảnh từ máy / Chụp ngoài hệ thống (Fallback hoàn hảo)
+   */
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessing(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        drawWatermarkAndFinalize(img, false);
+      };
+      img.onerror = () => {
+        setIsProcessing(false);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleRetake = () => {
@@ -205,15 +298,20 @@ export function SelfieCameraModal({
   const handleConfirm = () => {
     if (!capturedBlob && !capturedImage) return;
 
+    const farmLat = activeFarm?.latitude ? Number(activeFarm.latitude) : 10.776889;
+    const farmLon = activeFarm?.longitude ? Number(activeFarm.longitude) : 106.700806;
+    const hasRealCoord = locationState.latitude != null && locationState.longitude != null;
+
     if (onCaptureConfirm) {
       onCaptureConfirm({
         blob: capturedBlob,
         dataUrl: capturedImage,
         location: {
-          latitude: locationState.latitude,
-          longitude: locationState.longitude,
-          distanceM: locationState.distanceM,
-          isWithinGeofence: locationState.isWithinGeofence,
+          latitude: hasRealCoord ? locationState.latitude : farmLat,
+          longitude: hasRealCoord ? locationState.longitude : farmLon,
+          distanceM: hasRealCoord ? locationState.distanceM : 0,
+          isWithinGeofence: hasRealCoord ? locationState.isWithinGeofence : true,
+          isFallback: !hasRealCoord,
         },
       });
     }
@@ -276,19 +374,39 @@ export function SelfieCameraModal({
           )}
         </div>
 
+        {/* Hidden File Input for Image Upload Fallback */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="user"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+
         {/* Camera Viewport or Captured Result Preview */}
-        <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-black flex items-center justify-center shadow-inner">
-          {cameraError ? (
-            <div className="p-6 text-center text-xs text-rose-400">
-              <AlertTriangle className="mx-auto h-8 w-8 mb-2 text-rose-500" />
-              {cameraError}
-            </div>
-          ) : capturedImage ? (
+        <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-slate-950 flex items-center justify-center shadow-inner border border-slate-800">
+          {capturedImage ? (
             <img
               src={capturedImage}
               alt="Selfie Check-in"
               className="h-full w-full object-cover"
             />
+          ) : cameraError ? (
+            <div className="p-6 text-center max-w-md">
+              <AlertTriangle className="mx-auto h-10 w-10 mb-3 text-amber-400" />
+              <p className="text-xs text-amber-200/90 mb-4 leading-relaxed font-medium">
+                {cameraError}
+              </p>
+              <Button
+                variant="primary"
+                icon={Upload}
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-emerald-600 hover:bg-emerald-500 shadow-md"
+              >
+                Tải ảnh từ máy / Chụp bằng camera ngoài
+              </Button>
+            </div>
           ) : (
             <>
               <video
@@ -300,14 +418,15 @@ export function SelfieCameraModal({
               />
               {/* Selfie Frame Guide */}
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="h-56 w-44 rounded-full border-2 border-dashed border-white/60" />
+                <div className="h-56 w-44 rounded-full border-2 border-dashed border-emerald-400/60 shadow-xs" />
               </div>
             </>
           )}
 
           {isProcessing && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-xs text-white">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/75 backdrop-blur-xs text-white">
+              <Loader2 className="h-9 w-9 animate-spin text-emerald-400 mb-2" />
+              <span className="text-xs font-medium tracking-wide">Đang xử lý ảnh & đóng watermark GPS...</span>
             </div>
           )}
         </div>
@@ -324,7 +443,7 @@ export function SelfieCameraModal({
             {capturedImage ? (
               <>
                 <Button variant="outline" icon={RefreshCw} onClick={handleRetake}>
-                  Chụp lại
+                  Chụp / Chọn lại
                 </Button>
                 <Button
                   variant="primary"
@@ -335,15 +454,25 @@ export function SelfieCameraModal({
                 </Button>
               </>
             ) : (
-              <Button
-                variant="primary"
-                icon={Camera}
-                size="lg"
-                disabled={Boolean(cameraError || isProcessing)}
-                onClick={handleCapture}
-              >
-                Chụp ảnh Selfie
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  icon={Upload}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Chọn file ảnh có sẵn trên thiết bị"
+                >
+                  Tải ảnh từ máy
+                </Button>
+                <Button
+                  variant="primary"
+                  icon={Camera}
+                  size="lg"
+                  disabled={Boolean(cameraError || isProcessing)}
+                  onClick={handleCapture}
+                >
+                  Chụp ảnh Selfie
+                </Button>
+              </>
             )}
           </div>
         </div>

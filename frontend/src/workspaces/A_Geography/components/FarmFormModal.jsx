@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Building, AlertTriangle } from 'lucide-react';
 import { geographyService } from '@/services/modules/geographyService';
 import { Modal } from '@/components/ui/Modal';
@@ -8,6 +8,7 @@ import { extractApiErrors } from '@/utils/apiHelpers';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
 const FARM_TYPES = [
   { value: 'CROP', label: 'CROP - Chuyên Trồng Trọt' },
@@ -20,8 +21,12 @@ export function FarmFormModal({
   onClose,
   editingItem = null,
   employees = [],
+  existingFarms = null,
   onSuccess,
 }) {
+  const { farms } = useActiveFarmStore();
+  const currentFarms = existingFarms || farms || [];
+
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -37,9 +42,20 @@ export function FarmFormModal({
   const [fieldErrors, setFieldErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
   const [saving, setSaving] = useState(false);
+  const hasInitializedRef = useRef(false);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      hasInitializedRef.current = false;
+      return;
+    }
+
+    // Chỉ khởi tạo 1 lần duy nhất khi vừa mở modal, không bao giờ reset khi đang mở form
+    if (hasInitializedRef.current && !editingItem) {
+      return;
+    }
+    hasInitializedRef.current = true;
+
     setFieldErrors({});
     setGeneralError('');
 
@@ -57,7 +73,7 @@ export function FarmFormModal({
       });
     } else {
       setFormData({
-        code: generateEntityCode(CODE_PREFIXES.FARM),
+        code: generateEntityCode(CODE_PREFIXES.FARM, currentFarms),
         name: '',
         farmType: 'MIXED',
         totalAreaM2: 10000,
@@ -177,7 +193,7 @@ export function FarmFormModal({
             <CodeInput
               value={formData.code}
               onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-              onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.FARM) }))}
+              onRegenerate={() => setFormData((prev) => ({ ...prev, code: generateEntityCode(CODE_PREFIXES.FARM, currentFarms) }))}
               isEditMode={Boolean(editingItem) || isRestrictedManager}
               error={fieldErrors.code}
             />

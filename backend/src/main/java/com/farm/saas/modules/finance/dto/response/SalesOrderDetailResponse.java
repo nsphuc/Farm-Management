@@ -37,6 +37,10 @@ public class SalesOrderDetailResponse {
     private String deliveryStatus;
     private String paymentStatus;
     private String vietQrUrl;
+    private String bankBin;
+    private String bankName;
+    private String bankAccountNo;
+    private String bankAccountName;
     private List<SalesOrderItemDto> items;
     private String creatorFullName;
     private Instant createdAt;

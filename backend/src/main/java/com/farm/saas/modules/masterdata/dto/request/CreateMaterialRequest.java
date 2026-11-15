@@ -22,6 +22,8 @@ public class CreateMaterialRequest {
     @NotNull(message = "Nhóm vật tư không được để trống")
     private Long categoryId;
 
+    private Long cropTypeId;
+
     @NotBlank(message = "Mã SKU không được để trống")
     private String skuCode;
 

@@ -25,6 +25,7 @@ export function LoginPage() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm({
     defaultValues: {
@@ -54,6 +55,8 @@ export function LoginPage() {
       // 2. Đồng bộ ngữ cảnh trang trại
       if (userInfo?.accessibleFarms?.length) {
         syncFromAccessibleFarms(userInfo.accessibleFarms);
+      } else {
+        useActiveFarmStore.getState().clearActiveContext();
       }
 
       // 3. Kiểm tra cưỡng chế đổi mật khẩu lần đầu (First-Login Guard)
@@ -111,7 +114,7 @@ export function LoginPage() {
           <Input
             id="username"
             type="text"
-            placeholder="vd: manager@vinagreen.vn hoặc 0912345678"
+            placeholder="vd: admin@gmail.com hoặc 0912345678"
             autoComplete="username"
             hasError={Boolean(errors.username)}
             {...register('username', {
@@ -164,12 +167,6 @@ export function LoginPage() {
           </Button>
         </div>
       </form>
-
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-center text-[11px] text-slate-500">
-        Cổng đăng nhập hợp nhất bảo mật cao cấp Agri-ERP.
-        <br />
-        Xác thực phiên qua HttpOnly Refresh Token Rotation.
-      </div>
     </div>
   );
 }

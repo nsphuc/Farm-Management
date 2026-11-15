@@ -76,7 +76,7 @@ export function AssignmentModal({
   }
 
   const [formData, setFormData] = useState({
-    userId: '',
+    employeeId: '',
     roleInFarm: availableRoles[0]?.value || 'ZONE_MANAGER',
     selectedZoneId: '',
     assignedFrom: new Date().toISOString().substring(0, 10),
@@ -93,8 +93,12 @@ export function AssignmentModal({
     setGeneralError('');
 
     if (editingAssignment) {
+      const matchEmp = employees.find(
+        (e) => (editingAssignment.employeeId && e.id === editingAssignment.employeeId) ||
+               (editingAssignment.userId && e.userId === editingAssignment.userId)
+      );
       setFormData({
-        userId: String(editingAssignment.userId || editingAssignment.employeeId || ''),
+        employeeId: String(matchEmp?.id || editingAssignment.employeeId || employees[0]?.id || ''),
         roleInFarm: editingAssignment.roleInFarm || availableRoles[0]?.value || 'ZONE_MANAGER',
         selectedZoneId: editingAssignment.zoneId ? String(editingAssignment.zoneId) : (zoneId ? String(zoneId) : ''),
         assignedFrom: editingAssignment.assignedFrom || new Date().toISOString().substring(0, 10),
@@ -103,7 +107,7 @@ export function AssignmentModal({
     } else {
       const defaultRole = availableRoles[0]?.value || (zoneId ? 'ZONE_MANAGER' : 'TECHNICAL_LEAD');
       setFormData({
-        userId: employees[0]?.userId || employees[0]?.id || '',
+        employeeId: employees[0]?.id ? String(employees[0].id) : '',
         roleInFarm: defaultRole,
         selectedZoneId: zoneId ? String(zoneId) : '',
         assignedFrom: new Date().toISOString().substring(0, 10),
@@ -115,7 +119,10 @@ export function AssignmentModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
     const errors = {};
-    if (!formData.userId) errors.userId = 'Vui lòng chọn nhân sự để phân công';
+    const selectedEmp = employees.find((e) => String(e.id) === String(formData.employeeId));
+    if (!formData.employeeId || !selectedEmp) {
+      errors.userId = 'Vui lòng chọn nhân sự để phân công';
+    }
     if (!formData.assignedFrom) errors.assignedFrom = 'Ngày bắt đầu phân công không được để trống';
     if (formData.assignedTo && formData.assignedTo < formData.assignedFrom) {
       errors.assignedTo = 'Ngày kết thúc phân công phải lớn hơn hoặc bằng ngày bắt đầu';
@@ -141,15 +148,20 @@ export function AssignmentModal({
       setFieldErrors({});
       setGeneralError('');
 
+      const effectiveUserId = selectedEmp?.userId ? Number(selectedEmp.userId) : Number(selectedEmp.id);
       const payload = {
         zoneId: effectiveZoneId ? Number(effectiveZoneId) : null,
-        userId: Number(formData.userId),
+        userId: Number(effectiveUserId),
+        employeeId: Number(selectedEmp.id),
         roleInFarm: formData.roleInFarm,
         assignedFrom: formData.assignedFrom,
         assignedTo: formData.assignedTo || null,
       };
 
-      if (editingAssignment?.id && Number(editingAssignment.userId || editingAssignment.employeeId) !== Number(formData.userId)) {
+      if (editingAssignment?.id && (
+        (editingAssignment.employeeId && editingAssignment.employeeId !== selectedEmp.id) ||
+        (editingAssignment.userId && selectedEmp.userId && editingAssignment.userId !== selectedEmp.userId)
+      )) {
         const isOldNonUser = !editingAssignment.userId || editingAssignment.id < 0;
         const targetOldEmpId = editingAssignment.employeeId || (isOldNonUser ? Math.abs(editingAssignment.id) : undefined);
         await geographyService.deleteAssignment(farmId, editingAssignment.id, targetOldEmpId ? { employeeId: targetOldEmpId } : {});
@@ -241,12 +253,12 @@ export function AssignmentModal({
             </div>
           ) : (
             <Select
-              value={formData.userId}
-              onChange={(e) => setFormData((prev) => ({ ...prev, userId: e.target.value }))}
+              value={formData.employeeId}
+              onChange={(e) => setFormData((prev) => ({ ...prev, employeeId: e.target.value }))}
               options={[
                 { value: '', label: '-- Chọn nhân sự thuộc trang trại --' },
                 ...employees.map((emp) => ({
-                  value: String(emp.userId || emp.id),
+                  value: String(emp.id),
                   label: `${emp.fullName} (${emp.employeeCode || 'NV'}${emp.department ? ' • ' + emp.department : ''} • ${emp.position || 'Nhân viên'})`,
                 })),
               ]}

@@ -104,6 +104,7 @@ public class SecurityConfiguration {
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/logout",
                                 "/api/v1/public/traceability/**",
+                                "/api/v1/uploads/**",
                                 "/actuator/health/**",
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",

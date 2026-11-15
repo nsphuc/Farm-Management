@@ -20,6 +20,8 @@ public class CreateFarmAssignmentRequest {
     @NotNull(message = "Nhân viên không được để trống")
     private Long userId;
 
+    private Long employeeId;
+
     @NotBlank(message = "Vai trò tại trang trại không được để trống")
     private String roleInFarm;
 

@@ -263,8 +263,8 @@ export function BudgetManagementTab() {
             Định Mức
           </Button>
 
-          {row.status !== 'ACTIVE' && (
-            <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
+          {owner && row.status !== 'ACTIVE' && (
+            <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN']}>
               <div className="flex items-center gap-1">
                 <Button
                   size="xs"
@@ -272,9 +272,9 @@ export function BudgetManagementTab() {
                   icon={<CheckCircle2 className="h-3 w-3" />}
                   onClick={() => handleApproveBudget(row)}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                  title="Phê duyệt ngân sách (ACTIVE)"
+                  title="Chủ đầu tư phê duyệt cấp vốn (ACTIVE)"
                 >
-                  ✔️ Phê Duyệt
+                  ✔️ Duyệt Cấp Vốn
                 </Button>
                 <Button
                   size="xs"
@@ -282,7 +282,7 @@ export function BudgetManagementTab() {
                   icon={<XCircle className="h-3 w-3" />}
                   onClick={() => handleRejectBudget(row)}
                   className="text-rose-600 hover:bg-rose-50 border-rose-200 font-semibold"
-                  title="Từ chối / Yêu cầu chỉnh sửa (REVISED)"
+                  title="Từ chối / Yêu cầu chỉnh sửa đề xuất (REVISED)"
                 >
                   🚫 Từ Chối
                 </Button>
@@ -341,29 +341,33 @@ export function BudgetManagementTab() {
             Làm Mới
           </Button>
 
-          {/* NÚT LẬP DỰ TOÁN NGÂN SÁCH DÀNH CHO KẾ TOÁN VÀ GIÁM ĐỐC TRẠI (MAKER) */}
-          <Can permission="PERM_FINANCE_EXPENSE" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
-            <Button
-              variant="outline"
-              size="sm"
-              icon={<Plus className="h-4 w-4" />}
-              onClick={() => setIsApprovalModalOpen(true)}
-            >
-              + Lập Dự Toán Ngân Sách
-            </Button>
-          </Can>
+          {/* NÚT LẬP ĐỀ XUẤT NGÂN SÁCH DÀNH CHO FARM MANAGER & KẾ TOÁN (MAKER - Trình Owner cấp vốn) */}
+          {!owner && (
+            <Can permission="PERM_FINANCE_EXPENSE" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => setIsApprovalModalOpen(true)}
+              >
+                + Lập Đề Xuất Ngân Sách
+              </Button>
+            </Can>
+          )}
 
-          {/* NÚT CẤP / DUYỆT NGÂN SÁCH DÀNH CHO CHECKER (FARM MANAGER & OWNER) */}
-          <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_MANAGER', 'ROLE_FARM_OWNER']}>
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<Plus className="h-4 w-4" />}
-              onClick={() => setIsApprovalModalOpen(true)}
-            >
-              + Cấp / Duyệt Ngân Sách
-            </Button>
-          </Can>
+          {/* NÚT CẤP / PHÊ DUYỆT NGÂN SÁCH DÀNH RIÊNG CHO CHỦ ĐẦU TƯ (OWNER / SUPER ADMIN) */}
+          {owner && (
+            <Can permission="PERM_FINANCE_EXPENSE" role={['ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN']}>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => setIsApprovalModalOpen(true)}
+              >
+                + Cấp / Phê Duyệt Ngân Sách
+              </Button>
+            </Can>
+          )}
         </div>
       </div>
 
@@ -489,7 +493,28 @@ export function BudgetManagementTab() {
               </div>
             </div>
 
-            {/* Bảng 5 dòng chi tiết định mức */}
+            {/* Banner đề xuất cấp bổ sung ngân sách dành cho Farm Manager khi thiếu chi phí */}
+            {!owner && selectedBudgetForDetail.status === 'ACTIVE' && (
+              <div className="flex items-center justify-between p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                  <span>Khoản mục nào sắp cạn kiệt hoặc thiếu hụt? Bạn có thể gửi đề xuất xin Chủ đầu tư cấp bổ sung ngân sách.</span>
+                </div>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  className="bg-white border-amber-300 text-amber-800 hover:bg-amber-100 font-bold shrink-0 ml-2"
+                  onClick={() => {
+                    setIsDetailDrawerOpen(false);
+                    setIsApprovalModalOpen(true);
+                  }}
+                >
+                  + Đề Xuất Bổ Sung
+                </Button>
+              </div>
+            )}
+
+            {/* Bảng các dòng chi tiết định mức */}
             <div className="space-y-3">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600">
                 Chi Tiết Phân Bổ Hạn Mức Từng Khoản Mục (budget_line_items)

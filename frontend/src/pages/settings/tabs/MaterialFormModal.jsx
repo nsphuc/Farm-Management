@@ -16,6 +16,7 @@ import { BarcodeScannerInput } from '@/components/common/BarcodeScannerInput';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { generateEntityCode, CODE_PREFIXES } from '@/utils/codeGenerator';
 import { applyServerFieldErrors } from '@/utils/errorHandler';
+import { toast } from '@/store/useToastStore';
 
 const STANDARD_UNITS = [
   { value: 'KG', label: 'KG - Kilogram' },
@@ -40,15 +41,47 @@ const STATUS_OPTIONS = [
   { value: 'DISCONTINUED', label: 'DISCONTINUED - Ngừng lưu hành' },
 ];
 
+/**
+ * Sinh mã SKU tăng dần tuần tự duy nhất trên toàn hệ thống (SKU-001 -> SKU-002 -> SKU-003...)
+ * Không phụ thuộc nhóm, khi đã có 001 thì mã tiếp theo luôn là 002.
+ */
+function generateMaterialSku(allMaterialsList = []) {
+  const usedCodes = new Set(
+    (allMaterialsList || [])
+      .map((m) => (m?.skuCode || m?.code || '').toUpperCase().trim())
+      .filter(Boolean)
+  );
+
+  let maxNum = 0;
+  usedCodes.forEach((code) => {
+    if (code.startsWith('SKU-')) {
+      const m = code.match(/SKU-(\d+)/);
+      if (m) {
+        const num = parseInt(m[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+  });
+
+  const nextNum = maxNum + 1;
+  const padDigits = nextNum >= 1000 ? 4 : 3;
+  return `SKU-${String(nextNum).padStart(padDigits, '0')}`;
+}
+
 export function MaterialFormModal({
   isOpen,
   onClose,
   editingItem = null,
   categories = [],
+  defaultCategoryId = null,
+  allMaterials = [],
   onSuccess,
 }) {
   const [formData, setFormData] = useState({
     categoryId: '',
+    cropTypeId: '',
     skuCode: '',
     barcode: '',
     name: '',
@@ -67,6 +100,7 @@ export function MaterialFormModal({
   });
 
   const [conversions, setConversions] = useState([]);
+  const [cropTypes, setCropTypes] = useState([]);
   const [fieldErrors, setFieldErrors] = useState({});
   const [generalError, setGeneralError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -76,9 +110,14 @@ export function MaterialFormModal({
     setFieldErrors({});
     setGeneralError('');
 
+    masterDataService.getCropTypes().then((res) => {
+      setCropTypes(Array.isArray(res) ? res : res?.content || []);
+    }).catch(() => {});
+
     if (editingItem) {
       setFormData({
         categoryId: editingItem.categoryId || (categories[0]?.id || ''),
+        cropTypeId: editingItem.cropTypeId ? String(editingItem.cropTypeId) : '',
         skuCode: editingItem.skuCode || '',
         barcode: editingItem.barcode || '',
         name: editingItem.name || '',
@@ -97,9 +136,16 @@ export function MaterialFormModal({
       });
       setConversions(editingItem.conversions || []);
     } else {
+      const initialCatId =
+        defaultCategoryId && categories.some((c) => String(c.id) === String(defaultCategoryId))
+          ? defaultCategoryId
+          : (categories[0]?.id || '');
+      const autoSku = generateMaterialSku(allMaterials);
+
       setFormData({
-        categoryId: categories[0]?.id || '',
-        skuCode: generateEntityCode(CODE_PREFIXES.MATERIAL),
+        categoryId: initialCatId,
+        cropTypeId: '',
+        skuCode: autoSku,
         barcode: '',
         name: '',
         standardUnit: 'KG',
@@ -117,10 +163,11 @@ export function MaterialFormModal({
       });
       setConversions([]);
     }
-  }, [isOpen, editingItem, categories]);
+  }, [isOpen, editingItem, categories, defaultCategoryId, allMaterials]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+
     setFormData((prev) => ({
       ...prev,
       [name]: name === 'skuCode' ? value.toUpperCase() : value,
@@ -197,7 +244,12 @@ export function MaterialFormModal({
 
       const payload = {
         ...formData,
+        barcode: formData.barcode?.trim() || null,
+        manufacturerName: formData.manufacturerName?.trim() || null,
+        activeIngredient: formData.activeIngredient?.trim() || null,
+        description: formData.description?.trim() || null,
         categoryId: Number(formData.categoryId),
+        cropTypeId: formData.cropTypeId ? Number(formData.cropTypeId) : null,
         minStockLevel: Number(formData.minStockLevel),
         maxStockLevel: Number(formData.maxStockLevel),
         unitPriceStandard: Number(formData.unitPriceStandard),
@@ -213,13 +265,16 @@ export function MaterialFormModal({
         })),
       };
 
+      let savedResult;
       if (editingItem) {
-        await masterDataService.updateMaterial(editingItem.id, payload);
+        savedResult = await masterDataService.updateMaterial(editingItem.id, payload);
+        toast.success(`Đã cập nhật thông tin mặt hàng "${payload.name}" thành công!`);
       } else {
-        await masterDataService.createMaterial(payload);
+        savedResult = await masterDataService.createMaterial(payload);
+        toast.success(`Đã tạo mới mặt hàng "${payload.name}" (${payload.skuCode}) thành công!`);
       }
 
-      onSuccess?.();
+      onSuccess?.(savedResult || { ...payload, id: editingItem?.id });
       onClose();
     } catch (err) {
       const errMsg = applyServerFieldErrors(err, setFieldErrors);
@@ -272,6 +327,24 @@ export function MaterialFormModal({
               />
             </FormField>
 
+            <FormField 
+              label="Giống Cây Trồng Liên Kết" 
+              hint="Chọn nếu là Hạt giống/Cây giống để kích hoạt Mùa vụ canh tác"
+            >
+              <Select
+                name="cropTypeId"
+                value={formData.cropTypeId}
+                onChange={handleChange}
+                options={[
+                  { value: '', label: '-- Không liên kết (Vật tư chung) --' },
+                  ...cropTypes.map((c) => ({ 
+                    value: c.id, 
+                    label: `${c.name} (${c.varietyCode}) [${c.cropCategory === 'PERENNIAL' ? 'Cây thân gỗ' : 'Ngắn ngày'}]` 
+                  }))
+                ]}
+              />
+            </FormField>
+
             <FormField
               label="Mã SKU Vật Tư"
               required
@@ -281,17 +354,14 @@ export function MaterialFormModal({
               <CodeInput
                 value={formData.skuCode}
                 onChange={(e) => setFormData((prev) => ({ ...prev, skuCode: e.target.value.toUpperCase() }))}
-                onRegenerate={() => setFormData((prev) => ({ ...prev, skuCode: generateEntityCode(CODE_PREFIXES.MATERIAL) }))}
+                onRegenerate={() => {
+                  setFormData((prev) => ({
+                    ...prev,
+                    skuCode: generateMaterialSku(allMaterials),
+                  }));
+                }}
                 isEditMode={Boolean(editingItem)}
                 error={fieldErrors.skuCode}
-              />
-            </FormField>
-
-            <FormField label="Mã Vạch / Barcode" error={fieldErrors.barcode}>
-              <BarcodeScannerInput
-                value={formData.barcode}
-                onChange={(code) => setFormData((prev) => ({ ...prev, barcode: code }))}
-                placeholder="Quét hoặc nhập mã vạch..."
               />
             </FormField>
           </div>

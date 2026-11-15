@@ -29,6 +29,9 @@ public class CropSeason {
     @Column(name = "zone_id", nullable = false)
     private Long zoneId;
 
+    @Column(name = "location_id")
+    private Long locationId;
+
     @Column(name = "operational_cycle_id")
     private Long operationalCycleId;
 
@@ -53,8 +56,14 @@ public class CropSeason {
     @Column(name = "seed_quantity", precision = 10, scale = 2)
     private BigDecimal seedQuantity;
 
+    @Column(name = "seed_unit", length = 30)
+    private String seedUnit;
+
     @Column(name = "estimated_yield_kg", precision = 12, scale = 2)
     private BigDecimal estimatedYieldKg;
+
+    @Column(name = "estimated_yield_unit", length = 30)
+    private String estimatedYieldUnit;
 
     @Column(name = "actual_yield_kg", precision = 12, scale = 2)
     private BigDecimal actualYieldKg;

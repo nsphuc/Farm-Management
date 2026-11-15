@@ -58,8 +58,14 @@ public class TimeAttendanceController {
     @PreAuthorize("(hasAuthority('PERM_HR_ATTENDANCE') or hasAuthority('PERM_HR_EMPLOYEE_MANAGE') or hasAuthority('PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<List<TimeAttendanceDetailResponse>> getAttendances(
             @RequestParam Long farmId,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate workDate) {
-        return ResponseEntity.ok(timeAttendanceService.getAttendances(farmId, workDate));
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate workDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        if (startDate != null && endDate != null) {
+            return ResponseEntity.ok(timeAttendanceService.getAttendancesByDateRange(farmId, startDate, endDate));
+        }
+        LocalDate date = workDate != null ? workDate : LocalDate.now();
+        return ResponseEntity.ok(timeAttendanceService.getAttendances(farmId, date));
     }
 
     @GetMapping("/{id}")

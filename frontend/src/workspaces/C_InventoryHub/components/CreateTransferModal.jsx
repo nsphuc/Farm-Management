@@ -8,15 +8,18 @@ import {
   Layers,
   Warehouse,
   AlertTriangle,
+  MapPin,
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select } from '@/components/ui/FormControls';
+import { geographyService } from '@/services/modules/geographyService';
 import { inventoryService } from '@/services/modules/inventoryService';
 import { masterDataService } from '@/services/modules/masterDataService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 import { toast } from '@/store/useToastStore';
 import { formatCurrency, formatNumber, formatDate } from '@/utils/formatters';
+import { convertQuantityToCapacityUnit } from '@/utils/unitConverter';
 
 export function CreateTransferModal({
   isOpen,
@@ -29,6 +32,8 @@ export function CreateTransferModal({
   const farms = useActiveFarmStore((s) => s.farms);
 
   const [toWarehouses, setToWarehouses] = useState([]);
+  const [toZoneLocations, setToZoneLocations] = useState([]);
+  const [toZoneName, setToZoneName] = useState('');
   const [inventoryStock, setInventoryStock] = useState([]);
   const [isLoadingStock, setIsLoadingStock] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,6 +86,56 @@ export function CreateTransferModal({
       }
     }
   }, [isOpen, formData.toFarmId, farmId]);
+
+  // Tải danh sách vị trí kệ của kho đích (toWarehouseId)
+  useEffect(() => {
+    if (!formData.toWarehouseId) {
+      setToZoneLocations([]);
+      setToZoneName('');
+      return;
+    }
+    const targetWh = toWarehouses.find((w) => String(w.id) === String(formData.toWarehouseId));
+    const targetFarmId = formData.toFarmId || farmId;
+    if (targetWh?.zoneId && targetFarmId) {
+      setToZoneName(targetWh.zoneName || `Phân khu #${targetWh.zoneId}`);
+      geographyService
+        .getLocations(targetFarmId, targetWh.zoneId)
+        .then((res) => {
+          const allLocs = Array.isArray(res) ? res : (res?.content || []);
+          // CHỈ lọc các kệ thuộc kho nhận (đích) này
+          const whShelves = allLocs.filter((loc) => Number(loc.warehouseId) === Number(targetWh.id));
+          setToZoneLocations(whShelves);
+        })
+        .catch((err) => {
+          console.error('Lỗi tải vị trí kệ kho đích:', err);
+          setToZoneLocations([]);
+        });
+    } else {
+      setToZoneLocations([]);
+      setToZoneName('');
+    }
+  }, [formData.toWarehouseId, formData.toFarmId, farmId, toWarehouses]);
+
+  // Đổi kho xuất nguồn: làm mới danh sách dòng chuyển để tránh chọn sai lô
+  const handleFromWarehouseChange = (newWhId) => {
+    setFormData((prev) => ({
+      ...prev,
+      fromWarehouseId: newWhId,
+      items: [createDefaultTransferItem()],
+    }));
+  };
+
+  // Đổi kho nhận đích: làm sạch mã kệ đích đã chọn trên các dòng
+  const handleToWarehouseChange = (newWhId) => {
+    setFormData((prev) => ({
+      ...prev,
+      toWarehouseId: newWhId,
+      items: prev.items.map((it) => ({
+        ...it,
+        toBinCode: '',
+      })),
+    }));
+  };
 
   // Tải tồn kho khả dụng của kho nguồn fromWarehouseId
   useEffect(() => {
@@ -296,6 +351,31 @@ export function CreateTransferModal({
           break;
         }
       }
+
+      // Kiểm tra sức chứa kệ đích (có quy đổi đơn vị chuẩn)
+      if (!errs.items && toZoneLocations && toZoneLocations.length > 0) {
+        const binSums = {};
+        for (const it of formData.items) {
+          if (it.toBinCode) {
+            const loc = toZoneLocations.find((l) => l.code === it.toBinCode);
+            const capUnit = loc?.capacityUnit;
+            const convertedQty = convertQuantityToCapacityUnit(it, capUnit);
+            if (convertedQty !== null && convertedQty !== undefined) {
+              binSums[it.toBinCode] = (binSums[it.toBinCode] || 0) + convertedQty;
+            }
+          }
+        }
+        for (const [code, sumQty] of Object.entries(binSums)) {
+          const loc = toZoneLocations.find((l) => l.code === code);
+          if (loc && loc.capacity !== null && loc.capacity !== undefined) {
+            if (sumQty > loc.capacity) {
+              const unitStr = loc.capacityUnit ? ` ${loc.capacityUnit}` : '';
+              errs.items = `Kệ đích [${loc.code} - ${loc.name}] không đủ sức chứa! Sức chứa còn lại: ${loc.capacity}${unitStr}, tổng số lượng chuyển đến: ${Number(sumQty.toFixed(2))}${unitStr}. Vui lòng chọn kệ khác hoặc giảm số lượng!`;
+              break;
+            }
+          }
+        }
+      }
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -390,7 +470,7 @@ export function CreateTransferModal({
             <FormField label="Kho Xuất Hàng (Nguồn) *" error={errors.fromWarehouseId}>
               <Select
                 value={formData.fromWarehouseId}
-                onChange={(e) => setFormData({ ...formData, fromWarehouseId: e.target.value })}
+                onChange={(e) => handleFromWarehouseChange(e.target.value)}
                 required
               >
                 <option value="">-- Chọn kho xuất --</option>
@@ -418,7 +498,7 @@ export function CreateTransferModal({
             <FormField label="Kho Nhận Hàng (Đích) *" error={errors.toWarehouseId}>
               <Select
                 value={formData.toWarehouseId}
-                onChange={(e) => setFormData({ ...formData, toWarehouseId: e.target.value })}
+                onChange={(e) => handleToWarehouseChange(e.target.value)}
                 required
               >
                 <option value="">-- Chọn kho nhận --</option>
@@ -428,6 +508,12 @@ export function CreateTransferModal({
                   </option>
                 ))}
               </Select>
+              {toZoneName && (
+                <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-blue-700">
+                  <MapPin className="w-3 h-3 text-blue-600 inline" />
+                  <span>Phân khu đích: <strong>{toZoneName}</strong> ({toZoneLocations.length} kệ thuộc kho)</span>
+                </div>
+              )}
             </FormField>
           </div>
 
@@ -593,20 +679,85 @@ export function CreateTransferModal({
 
                       {/* Kệ đích */}
                       <td className="py-2 px-2">
-                        <input
-                          type="text"
-                          value={item.toBinCode}
-                          placeholder="B-01"
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setFormData((prev) => {
-                              const newItems = [...prev.items];
-                              newItems[idx] = { ...newItems[idx], toBinCode: val };
-                              return { ...prev, items: newItems };
-                            });
-                          }}
-                          className="w-full font-mono rounded border border-slate-300 px-1.5 py-1 text-xs focus:outline-blue-500"
-                        />
+                        {toZoneLocations && toZoneLocations.length > 0 ? (
+                          <>
+                            <select
+                              value={item.toBinCode || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setFormData((prev) => {
+                                  const newItems = [...prev.items];
+                                  newItems[idx] = { ...newItems[idx], toBinCode: val };
+                                  return { ...prev, items: newItems };
+                                });
+                              }}
+                              className={`w-full font-mono rounded border px-1.5 py-1 text-xs focus:outline-blue-500 bg-white ${
+                                (() => {
+                                  if (!item.toBinCode) return 'border-slate-300';
+                                  const loc = toZoneLocations.find((l) => l.code === item.toBinCode);
+                                  if (!loc || loc.capacity === null || loc.capacity === undefined) return 'border-slate-300';
+                                  const totalQty = formData.items
+                                    .filter((it) => it.toBinCode === item.toBinCode)
+                                    .reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
+                                  return totalQty > loc.capacity ? 'border-amber-500 bg-amber-50 text-amber-900 font-bold' : 'border-slate-300';
+                                })()
+                              }`}
+                            >
+                              <option value="">-- Chọn kệ đích ({toZoneLocations.length}) --</option>
+                              {toZoneLocations.map((loc) => {
+                                const isFull = loc.capacity !== null && loc.capacity !== undefined && loc.capacity <= 0;
+                                return (
+                                  <option key={loc.id} value={loc.code} disabled={isFull}>
+                                    {loc.code} - {loc.name} {loc.capacity !== null && loc.capacity !== undefined ? (isFull ? '(❌ ĐÃ ĐẦY - Sức chứa: 0)' : `(Còn lại: ${loc.capacity} ${loc.capacityUnit || ''})`.trim()) : '(Không giới hạn)'}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            {(() => {
+                              if (!item.toBinCode) return null;
+                              const loc = toZoneLocations.find((l) => l.code === item.toBinCode);
+                              if (!loc || loc.capacity === null || loc.capacity === undefined) return null;
+                              const relevantItems = formData.items.filter((it) => it.toBinCode === item.toBinCode);
+                              let totalConverted = 0;
+                              let canConvert = false;
+                              for (const it of relevantItems) {
+                                const c = convertQuantityToCapacityUnit(it, loc.capacityUnit);
+                                if (c !== null && c !== undefined) {
+                                  totalConverted += c;
+                                  canConvert = true;
+                                }
+                              }
+                              if (canConvert && totalConverted > loc.capacity) {
+                                const unitStr = loc.capacityUnit ? ` ${loc.capacityUnit}` : '';
+                                return (
+                                  <div className="text-[10px] text-amber-800 bg-amber-100 border border-amber-300 rounded px-1.5 py-0.5 mt-1 font-semibold flex items-center gap-1">
+                                    <span>⚠️ Vượt sức chứa: Còn {loc.capacity}{unitStr}, chuyển {Number(totalConverted.toFixed(2))}{unitStr}</span>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div className="text-[10px] text-blue-700 mt-0.5 font-mono">
+                                  Sức chứa còn lại: <span className="font-bold">{loc.capacity} {loc.capacityUnit || ''}</span>
+                                </div>
+                              );
+                            })()}
+                          </>
+                        ) : (
+                          <input
+                            type="text"
+                            value={item.toBinCode || ''}
+                            placeholder={formData.toWarehouseId ? "Kho chưa có kệ (nhập tự do)..." : "Chọn kho đích..."}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setFormData((prev) => {
+                                const newItems = [...prev.items];
+                                newItems[idx] = { ...newItems[idx], toBinCode: val };
+                                return { ...prev, items: newItems };
+                              });
+                            }}
+                            className="w-full font-mono rounded border border-slate-300 px-1.5 py-1 text-xs focus:outline-blue-500 bg-white"
+                          />
+                        )}
                       </td>
 
                       {/* Xóa dòng */}

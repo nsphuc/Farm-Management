@@ -34,6 +34,8 @@ public interface InventoryService {
             Long farmId, Long warehouseId, String status,
             LocalDate fromDate, LocalDate toDate, Pageable pageable);
     WarehouseIssueDetailResponse createIssue(Long farmId, CreateWarehouseIssueRequest request);
+    WarehouseIssueDetailResponse autoCreateIssueDraftForTask(Long farmId, Long taskId, Long currentUserId);
+    void cancelIssueForTask(Long farmId, Long taskId, String reason);
     WarehouseIssueDetailResponse getIssueById(Long farmId, Long id);
     WarehouseIssueDetailResponse completeIssue(Long farmId, Long id);
     WarehouseIssueDetailResponse cancelIssue(Long farmId, Long id, CancelWarehouseIssueRequest request);

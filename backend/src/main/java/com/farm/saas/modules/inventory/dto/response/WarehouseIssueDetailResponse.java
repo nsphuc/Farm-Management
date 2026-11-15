@@ -26,6 +26,8 @@ public class WarehouseIssueDetailResponse {
     private Long livestockGroupId;
     private Long farmingLogId;
     private Long livestockEventId;
+    private Long taskId;
+    private String taskTitle;
     private Boolean isBackflushed;
     private LocalDate issueDate;
     private BigDecimal totalAmount;
@@ -36,6 +38,7 @@ public class WarehouseIssueDetailResponse {
     private Long cancelledBy;
     private Instant cancelledAt;
     private String cancellationReason;
+    private String itemSummary;
     private List<IssueItemDto> items;
 
     @Data
@@ -49,6 +52,9 @@ public class WarehouseIssueDetailResponse {
         private String materialName;
         private String standardUnit;
         private String batchNumber;
+        private String storageBinCode;
+        private LocalDate expiryDate;
+        private BigDecimal availableQuantity;
         private String enteredUnit;
         private BigDecimal enteredQuantity;
         private BigDecimal conversionFactor;

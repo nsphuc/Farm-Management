@@ -12,6 +12,7 @@ import { CycleSettlementConsole } from './components/CycleSettlementConsole';
 import { SalesOrderMonitorTab } from './components/SalesOrderMonitorTab';
 import { SalesDeliveryMonitorTab } from './components/SalesDeliveryMonitorTab';
 import { DebtMonitorTab } from './components/DebtMonitorTab';
+import { PaymentMonitorTab } from './components/PaymentMonitorTab';
 import { CreateSalesOrderModal } from './components/CreateSalesOrderModal';
 import { CreateDeliveryModal } from './components/CreateDeliveryModal';
 import { CreatePaymentModal } from './components/CreatePaymentModal';
@@ -58,6 +59,20 @@ export function SalesCashflowWorkspace() {
   const [isCreatePaymentOpen, setIsCreatePaymentOpen] = useState(false);
   const [isAllocateDebtOpen, setIsAllocateDebtOpen] = useState(false);
 
+  // Selected debt states for context-aware modals
+  const [selectedDebtForPayment, setSelectedDebtForPayment] = useState(null);
+  const [selectedDebtForAllocate, setSelectedDebtForAllocate] = useState(null);
+
+  const handleOpenPayment = (debtRow = null) => {
+    setSelectedDebtForPayment(debtRow);
+    setIsCreatePaymentOpen(true);
+  };
+
+  const handleOpenAllocate = (debtRow = null) => {
+    setSelectedDebtForAllocate(debtRow);
+    setIsAllocateDebtOpen(true);
+  };
+
   return (
     <div className="space-y-6">
       {/* ======================================================== */}
@@ -71,18 +86,12 @@ export function SalesCashflowWorkspace() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-black text-slate-900 tracking-tight">
-                {owner 
-                  ? 'Trung Tâm Bán Hàng & Nhận Kết Toán Lợi Nhuận Chu Kỳ' 
-                  : manager
-                  ? 'Theo Dõi Doanh Thu & Ký Duyệt Bảng Kết Toán Chu Kỳ'
-                  : warehouseKeeper
-                  ? 'WS-H2: Điều Phối Xuất Kho Giao Hàng B2B & Chứng Từ POD'
-                  : 'Trung Tâm Bán Hàng, Giao Hàng & Thu Phí VietQR'}
+                Bán Hàng, Giao Vận & Lợi Nhuận Chu Kỳ (WS-H2)
               </h1>
               {owner && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 border border-emerald-300">
                   <ShieldCheck className="h-3 w-3" />
-                  <span>Chủ Đầu Tư (Owner)</span>
+                  <span>Chủ Đầu Tư</span>
                 </span>
               )}
               {manager && (
@@ -92,74 +101,67 @@ export function SalesCashflowWorkspace() {
                 </span>
               )}
               {warehouseKeeper && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-900 border border-blue-300">
-                  <Truck className="h-3 w-3 text-blue-700" />
-                  <span>Bộ Phận Giao Vận Kho</span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-900 border border-amber-300">
+                  <Truck className="h-3 w-3 text-amber-700" />
+                  <span>Bộ Phận Giao Vận</span>
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              {owner
-                ? 'Giám sát bán sỉ, công nợ hai chiều và nhận chuyển khoản lợi nhuận ròng trực tiếp từ các trang trại'
-                : manager
-                ? 'Kiểm tra đối soát doanh thu, chi phí, ký duyệt kết toán chu kỳ nội bộ trước khi Kế toán chuyển tiền cho Owner'
-                : warehouseKeeper
-                ? 'Theo dõi đơn hàng đã duyệt, lập phiếu xuất kho nhiều đợt, điều xe giao hàng và cập nhật ảnh chứng từ POD'
-                : 'Lên đơn bán sỉ, giữ chỗ lô hàng, xuất giao nhiều đợt và cấn trừ công nợ hai chiều tại trang trại'}
+              Quản lý đơn hàng bán buôn, tiến độ điều xe giao hàng và bảng kết toán lợi nhuận ròng P&L theo từng vụ mùa.
             </p>
           </div>
         </div>
 
-        {/* Action Buttons theo vai trò Maker-Checker */}
-        <div className="flex items-center gap-2">
-          {(activeTab === 'ORDERS' || activeTab === 'DELIVERIES') && (
-            <>
-              {!warehouseKeeper && (
-                <Can permission="PERM_FINANCE_SALES_ORDER" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    icon={<Plus className="h-4 w-4" />}
-                    onClick={() => setIsCreateOrderOpen(true)}
-                  >
-                    + Tạo Đơn Bán Sỉ
-                  </Button>
-                </Can>
-              )}
-
-              <Can permission="PERM_DELIVERY_MANAGE" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
-                <Button
-                  variant={warehouseKeeper ? "primary" : "outline"}
-                  size="sm"
-                  icon={<Truck className="h-4 w-4" />}
-                  onClick={() => setIsCreateDeliveryOpen(true)}
-                  className={warehouseKeeper ? "bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-xs" : ""}
-                >
-                  + Lập Phiếu Giao Hàng
-                </Button>
-              </Can>
-            </>
+        {/* Action Buttons theo vai trò */}
+        <div className="flex flex-wrap items-center gap-2">
+          {!warehouseKeeper && (
+            <Can permission="PERM_FINANCE_SALES_ORDER" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus className="h-4 w-4" />}
+                onClick={() => setIsCreateOrderOpen(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 font-bold shadow-xs text-xs"
+              >
+                + Tạo Đơn Bán Sỉ
+              </Button>
+            </Can>
           )}
 
-          {!warehouseKeeper && (activeTab === 'DEBT' || activeTab === 'PAYMENTS') && (
+          <Can permission="PERM_DELIVERY_MANAGE" role={["ROLE_WAREHOUSE_STAFF", "ROLE_FARM_MANAGER"]}>
+            <Button
+              variant={warehouseKeeper ? "primary" : "outline"}
+              size="sm"
+              icon={<Truck className="h-4 w-4 text-blue-600" />}
+              onClick={() => setIsCreateDeliveryOpen(true)}
+              className={warehouseKeeper ? "bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-xs text-xs" : "font-semibold text-xs border-slate-300 hover:bg-slate-50"}
+            >
+              + Lập Phiếu Giao Hàng
+            </Button>
+          </Can>
+
+          {!warehouseKeeper && (
             <>
-              <Can permission="PERM_FINANCE_PAYMENT" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
+              <Can permission="PERM_FINANCE_PAYMENT" role="ROLE_ACCOUNTANT">
                 <Button
-                  variant="primary"
+                  variant="outline"
                   size="sm"
-                  icon={<Plus className="h-4 w-4" />}
-                  onClick={() => setIsCreatePaymentOpen(true)}
+                  icon={<Receipt className="h-4 w-4 text-emerald-600" />}
+                  onClick={() => handleOpenPayment(null)}
+                  className="font-semibold text-xs border-slate-300 hover:bg-slate-50"
                 >
                   + Lập Phiếu Thu/Chi
                 </Button>
               </Can>
 
-              <Can permission="PERM_PAYMENT_ALLOCATE" role={["ROLE_ACCOUNTANT", "ROLE_FARM_MANAGER"]}>
+              <Can permission="PERM_PAYMENT_ALLOCATE" role="ROLE_ACCOUNTANT">
                 <Button
                   variant="outline"
                   size="sm"
-                  icon={<CreditCard className="h-4 w-4" />}
-                  onClick={() => setIsAllocateDebtOpen(true)}
+                  icon={<CreditCard className="h-4 w-4 text-purple-600" />}
+                  onClick={() => handleOpenAllocate(null)}
+                  className="font-semibold text-xs border-slate-300 hover:bg-slate-50"
                 >
                   + Phân Bổ / Cấn Trừ Nợ
                 </Button>
@@ -170,141 +172,21 @@ export function SalesCashflowWorkspace() {
       </div>
 
       {/* ======================================================== */}
-      {/* 2. BANNER THÔNG ĐIỆP DÀNH CHO FARM MANAGER & THỦ KHO     */}
+      {/* 2. TAB ĐIỀU HƯỚNG TINH GỌN, TRỰC QUAN                    */}
       {/* ======================================================== */}
-      {manager && (
-        <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 text-xs text-blue-900 shadow-2xs animate-in fade-in">
-          <ShieldCheck className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
-          <div className="space-y-0.5 leading-relaxed">
-            <strong className="block font-bold text-blue-950">
-              Quy Trình Ký Duyệt Bảng Kết Toán Chu Kỳ Của Giám Đốc Trại:
-            </strong>
-            <p className="text-blue-800">
-              Kế toán trại (Role 5) thực hiện bán hàng và thanh toán chi phí hàng ngày. Cuối mỗi Chu kỳ vận hành (#16), bạn vào <strong>Tab Duyệt Bảng Kết Toán</strong> để thẩm định đối soát Tổng Doanh Thu, Tổng Chi Phí và Lợi Nhuận Ròng của trại. Bấm nút <strong>[✍️ Ký Duyệt Bảng Kết Toán]</strong> để phê duyệt nội bộ, cấp phép cho Kế toán trại quét VietQR chuyển phần lợi nhuận về tài khoản của Chủ đầu tư (Owner)!
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Banner Vận Hành Dành Riêng Cho Thủ Kho / Giao Vận */}
-      {warehouseKeeper && (
-        <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 text-xs text-blue-900 shadow-2xs animate-in fade-in">
-          <Truck className="h-4 w-4 shrink-0 text-blue-600 mt-0.5" />
-          <div className="space-y-0.5 leading-relaxed">
-            <strong className="block font-bold text-blue-950">
-              Quy Trình Giao Vận & Xuất Kho Nông Sản B2B:
-            </strong>
-            <p className="text-blue-800">
-              Bạn đang ở chế độ giao vận kho. Chọn tab <strong>Đơn Hàng Đã Duyệt Chờ Giao</strong> để kiểm tra các đơn đã được Giám đốc trại phê duyệt (<span className="font-semibold text-emerald-700">CONFIRMED</span>). Bấm nút <strong>[+ Lập Phiếu Giao Hàng]</strong> để xuất hàng theo đợt từ các lô thành phẩm đã in tem QR, cập nhật biển số xe, tài xế và đối tác vận chuyển.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* 3. TAB ĐIỀU HƯỚNG                                        */}
-      {/* ======================================================== */}
-      <div className="flex space-x-2 border-b border-slate-200 text-xs font-semibold overflow-x-auto">
-        {owner ? (
-          // Tabs dành cho Chủ Đầu Tư (Owner)
-          [
-            { 
-              id: 'SETTLEMENT', 
-              label: 'Bảng Kết Toán Lợi Nhuận Chu Kỳ', 
-              icon: ShieldCheck, 
-              badge: 'Trọng tâm Owner' 
-            },
-            { 
-              id: 'ORDERS', 
-              label: 'Theo Dõi Đơn Bán Hàng & Giao Hàng', 
-              icon: Receipt 
-            },
-            { 
-              id: 'DELIVERIES', 
-              label: 'Tiến Độ Giao Vận & POD', 
-              icon: Truck 
-            },
-            { 
-              id: 'DEBT', 
-              label: 'Sổ Cái Công Nợ Hai Chiều Các Trại', 
-              icon: CreditCard 
-            },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-emerald-600 text-emerald-600 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <tab.icon className="h-4 w-4" />
-              <span>{tab.label}</span>
-              {tab.badge && (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          ))
-        ) : manager ? (
-          // Tabs dành cho Giám Đốc Trang Trại (Farm Manager)
-          [
-            { 
-              id: 'SETTLEMENT', 
-              label: 'Duyệt Bảng Kết Toán Chu Kỳ Của Trại', 
-              icon: ShieldCheck, 
-              badge: 'Trọng tâm Duyệt Lợi Nhuận' 
-            },
-            { 
-              id: 'ORDERS', 
-              label: 'Theo Dõi Đơn Bán Sỉ & Giao Hàng (Read-Only)', 
-              icon: Receipt 
-            },
-            { 
-              id: 'DELIVERIES', 
-              label: 'Tiến Độ Giao Vận & POD', 
-              icon: Truck 
-            },
-            { 
-              id: 'DEBT', 
-              label: 'Sổ Cái Công Nợ & Thu Chi (Read-Only)', 
-              icon: CreditCard 
-            },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-emerald-600 text-emerald-700 bg-emerald-50/40 font-bold rounded-t-xl'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <tab.icon className="h-4 w-4" />
-              <span>{tab.label}</span>
-              {tab.badge && (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          ))
-        ) : warehouseKeeper ? (
-          // Tabs dành cho Thủ kho / Bộ phận giao vận (Bảo mật SoD: ẨN DEBT & PAYMENTS & SETTLEMENT)
+      <div className="flex space-x-2 border-b border-slate-200 text-xs font-semibold overflow-x-auto no-scrollbar">
+        {warehouseKeeper ? (
+          // Tabs dành cho Thủ kho / Bộ phận giao vận
           [
             { 
               id: 'DELIVERIES', 
-              label: 'Xuất Giao Hàng Lên Xe & POD', 
+              label: 'Giao Hàng & Vận Chuyển', 
               icon: Truck, 
               badge: 'Nhiệm vụ chính' 
             },
             { 
               id: 'ORDERS', 
-              label: 'Đơn Hàng Đã Duyệt Chờ Giao (Read-Only)', 
+              label: 'Đơn Hàng Chờ Giao', 
               icon: Receipt 
             },
           ].map((tab) => (
@@ -312,41 +194,68 @@ export function SalesCashflowWorkspace() {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 transition-all whitespace-nowrap font-bold ${
                 activeTab === tab.id
-                  ? 'border-blue-600 text-blue-700 bg-blue-50/40 font-bold rounded-t-xl'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-blue-600 text-blue-800 bg-blue-50/60 rounded-t-xl font-black'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <tab.icon className="h-4 w-4" />
+              <tab.icon className="h-4 w-4 text-blue-600" />
               <span>{tab.label}</span>
               {tab.badge && (
-                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-800">
+                <span className="rounded-full bg-blue-100 px-2 py-0.2 text-[10px] font-black text-blue-800">
                   {tab.badge}
                 </span>
               )}
             </button>
           ))
         ) : (
-          // Tabs dành cho Kế toán / Nhân viên trại
+          // Tabs dành cho Quản lý trại, Chủ đầu tư & Kế toán
           [
-            { id: 'ORDERS', label: 'Đơn Hàng Bán Sỉ', icon: Receipt },
-            { id: 'DELIVERIES', label: 'Giao Hàng (Split Shipments)', icon: Truck },
-            { id: 'DEBT', label: 'Sổ Cái Công Nợ Hai Chiều', icon: CreditCard },
-            { id: 'PAYMENTS', label: 'Thu Chi & VietQR', icon: ArrowLeftRight },
+            { 
+              id: 'SETTLEMENT', 
+              label: 'Kết Toán Lợi Nhuận & P&L', 
+              icon: ShieldCheck, 
+              badge: 'P&L' 
+            },
+            { 
+              id: 'ORDERS', 
+              label: 'Đơn Hàng Bán Sỉ', 
+              icon: Receipt 
+            },
+            { 
+              id: 'DELIVERIES', 
+              label: 'Giao Hàng & Vận Chuyển', 
+              icon: Truck 
+            },
+            { 
+              id: 'DEBT', 
+              label: 'Sổ Nợ & Đối Soát', 
+              icon: CreditCard 
+            },
+            { 
+              id: 'PAYMENTS', 
+              label: 'Phiếu Thu Chi & VietQR', 
+              icon: ArrowLeftRight 
+            },
           ].map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 transition-all whitespace-nowrap font-bold ${
                 activeTab === tab.id
-                  ? 'border-emerald-600 text-emerald-600 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-emerald-600 text-emerald-800 bg-emerald-50/60 rounded-t-xl font-black'
+                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <tab.icon className="h-4 w-4" />
+              <tab.icon className="h-4 w-4 text-emerald-600" />
               <span>{tab.label}</span>
+              {tab.badge && (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.2 text-[10px] font-black text-emerald-800">
+                  {tab.badge}
+                </span>
+              )}
             </button>
           ))
         )}
@@ -366,8 +275,8 @@ export function SalesCashflowWorkspace() {
       {activeTab === 'DEBT' && (
         <DebtMonitorTab 
           farmId={activeFarmId} 
-          onOpenAllocateModal={() => setIsAllocateDebtOpen(true)}
-          onOpenPaymentModal={() => setIsCreatePaymentOpen(true)}
+          onOpenAllocateModal={(debt) => handleOpenAllocate(debt)}
+          onOpenPaymentModal={(debt) => handleOpenPayment(debt)}
         />
       )}
 
@@ -379,10 +288,10 @@ export function SalesCashflowWorkspace() {
       )}
 
       {activeTab === 'PAYMENTS' && (
-        <DebtMonitorTab 
+        <PaymentMonitorTab 
           farmId={activeFarmId} 
-          onOpenAllocateModal={() => setIsAllocateDebtOpen(true)}
-          onOpenPaymentModal={() => setIsCreatePaymentOpen(true)}
+          onOpenCreatePayment={() => handleOpenPayment(null)}
+          onOpenAllocateModal={(debt) => handleOpenAllocate(debt)}
         />
       )}
 
@@ -405,15 +314,24 @@ export function SalesCashflowWorkspace() {
 
       <CreatePaymentModal
         isOpen={isCreatePaymentOpen}
-        onClose={() => setIsCreatePaymentOpen(false)}
+        onClose={() => {
+          setIsCreatePaymentOpen(false);
+          setSelectedDebtForPayment(null);
+        }}
         activeFarmId={activeFarmId}
+        initialDebt={selectedDebtForPayment}
         onSuccess={() => notifyDataChanged?.('finance')}
       />
 
       <AllocateOrOffsetDebtModal
         isOpen={isAllocateDebtOpen}
-        onClose={() => setIsAllocateDebtOpen(false)}
+        onClose={() => {
+          setIsAllocateDebtOpen(false);
+          setSelectedDebtForAllocate(null);
+        }}
         activeFarmId={activeFarmId}
+        initialDebt={selectedDebtForAllocate}
+        preselectedDebtId={selectedDebtForAllocate?.id}
         onSuccess={() => notifyDataChanged?.('finance')}
       />
     </div>

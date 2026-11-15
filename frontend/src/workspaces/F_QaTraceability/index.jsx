@@ -56,6 +56,7 @@ export const DEFAULT_VIETGAP_CRITERIA = [
   },
 ];
 import { FormField, Input, Select } from '@/components/ui/FormControls';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 import { Can } from '@/components/common/Can';
 import { toast } from '@/store/useToastStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -65,6 +66,29 @@ import { EmergencyRecallModal } from './components/EmergencyRecallModal';
 import { BatchRejectionModal } from './components/BatchRejectionModal';
 import { TraceabilityDetailDrawer } from './components/TraceabilityDetailDrawer';
 import { formatWeight, formatDate, formatDateTime } from '@/utils/formatters';
+
+export const generateNextBatchCode = (batchList = []) => {
+  const currentYear = new Date().getFullYear();
+  let maxSeq = 0;
+  (batchList || []).forEach((b) => {
+    if (!b?.batchCode) return;
+    const code = String(b.batchCode).toUpperCase();
+    const matchYear = code.match(new RegExp(`BATCH-${currentYear}-(\\d+)`));
+    if (matchYear) {
+      const num = parseInt(matchYear[1], 10);
+      if (num > maxSeq) maxSeq = num;
+    } else {
+      const matchSimple = code.match(/BATCH-(\d+)/);
+      if (matchSimple) {
+        const num = parseInt(matchSimple[1], 10);
+        if (num > maxSeq && num < 100000) maxSeq = num;
+      }
+    }
+  });
+  const nextSeq = maxSeq + 1;
+  const padded = String(nextSeq).padStart(3, '0');
+  return `BATCH-${currentYear}-${padded}`;
+};
 
 const OWNER_QA_TABS = [
   { id: 'MARKET_ACTIVE', label: 'Đang Lưu Hành Trên Thị Trường (PRINTED / SELLING)', countKey: 'marketActive' },
@@ -108,15 +132,32 @@ export function QaTraceabilityWorkspace() {
   // Create batch modal (ROLE_WAREHOUSE_STAFF / ROLE_FARM_MANAGER)
   const [isCreateBatchOpen, setIsCreateBatchOpen] = useState(false);
   const [createBatchForm, setCreateBatchForm] = useState({
-    batchCode: `BATCH-${Date.now().toString().slice(-6)}`,
+    batchCode: generateNextBatchCode([]),
     productName: '',
     initialQuantity: '',
     unit: 'KG',
     qualityGrade: 'GRADE_A',
     harvestDate: new Date().toISOString().split('T')[0],
     expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    packagingPhotoUrl: '',
     sourceHarvestRecordIds: [],
   });
+
+  const handleOpenCreateBatch = () => {
+    const nextCode = generateNextBatchCode(batches);
+    setCreateBatchForm({
+      batchCode: nextCode,
+      productName: '',
+      initialQuantity: '',
+      unit: 'KG',
+      qualityGrade: 'GRADE_A',
+      harvestDate: new Date().toISOString().split('T')[0],
+      expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      packagingPhotoUrl: '',
+      sourceHarvestRecordIds: [],
+    });
+    setIsCreateBatchOpen(true);
+  };
 
   // Harvest records state for WS-F (GAP-WH-05)
   const [harvestRecords, setHarvestRecords] = useState([]);
@@ -144,8 +185,11 @@ export function QaTraceabilityWorkspace() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchHarvestRecords = async () => {
-    const effectiveFarmId = activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId || 1;
-    if (!effectiveFarmId) return;
+    const effectiveFarmId = activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId;
+    if (!effectiveFarmId) {
+      setHarvestRecords([]);
+      return;
+    }
     try {
       setIsLoadingHarvests(true);
       const res = await qaService.getHarvestRecords(effectiveFarmId, { size: 100 });
@@ -160,15 +204,17 @@ export function QaTraceabilityWorkspace() {
   };
 
   const handleStartPackingFromHarvest = (hr) => {
+    const nextCode = generateNextBatchCode(batches);
     const defaultName = hr.cropTypeName || (hr.seasonCode ? `Nông sản vụ ${hr.seasonCode}` : (hr.groupCode ? `Sản phẩm đàn ${hr.groupCode}` : 'Nông sản VietGAP'));
     setCreateBatchForm({
-      batchCode: `BATCH-${Date.now().toString().slice(-6)}`,
+      batchCode: nextCode,
       productName: defaultName,
       initialQuantity: String(hr.quantity || ''),
-      unit: hr.unit || 'KG',
+      unit: hr.unit || (hr.livestockGroupId ? 'CON' : 'KG'),
       qualityGrade: (hr.qualityGrade && ['GRADE_A', 'GRADE_B', 'EXPORT', 'STANDARD'].includes(hr.qualityGrade)) ? hr.qualityGrade : 'GRADE_A',
       harvestDate: hr.harvestDate || new Date().toISOString().split('T')[0],
       expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      packagingPhotoUrl: '',
       sourceHarvestRecordIds: [hr.id],
     });
     setIsCreateBatchOpen(true);
@@ -215,9 +261,9 @@ export function QaTraceabilityWorkspace() {
 
   const handleCreateBatch = async (e) => {
     e.preventDefault();
-    const targetFarmId = activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId || 1;
+    const targetFarmId = activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId;
     if (!targetFarmId) {
-      toast.error('Vui lòng chọn trang trại cụ thể trên thanh điều hướng trước khi tạo lô thành phẩm!');
+      toast.error('Vui lòng chọn trang trại cụ thể trên thanh điều hướng hoặc tạo trang trại trước khi tạo lô thành phẩm!');
       return;
     }
     try {
@@ -230,6 +276,7 @@ export function QaTraceabilityWorkspace() {
         qualityGrade: createBatchForm.qualityGrade,
         harvestDate: createBatchForm.harvestDate,
         expiryDate: createBatchForm.expiryDate,
+        packagingPhotoUrl: createBatchForm.packagingPhotoUrl?.trim() || undefined,
         sourceHarvestRecordIds: createBatchForm.sourceHarvestRecordIds && createBatchForm.sourceHarvestRecordIds.length > 0
           ? createBatchForm.sourceHarvestRecordIds
           : undefined,
@@ -314,7 +361,7 @@ export function QaTraceabilityWorkspace() {
       toast.error('Vui lòng chọn lô thành phẩm cần kiểm định!');
       return;
     }
-    const emptyRow = inspectionForm.items.find(
+    const emptyRow = (inspectionForm.items || []).find(
       (it) => !it.criterionName?.trim() || it.measuredValue === undefined || it.measuredValue === ''
     );
     if (emptyRow) {
@@ -325,7 +372,12 @@ export function QaTraceabilityWorkspace() {
     const selectedBatchTarget = batches.find((b) => String(b.id) === String(inspectionForm.productBatchId));
     const targetFarmId =
       selectedBatchTarget?.farmId ||
-      (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId || 1);
+      (activeFarmId && activeFarmId !== 'ALL' ? Number(activeFarmId) : batches[0]?.farmId);
+
+    if (!targetFarmId) {
+      toast.error('Vui lòng chọn trang trại cụ thể trên thanh điều hướng trước khi lập biên bản QC!');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -449,15 +501,15 @@ export function QaTraceabilityWorkspace() {
           <div className="font-mono text-xs space-y-0.5">
             <div className="text-slate-600">
               <span className="text-slate-400 text-[10px]">Đầu vụ: </span>
-              <strong>{formatWeight(initial)} {item.unit}</strong>
+              <strong>{formatWeight(initial, item.unit)}</strong>
             </div>
             <div className="text-blue-700 font-semibold">
               <span className="text-slate-400 text-[10px]">Đã bán: </span>
-              {formatWeight(sold)} {item.unit}
+              {formatWeight(sold, item.unit)}
             </div>
             <div className="text-emerald-700 font-bold">
               <span className="text-slate-400 text-[10px]">Còn tồn: </span>
-              {formatWeight(remaining)} {item.unit}
+              {formatWeight(remaining, item.unit)}
             </div>
           </div>
         );
@@ -592,7 +644,7 @@ export function QaTraceabilityWorkspace() {
               variant="primary"
               size="sm"
               icon={<Plus className="h-4 w-4" />}
-              onClick={() => setIsCreateBatchOpen(true)}
+              onClick={handleOpenCreateBatch}
             >
               + Tạo Lô Thành Phẩm Đóng Gói
             </Button>
@@ -655,23 +707,174 @@ export function QaTraceabilityWorkspace() {
         </div>
       )}
 
-      {/* 3. Banner Thông Điệp Phân Quyền dành cho Farm Manager */}
-      {manager && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 text-xs text-blue-900 flex items-start gap-3">
-          <ShieldCheck className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <div className="font-bold text-blue-950 uppercase tracking-wider text-[11px]">
-              Quyền Hạn Phê Duyệt Xuất Xưởng & Thu Hồi Khẩn Cấp Của Giám Đốc Trại
+      {/* 3. BẢNG HƯỚNG DẪN QUY TRÌNH 3 BƯỚC QUẢN TRỊ CHẤT LƯỢNG (UX RÕ RÀNG, DỄ HÌNH DUNG) */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800">
+              <Sparkles className="h-4 w-4" />
             </div>
-            <p className="text-blue-800 leading-relaxed">
-              Bạn chịu trách nhiệm thẩm định biên bản KCS do Kỹ thuật viên gửi lên và trực tiếp bấm <strong>Phê Duyệt Lô Thành Phẩm</strong> để cấp mã QR bất biến hoặc <strong>Từ Chối Lô Hàng</strong>. Khi phát hiện sự cố, bạn có quyền phát lệnh <strong>Thu Hồi Khẩn Cấp</strong> ngay lập tức.
-              <span className="block mt-0.5 font-semibold text-blue-950">
-                Lưu ý Maker-Checker: Người trực tiếp lấy mẫu kiểm tra không được tự phê duyệt lô hàng của chính mình!
-              </span>
-            </p>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                Quy Trình 3 Bước: Quản Trị Chất Lượng & Phê Duyệt Xuất Xưởng (KCS & QR)
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Chu trình kiểm soát từ lúc thu hoạch hiện trường đến khi dán tem mã QR xuất bán ra thị trường.
+              </p>
+            </div>
+          </div>
+          <span className="rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold px-2.5 py-0.5 border border-slate-200">
+            Mục tiêu: Đạt chuẩn VietGAP / GlobalGAP
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+          {/* BƯỚC 1 */}
+          <div className={`rounded-xl border p-3.5 transition-all flex flex-col justify-between ${
+            pendingHarvests.length > 0
+              ? 'border-amber-300 bg-amber-50/80 shadow-xs ring-1 ring-amber-300'
+              : 'border-slate-200 bg-slate-50/60'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-amber-900 bg-amber-200/90 px-2 py-0.5 rounded-full">
+                  Bước 1 • Đóng Gói
+                </span>
+                {pendingHarvests.length > 0 ? (
+                  <span className="text-[10px] font-extrabold text-amber-800 flex items-center gap-1 animate-pulse">
+                    <span className="h-2 w-2 rounded-full bg-amber-600 animate-ping" />
+                    Cần đóng gói ({pendingHarvests.length})
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold text-slate-400">0 đợt chờ</span>
+                )}
+              </div>
+              <h4 className="text-xs font-black text-slate-900 mt-2">
+                1. Tiếp Nhận & Đóng Gói Lô
+              </h4>
+              <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                Nông sản thu hoạch từ vườn/chuồng đưa về kho sơ chế, cân đếm và gộp thành mã lô đóng gói <strong>LOT-...</strong>
+              </p>
+            </div>
+            {pendingHarvests.length > 0 && (
+              <Button
+                type="button"
+                variant="primary"
+                size="xs"
+                className="mt-3 w-full bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shadow-xs"
+                icon={<Package className="h-3.5 w-3.5" />}
+                onClick={() => handleStartPackingFromHarvest(pendingHarvests[0])}
+              >
+                👉 Tiếp Nhận & Đóng Gói Ngay ({pendingHarvests.length})
+              </Button>
+            )}
+          </div>
+
+          {/* BƯỚC 2 */}
+          <div className={`rounded-xl border p-3.5 transition-all flex flex-col justify-between ${
+            batches.some((b) => b.status === 'PENDING_APPROVAL' && (!b.inspections || b.inspections.length === 0))
+              ? 'border-blue-300 bg-blue-50/80 shadow-xs ring-1 ring-blue-300'
+              : 'border-slate-200 bg-slate-50/60'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-blue-900 bg-blue-200/90 px-2 py-0.5 rounded-full">
+                  Bước 2 • KCS Kiểm Định
+                </span>
+                <span className="text-[10px] font-bold text-blue-800">
+                  Kỹ Sư Hiện Trường
+                </span>
+              </div>
+              <h4 className="text-xs font-black text-slate-900 mt-2">
+                2. Lấy Mẫu Thử Nghiệm KCS
+              </h4>
+              <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                Kỹ thuật viên kiểm tra 3 chỉ tiêu: Dư lượng thuốc BVTV/kháng sinh, vi sinh vật và độ tươi/ngoại quan $\rightarrow$ lập biên bản KCS.
+              </p>
+            </div>
+            <Can permission="PERM_QC_INSPECT" role={['ROLE_TECHNICAL_STAFF', 'ROLE_FARM_MANAGER']}>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="mt-3 w-full text-blue-700 border-blue-300 hover:bg-blue-100 font-bold text-xs"
+                icon={<FlaskConical className="h-3.5 w-3.5" />}
+                onClick={() => {
+                  const pendingB = batches.find((b) => b.status === 'PENDING_APPROVAL') || batches[0];
+                  setInspectionForm((prev) => ({
+                    ...prev,
+                    productBatchId: pendingB ? String(pendingB.id) : '',
+                    inspectionCode: `QC-${Date.now().toString().slice(-6)}`,
+                    inspectionDate: new Date().toISOString().split('T')[0],
+                    overallResult: 'PASSED',
+                    notes: 'Đã kiểm tra mẫu ngẫu nhiên đạt tiêu chuẩn xuất xưởng VietGAP',
+                    items: JSON.parse(JSON.stringify(DEFAULT_VIETGAP_CRITERIA)),
+                  }));
+                  setIsCreateInspectionOpen(true);
+                }}
+              >
+                🧪 Lập Phiếu Kiểm Định KCS
+              </Button>
+            </Can>
+          </div>
+
+          {/* BƯỚC 3 */}
+          <div className={`rounded-xl border p-3.5 transition-all flex flex-col justify-between ${
+            batches.some((b) => b.status === 'PENDING_APPROVAL')
+              ? 'border-emerald-300 bg-emerald-50/80 shadow-xs ring-1 ring-emerald-300'
+              : 'border-slate-200 bg-slate-50/60'
+          }`}>
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-emerald-900 bg-emerald-200/90 px-2 py-0.5 rounded-full">
+                  Bước 3 • Phê Duyệt & QR
+                </span>
+                {batches.filter((b) => b.status === 'PENDING_APPROVAL').length > 0 ? (
+                  <span className="text-[10px] font-extrabold text-emerald-800 flex items-center gap-1 animate-pulse">
+                    <span className="h-2 w-2 rounded-full bg-emerald-600 animate-ping" />
+                    Chờ duyệt ({batches.filter((b) => b.status === 'PENDING_APPROVAL').length})
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold text-emerald-700">✓ Đã duyệt hết</span>
+                )}
+              </div>
+              <h4 className="text-xs font-black text-slate-900 mt-2">
+                3. Duyệt Xuất Xưởng & In Tem QR
+              </h4>
+              <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                Giám đốc trại thẩm định và bấm duyệt $\rightarrow$ Hệ thống tự sinh mã QR bất biến để in tem nhãn nhiệt dán thùng xuất bán.
+              </p>
+            </div>
+            {batches.some((b) => b.status === 'PENDING_APPROVAL') ? (
+              <Button
+                type="button"
+                variant="primary"
+                size="xs"
+                className="mt-3 w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-xs"
+                icon={<Award className="h-3.5 w-3.5" />}
+                onClick={() => {
+                  const target = batches.find((b) => b.status === 'PENDING_APPROVAL');
+                  if (target) handleOpenDrawer(target);
+                }}
+              >
+                🔍 Xem & Phê Duyệt Lô Ngay
+              </Button>
+            ) : (
+              <div className="mt-3 text-[11px] text-emerald-700 font-semibold bg-emerald-100/60 rounded-lg py-1.5 px-2 text-center border border-emerald-200">
+                ✓ Không có lô nào đang chờ phê duyệt
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        {/* Ghi chú Maker-Checker */}
+        <div className="flex items-center gap-2 text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+          <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+          <span>
+            <strong>Nguyên tắc Maker-Checker:</strong> Kỹ thuật viên lấy mẫu test không được tự duyệt phê duyệt lô của chính mình. Phê duyệt phải do Giám đốc trại thực hiện.
+          </span>
+        </div>
+      </div>
 
       {/* 4. Tab Trạng Thái Cốt Lõi (Dành riêng cho Owner) */}
       {owner ? (
@@ -764,19 +967,7 @@ export function QaTraceabilityWorkspace() {
                     variant="primary"
                     size="xs"
                     icon={<Plus className="h-3.5 w-3.5" />}
-                    onClick={() => {
-                      setCreateBatchForm({
-                        batchCode: `BATCH-${Date.now().toString().slice(-6)}`,
-                        productName: '',
-                        initialQuantity: '',
-                        unit: 'KG',
-                        qualityGrade: 'GRADE_A',
-                        harvestDate: new Date().toISOString().split('T')[0],
-                        expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                        sourceHarvestRecordIds: [],
-                      });
-                      setIsCreateBatchOpen(true);
-                    }}
+                    onClick={handleOpenCreateBatch}
                     className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-2xs"
                   >
                     + Đóng Gói Lô Mới
@@ -814,7 +1005,7 @@ export function QaTraceabilityWorkspace() {
                             {formatDate(hr.harvestDate)}
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
-                            {formatWeight(hr.quantity)} {hr.unit}
+                            {formatWeight(hr.quantity, hr.unit)}
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
@@ -980,7 +1171,7 @@ export function QaTraceabilityWorkspace() {
                         )}
 
                         <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-0.5">
-                          <span>SL: {formatWeight(batch.remainingQuantity)}</span>
+                          <span>SL: {formatWeight(batch.remainingQuantity, batch.unit)}</span>
                           <span>{formatDate(batch.harvestDate)}</span>
                         </div>
                       </div>
@@ -1037,30 +1228,31 @@ export function QaTraceabilityWorkspace() {
       <Modal
         isOpen={isCreateBatchOpen}
         onClose={() => setIsCreateBatchOpen(false)}
-        title="Tạo Lô Thành Phẩm Đóng Gói Nhập Kho"
-        subtitle="Tiếp nhận nông sản từ biên bản thu hoạch, đóng gói định lượng và phát thông báo kiểm định KCS"
+        title="Tạo Lô Thành Phẩm (Nông Sản, Trứng, Sữa & Đàn Xuất Chuồng)"
+        subtitle="Tiếp nhận nông sản/trứng/sữa hoặc cấp mã Lô KCS cho đàn vật nuôi đủ chuẩn xuất chuồng"
         size="lg"
       >
         <form onSubmit={handleCreateBatch} className="space-y-4 text-xs">
-          {/* Danh sách Checkbox chọn Biên bản thu hoạch nguồn (sourceHarvestRecordIds) */}
+          {/* Danh sách Checkbox chọn Biên bản thu hoạch / xuất chuồng nguồn (sourceHarvestRecordIds) */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
                 <Layers className="h-3.5 w-3.5 text-blue-600" />
-                <span>Chọn Biên Bản Thu Hoạch Nguồn ({createBatchForm.sourceHarvestRecordIds?.length || 0} đã chọn)</span>
+                <span>Chọn Biên Bản Thu Hoạch / Xuất Chuồng ({createBatchForm.sourceHarvestRecordIds?.length || 0} đã chọn)</span>
               </span>
               <span className="text-[10px] text-slate-500 font-medium">Tự động cộng dồn sản lượng vào Lô</span>
             </div>
 
             {harvestRecords.length === 0 ? (
               <div className="text-[11px] text-slate-400 italic py-1">
-                Không tìm thấy biên bản thu hoạch nào của trang trại.
+                Không tìm thấy biên bản thu hoạch / xuất chuồng nào của trang trại.
               </div>
             ) : (
               <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-200/60">
                 {harvestRecords.map((hr) => {
                   const isChecked = createBatchForm.sourceHarvestRecordIds?.includes(hr.id);
                   const isPackaged = Boolean(hr.productBatchId || hr.productBatchCode);
+                  const isLive = hr.unit === 'CON' || hr.livestockGroupId;
                   return (
                     <label
                       key={hr.id}
@@ -1080,13 +1272,14 @@ export function QaTraceabilityWorkspace() {
                         <div>
                           <span className="font-mono font-bold">{hr.harvestCode}</span>
                           <span className="text-slate-500 ml-1.5">
-                            ({hr.cropTypeName || (hr.seasonCode ? `Vụ: ${hr.seasonCode}` : (hr.groupCode ? `Đàn: ${hr.groupCode}` : 'Thu hoạch'))} • {formatDate(hr.harvestDate)})
+                            ({isLive ? '🐾 ' : '🌱 '}
+                            {hr.cropTypeName || (hr.seasonCode ? `Vụ: ${hr.seasonCode}` : (hr.groupCode ? `Đàn: ${hr.groupCode}` : 'Xuất'))} • {formatDate(hr.harvestDate)})
                           </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-slate-900">
-                          {formatWeight(hr.quantity)} {hr.unit}
+                          {formatWeight(hr.quantity, hr.unit)}
                         </span>
                         {isPackaged && (
                           <span className="text-[10px] text-slate-400 bg-slate-200/80 px-1.5 py-0.5 rounded">
@@ -1102,18 +1295,23 @@ export function QaTraceabilityWorkspace() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="Mã Lô Thành Phẩm" required>
-              <Input
-                value={createBatchForm.batchCode}
-                onChange={(e) => setCreateBatchForm({ ...createBatchForm, batchCode: e.target.value })}
-                required
-              />
+            <FormField label="Mã Lô Thành Phẩm (Tự động cấp)" required hint="Hệ thống tự động tăng tuần tự theo năm tài chính">
+              <div className="relative">
+                <Input
+                  value={createBatchForm.batchCode}
+                  readOnly
+                  className="bg-slate-100 font-mono font-bold text-slate-800 cursor-not-allowed border-slate-300 pr-20"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300 select-none">
+                  Chỉ đọc
+                </span>
+              </div>
             </FormField>
 
-            <FormField label="Tên Sản Phẩm Đóng Gói" required>
+            <FormField label="Tên Sản Phẩm / Đàn Xuất Chuồng" required>
               <Input
                 value={createBatchForm.productName}
-                placeholder="VD: Cà chua Cherry VietGAP, Gạo ST25..."
+                placeholder="VD: Bò Thịt Vỗ Béo BBB, Cà chua Cherry VietGAP, Sữa bò tươi..."
                 onChange={(e) => setCreateBatchForm({ ...createBatchForm, productName: e.target.value })}
                 required
               />
@@ -1139,6 +1337,9 @@ export function QaTraceabilityWorkspace() {
                 onChange={(e) => setCreateBatchForm({ ...createBatchForm, unit: e.target.value })}
               >
                 <option value="KG">Kilogram (KG)</option>
+                <option value="CON">Con / Đầu con (CON - Vật nuôi sống)</option>
+                <option value="LIT">Lít (LIT - Sữa tươi nguyên liệu)</option>
+                <option value="QUA">Quả / Trứng (QUA - Trứng gia cầm)</option>
                 <option value="BOX">Thùng (BOX)</option>
                 <option value="BAG">Bao (BAG)</option>
                 <option value="BUNCH">Bó (BUNCH)</option>
@@ -1177,6 +1378,13 @@ export function QaTraceabilityWorkspace() {
             </FormField>
           </div>
 
+          <ImageUploadField
+            value={createBatchForm.packagingPhotoUrl || ''}
+            onChange={(url) => setCreateBatchForm({ ...createBatchForm, packagingPhotoUrl: url })}
+            label="Ảnh Chụp Kiện/Thùng Hàng Hoặc Đàn Xuất Chuồng Thực Tế (Tùy chọn)"
+            hint="Tải ảnh trực tiếp từ máy tính/điện thoại (JPG, PNG) hoặc dán URL ảnh thực tế."
+          />
+
           <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-[11px] flex items-start gap-2">
             <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
             <span>
@@ -1214,7 +1422,7 @@ export function QaTraceabilityWorkspace() {
                 .filter((b) => b.status === 'PENDING_APPROVAL')
                 .map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.batchCode} - {b.productName} ({formatWeight(b.remainingQuantity)}) • Trại: {b.farmName || b.farmId}
+                    {b.batchCode} - {b.productName} ({formatWeight(b.remainingQuantity, b.unit)}) • Trại: {b.farmName || b.farmId}
                   </option>
                 ))}
             </Select>
@@ -1267,7 +1475,7 @@ export function QaTraceabilityWorkspace() {
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
                 <FlaskConical className="h-4 w-4 text-emerald-600" />
-                <span>Bảng Chỉ Tiêu Kiểm Nghiệm Mẫu ({inspectionForm.items.length})</span>
+                <span>Bảng Chỉ Tiêu Kiểm Nghiệm Mẫu ({(inspectionForm.items || []).length})</span>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -1307,7 +1515,7 @@ export function QaTraceabilityWorkspace() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {inspectionForm.items.map((item, idx) => (
+                  {(inspectionForm.items || []).map((item, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2 px-2.5 font-mono text-slate-400 font-bold">{idx + 1}</td>
                       <td className="py-1.5 px-2.5">
@@ -1385,11 +1593,11 @@ export function QaTraceabilityWorkspace() {
           </div>
 
           {/* Banner gợi ý tự động kết luận tổng thể */}
-          {inspectionForm.items.every((it) => it.isPassed) ? (
+          {(inspectionForm.items || []).length > 0 && inspectionForm.items.every((it) => it.isPassed) ? (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 flex items-center gap-2.5 text-emerald-900 text-xs">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
               <div>
-                <strong>Tất cả {inspectionForm.items.length} chỉ tiêu đều ĐẠT CHUẨN!</strong>
+                <strong>Tất cả {inspectionForm.items?.length || 0} chỉ tiêu đều ĐẠT CHUẨN!</strong>
                 <p className="text-[11px] text-emerald-800">
                   Hệ thống tự động đề xuất kết luận <strong>ĐẠT (PASSED)</strong> để Giám đốc trại phê duyệt xuất xưởng.
                 </p>
@@ -1418,17 +1626,12 @@ export function QaTraceabilityWorkspace() {
             </Select>
           </FormField>
 
-          <FormField label="Ảnh Minh Chứng / Phiếu Xét Nghiệm Phòng Lab (photosJson)">
-            <div className="relative">
-              <Camera className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-              <Input
-                value={inspectionForm.photoUrl}
-                placeholder="https://... hoặc URL ảnh chụp phiếu kiểm nghiệm test nhanh"
-                onChange={(e) => setInspectionForm({ ...inspectionForm, photoUrl: e.target.value })}
-                className="pl-9"
-              />
-            </div>
-          </FormField>
+          <ImageUploadField
+            value={inspectionForm.photoUrl || ''}
+            onChange={(url) => setInspectionForm({ ...inspectionForm, photoUrl: url })}
+            label="Ảnh Minh Chứng / Phiếu Xét Nghiệm Phòng Lab (Tùy chọn)"
+            hint="Tải ảnh trực tiếp từ thiết bị hoặc dán URL ảnh phiếu xét nghiệm kiểm định chất lượng."
+          />
 
           <FormField label="Ghi Chú Kết Luận Của Kỹ Sư KCS">
             <Input

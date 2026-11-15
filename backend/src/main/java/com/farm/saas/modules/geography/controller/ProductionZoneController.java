@@ -24,13 +24,13 @@ public class ProductionZoneController {
     private final ProductionZoneService productionZoneService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_FARM_VIEW', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<List<ProductionZoneResponse>> getZones(@PathVariable Long farmId) {
         return ResponseEntity.ok(productionZoneService.getZones(farmId));
     }
 
     @GetMapping("/{zoneId}")
-    @PreAuthorize("hasAuthority('PERM_FARM_VIEW') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_FARM_VIEW', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<ProductionZoneResponse> getZoneById(
             @PathVariable Long farmId,
             @PathVariable Long zoneId) {
@@ -38,7 +38,7 @@ public class ProductionZoneController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_ZONE_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_ZONE_MANAGE', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<ProductionZoneResponse> createZone(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateProductionZoneRequest request) {
@@ -46,7 +46,7 @@ public class ProductionZoneController {
     }
 
     @PutMapping("/{zoneId}")
-    @PreAuthorize("hasAuthority('PERM_ZONE_MANAGE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_ZONE_MANAGE', 'ROLE_FARM_OWNER', 'ROLE_SUPER_ADMIN')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<ProductionZoneResponse> updateZone(
             @PathVariable Long farmId,
             @PathVariable Long zoneId,

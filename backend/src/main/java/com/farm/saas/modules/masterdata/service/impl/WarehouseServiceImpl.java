@@ -12,6 +12,8 @@ import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.inventory.repository.WarehouseInventoryRepository;
 import com.farm.saas.modules.inventory.repository.WarehouseIssueRepository;
 import com.farm.saas.modules.inventory.repository.WarehouseReceiptRepository;
+import com.farm.saas.modules.geography.entity.ProductionZone;
+import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
 import com.farm.saas.modules.masterdata.dto.request.CreateWarehouseRequest;
 import com.farm.saas.modules.masterdata.dto.request.UpdateWarehouseRequest;
 import com.farm.saas.modules.masterdata.dto.response.WarehouseResponse;
@@ -40,6 +42,7 @@ public class WarehouseServiceImpl implements WarehouseService {
 
     private final WarehouseRepository warehouseRepository;
     private final FarmRepository farmRepository;
+    private final ProductionZoneRepository productionZoneRepository;
     private final UserRepository userRepository;
     private final WarehouseInventoryRepository warehouseInventoryRepository;
     private final WarehouseReceiptRepository warehouseReceiptRepository;
@@ -101,9 +104,15 @@ public class WarehouseServiceImpl implements WarehouseService {
             }
         }
 
+        if (request.getZoneId() != null) {
+            productionZoneRepository.findByFarmIdAndId(farmId, request.getZoneId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Phân khu", request.getZoneId()));
+        }
+
         Warehouse warehouse = Warehouse.builder()
                 .tenantId(farm.getTenantId())
                 .farmId(farmId)
+                .zoneId(request.getZoneId())
                 .code(code)
                 .name(request.getName().trim())
                 .warehouseType(type)
@@ -157,6 +166,11 @@ public class WarehouseServiceImpl implements WarehouseService {
         }
 
         warehouse.setName(request.getName().trim());
+        if (request.getZoneId() != null) {
+            productionZoneRepository.findByFarmIdAndId(farmId, request.getZoneId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Phân khu", request.getZoneId()));
+            warehouse.setZoneId(request.getZoneId());
+        }
         if (request.getCapacityM3() != null) warehouse.setCapacityM3(request.getCapacityM3());
         if (request.getFloorAreaM2() != null) warehouse.setFloorAreaM2(request.getFloorAreaM2());
         if (request.getStandardTempC() != null) warehouse.setStandardTempC(request.getStandardTempC());
@@ -242,6 +256,13 @@ public class WarehouseServiceImpl implements WarehouseService {
             }
         }
 
+        String zoneName = null;
+        if (w.getZoneId() != null) {
+            zoneName = productionZoneRepository.findById(w.getZoneId())
+                    .map(ProductionZone::getName)
+                    .orElse(null);
+        }
+
         Long lotsCount = 0L;
         try {
             Long c = jdbcTemplate.queryForObject(
@@ -256,6 +277,8 @@ public class WarehouseServiceImpl implements WarehouseService {
                 .tenantId(w.getTenantId())
                 .farmId(w.getFarmId())
                 .farmName(farmName)
+                .zoneId(w.getZoneId())
+                .zoneName(zoneName)
                 .code(w.getCode())
                 .name(w.getName())
                 .warehouseType(w.getWarehouseType())

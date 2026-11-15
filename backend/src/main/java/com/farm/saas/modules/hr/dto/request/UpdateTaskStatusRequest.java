@@ -15,6 +15,7 @@ public class UpdateTaskStatusRequest {
     @Pattern(regexp = "TODO|IN_PROGRESS|PENDING_REVIEW|DONE|CANCELLED", message = "status phải là TODO, IN_PROGRESS, PENDING_REVIEW, DONE hoặc CANCELLED")
     private String status;
 
+    private java.math.BigDecimal actualQuantity;
     private String completionNotes;
     private String photosJson;
 }

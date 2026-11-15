@@ -1,3 +1,5 @@
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+
 /**
  * Bộ Sinh Mã Tự Động Định Danh Nghiệp Vụ Chuẩn Agri-ERP (codeGenerator.js)
  * Tuân thủ 100% Mục 1 File 03-master-validation-constraints.md
@@ -105,30 +107,171 @@ export function getYearMonthCode(date = new Date()) {
 }
 
 /**
- * Sinh mã ngẫu nhiên 4 chữ số (1000 -> 9999)
+ * Lấy mã định danh tự động tăng dần theo thứ tự: [TIỀN_TỐ]-[XXX] (hoặc [TIỀN_TỐ]-[XXXX] nếu >= 1000)
+ * Ví dụ: FRM-001, FRM-002, ZON-001, WHS-001, SKU-001, EMP-001, SSN-001, GRP-001, BAT-001, SO-001, DO-001, EXP-001, PAY-001...
+ * @param {string} prefix Tiền tố thực thể (vd: 'FRM', 'EMP', 'SO')
+ * @param {Array|number|null} existingListOrCount Danh sách các bản ghi hiện có hoặc số lượng hiện có
+ * @returns {string} Mã định danh chuẩn tăng dần
  */
-export function generateRandomSeq(digits = 4) {
-  const min = Math.pow(10, digits - 1);
-  const max = Math.pow(10, digits) - 1;
-  return String(Math.floor(min + Math.random() * (max - min + 1)));
+export function getNextSequentialCode(prefix, existingListOrCount = null) {
+  if (!prefix) return '';
+  const cleanPrefix = prefix.replace(/-+$/, '').toUpperCase();
+
+  // 1. Tự động liên kết danh sách từ store nếu prefix là FRM mà caller không truyền list
+  if (existingListOrCount === null || existingListOrCount === undefined) {
+    if (cleanPrefix === 'FRM') {
+      try {
+        const storeFarms = useActiveFarmStore.getState()?.farms;
+        if (Array.isArray(storeFarms)) {
+          existingListOrCount = storeFarms;
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  let maxNum = 0;
+
+  // 2. Quét tìm số thứ tự lớn nhất trong danh sách hiện có (Single Source of Truth)
+  if (Array.isArray(existingListOrCount)) {
+    existingListOrCount.forEach((item) => {
+      const codeStr = (
+        typeof item === 'string'
+          ? item
+          : (item?.code ||
+             item?.shiftCode ||
+             item?.skuCode ||
+             item?.sku ||
+             item?.orderCode ||
+             item?.deliveryCode ||
+             item?.expenseCode ||
+             item?.receiptCode ||
+             item?.issueCode ||
+             item?.paymentCode ||
+             item?.groupCode ||
+             item?.seasonCode ||
+             item?.varietyCode ||
+             item?.employeeCode ||
+             item?.batchCode ||
+             item?.codeNumber || '')
+      ) + '';
+
+      if (codeStr.toUpperCase().startsWith(cleanPrefix)) {
+        const match = codeStr.match(/(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) {
+            maxNum = num;
+          }
+        }
+      }
+    });
+
+    if (maxNum === 0 && existingListOrCount.length > 0) {
+      maxNum = existingListOrCount.length;
+    }
+
+    // TUYỆT ĐỐI không ghi đè vào localStorage khi chỉ mới render preview.
+    // Nếu danh sách là mảng rỗng (0 items) -> maxNum = 0 -> nextSeq = 1 (FRM-001)
+    const nextSeq = maxNum + 1;
+    const padDigits = nextSeq >= 1000 ? 4 : 3;
+    return `${cleanPrefix}-${String(nextSeq).padStart(padDigits, '0')}`;
+  } else if (typeof existingListOrCount === 'number' && existingListOrCount >= 0) {
+    maxNum = existingListOrCount;
+    const nextSeq = maxNum + 1;
+    const padDigits = nextSeq >= 1000 ? 4 : 3;
+    return `${cleanPrefix}-${String(nextSeq).padStart(padDigits, '0')}`;
+  }
+
+  // 3. Nếu không có danh sách nào được truyền hoặc tìm thấy:
+  // Đọc số thứ tự từ localStorage (nếu có), TUYỆT ĐỐI KHÔNG TỰ ĐỘNG TĂNG SỐ VÀ LƯU VÀO LOCALSTORAGE
+  const storageKey = `seq_${cleanPrefix}`;
+  try {
+    const storedSeq = parseInt(localStorage.getItem(storageKey) || '0', 10);
+    if (!isNaN(storedSeq) && storedSeq > maxNum) {
+      maxNum = storedSeq;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  const nextSeq = maxNum + 1;
+  const padDigits = nextSeq >= 1000 ? 4 : 3;
+  return `${cleanPrefix}-${String(nextSeq).padStart(padDigits, '0')}`;
 }
 
 /**
- * Hàm sinh mã tổng quát theo định dạng chuẩn: [TIỀN_TỐ]-[YYMM]-[XXXX]
- * @param {string} prefix Tiền tố thực thể (vd: 'FRM', 'EMP', 'RC', hoặc 'FRM-')
- * @param {number|string} seq Số thứ tự tùy chọn (nếu không truyền sẽ sinh ngẫu nhiên 4 số)
- * @param {Date} date Ngày áp dụng (mặc định hiện tại)
- * @returns {string} Mã định danh chuẩn SQL
+ * Đặt lại bộ đếm chuỗi mã trong localStorage (dùng khi xóa database hoặc reset)
  */
-export function generateEntityCode(prefix, seq = null, date = new Date()) {
+export function resetSequentialCodes() {
+  try {
+    const keys = Object.keys(localStorage);
+    keys.forEach((k) => {
+      if (k.startsWith('seq_')) {
+        localStorage.removeItem(k);
+      }
+    });
+  } catch (e) {
+    // ignore
+  }
+}
+
+// Tự động dọn dẹp các key seq_ cũ tồn đọng trong localStorage khi nạp module
+if (typeof window !== 'undefined') {
+  try {
+    resetSequentialCodes();
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Cập nhật số thứ tự mã sau khi một bản ghi ĐÃ ĐƯỢC TẠO THÀNH CÔNG trên server
+ */
+export function commitSequentialCode(prefix, codeOrNum) {
+  if (!prefix) return;
+  const cleanPrefix = prefix.replace(/-+$/, '').toUpperCase();
+  let num = 0;
+  if (typeof codeOrNum === 'number') {
+    num = codeOrNum;
+  } else if (typeof codeOrNum === 'string') {
+    const match = codeOrNum.match(/(\d+)$/);
+    if (match) num = parseInt(match[1], 10);
+  }
+  if (num > 0) {
+    try {
+      localStorage.setItem(`seq_${cleanPrefix}`, String(num));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Hàm sinh mã tổng quát theo định dạng chuẩn: [TIỀN_TỐ]-[XXX] (Tăng dần theo thứ tự)
+ * Hỗ trợ truyền mảng danh sách hiện có ở đối số 2 để tính toán thuần túy (idempotent)
+ * @param {string} prefix Tiền tố thực thể (vd: 'FRM', 'EMP', 'RC', hoặc 'FRM-')
+ * @param {Array|number|string|null} seqOrList Mảng danh sách hiện có hoặc số thứ tự cụ thể
+ * @param {Array|null} existingList Mảng danh sách hiện có (nếu đối số 2 là số)
+ * @returns {string} Mã định danh chuẩn tăng dần
+ */
+export function generateEntityCode(prefix, seqOrList = null, existingList = null) {
   if (!prefix) return '';
   const cleanPrefix = prefix.replace(/-+$/, '').toUpperCase();
-  const yymm = getYearMonthCode(date);
-  const sequenceStr = seq !== null && seq !== undefined
-    ? String(seq).padStart(4, '0')
-    : generateRandomSeq(4);
 
-  return `${cleanPrefix}-${yymm}-${sequenceStr}`;
+  // Nếu đối số 2 là mảng danh sách
+  if (Array.isArray(seqOrList)) {
+    return getNextSequentialCode(cleanPrefix, seqOrList);
+  }
+
+  if (seqOrList !== null && seqOrList !== undefined && !isNaN(Number(seqOrList))) {
+    const num = Number(seqOrList);
+    const padDigits = num >= 1000 ? 4 : 3;
+    return `${cleanPrefix}-${String(num).padStart(padDigits, '0')}`;
+  }
+
+  return getNextSequentialCode(cleanPrefix, existingList);
 }
 
 /**
@@ -149,13 +292,126 @@ export function isMasterDataPrefix(prefixOrCode) {
   return MASTER_DATA_PREFIXES.includes(rawPrefix);
 }
 
+/**
+ * Lấy chuỗi định dạng YYMMDD từ ngày chỉ định (hoặc hôm nay)
+ * Ví dụ: 09/11/2026 -> "261109"
+ */
+export function getYearMonthDayCode(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return getYearMonthDayCode(new Date());
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yy}${mm}${dd}`;
+}
+
+/**
+ * Sinh mã số lô (Batch/Lot number) tự động và tuần tự:
+ * Định dạng chuẩn: LOT-YYMMDD-01, LOT-YYMMDD-02, LOT-YYMMDD-03...
+ * Tự động quét số lớn nhất từ các nguồn:
+ * 1. Các lô từ server/DB (existingBatches)
+ * 2. Các dòng hiện có trong form hiện tại (currentItems)
+ * 3. Bộ nhớ tạm tuần tự localStorage (seq_lot_YYMMDD)
+ * 
+ * @param {Date|string} date Ngày nhập/tạo lô (mặc định hôm nay)
+ * @param {Array} existingBatches Danh sách các lô hiện có từ DB/server
+ * @param {Array} currentItems Danh sách các dòng vật tư hiện tại trong form
+ * @returns {string} Mã số lô tuần tự tiếp theo (vd: LOT-261109-01)
+ */
+export function generateLotCode(date = new Date(), existingBatches = [], currentItems = []) {
+  const dateStr = getYearMonthDayCode(date);
+  const prefix = `LOT-${dateStr}-`;
+
+  let maxSeq = 0;
+
+  // 1. Quét tìm số thứ tự lớn nhất trong danh sách các lô từ server/DB
+  if (Array.isArray(existingBatches)) {
+    existingBatches.forEach((batch) => {
+      const bStr = (
+        typeof batch === 'string'
+          ? batch
+          : (batch?.batchNumber || batch?.code || batch?.batchCode || '')
+      ) + '';
+      if (bStr.toUpperCase().startsWith(prefix)) {
+        const numPart = bStr.substring(prefix.length);
+        const match = numPart.match(/^(\d+)/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxSeq) {
+            maxSeq = num;
+          }
+        }
+      }
+    });
+  }
+
+  // 2. Quét tìm số thứ tự trong các dòng hiện tại của form
+  if (Array.isArray(currentItems)) {
+    currentItems.forEach((it) => {
+      const bStr = (it?.batchNumber || '') + '';
+      if (bStr.toUpperCase().startsWith(prefix)) {
+        const numPart = bStr.substring(prefix.length);
+        const match = numPart.match(/^(\d+)/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxSeq) {
+            maxSeq = num;
+          }
+        }
+      }
+    });
+  }
+
+  // 3. Đọc từ bộ nhớ tạm localStorage (nếu có lưu vết từ các lần tạo trước đó trong ngày)
+  const storageKey = `seq_lot_${dateStr}`;
+  try {
+    const storedSeq = parseInt(localStorage.getItem(storageKey) || '0', 10);
+    if (!isNaN(storedSeq) && storedSeq > maxSeq) {
+      maxSeq = storedSeq;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  const nextSeq = maxSeq + 1;
+  const padDigits = Math.max(2, String(nextSeq).length);
+  return `${prefix}${String(nextSeq).padStart(padDigits, '0')}`;
+}
+
+/**
+ * Cập nhật số thứ tự số lô sau khi lưu thành công phiếu nhập kho
+ */
+export function commitLotCode(batchNumber) {
+  if (!batchNumber || typeof batchNumber !== 'string') return;
+  const match = batchNumber.toUpperCase().match(/^LOT-(\d{6})-(\d+)$/);
+  if (match) {
+    const dateStr = match[1];
+    const num = parseInt(match[2], 10);
+    if (!isNaN(num) && num > 0) {
+      const storageKey = `seq_lot_${dateStr}`;
+      try {
+        const storedSeq = parseInt(localStorage.getItem(storageKey) || '0', 10);
+        if (num > storedSeq) {
+          localStorage.setItem(storageKey, String(num));
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+}
+
 export default {
   CODE_PREFIXES,
   TRANSACTION_PREFIXES,
   MASTER_DATA_PREFIXES,
   getYearMonthCode,
-  generateRandomSeq,
+  getYearMonthDayCode,
+  getNextSequentialCode,
+  resetSequentialCodes,
   generateEntityCode,
+  generateLotCode,
+  commitLotCode,
   isTransactionPrefix,
   isMasterDataPrefix,
 };

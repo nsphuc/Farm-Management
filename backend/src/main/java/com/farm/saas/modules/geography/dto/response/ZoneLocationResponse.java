@@ -19,11 +19,14 @@ public class ZoneLocationResponse {
     private Long farmId;
     private Long zoneId;
     private String zoneName;
+    private Long warehouseId;
+    private String warehouseName;
     private String code;
     private String name;
     private String description;
     private String status;
     private BigDecimal areaM2;
     private Integer capacity;
+    private String capacityUnit;
     private Instant createdAt;
 }

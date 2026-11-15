@@ -127,5 +127,59 @@ describe('Zone Manager Role Unit & Flow Tests (TASK 1 / 2)', () => {
     expect(store.isFieldWorker()).toBe(true);
     expect(store.getOperationalRole()).toBe('FIELD_WORKER');
   });
+
+  it('4. getManagedZoneIds trả về đúng danh sách phân khu phụ trách cho ZONE_MANAGER và trả về null cho Quản lý toàn trại', () => {
+    // Trường hợp 1: Zone Manager được phân công quản lý zoneId = 2 tại farmId = 3
+    useAuthStore.setState({
+      userInfo: {
+        id: 55,
+        username: 'zm_user',
+        roles: [{ code: 'ROLE_FIELD_STAFF', name: 'Nhân viên hiện trường' }],
+        farmAssignments: [
+          {
+            id: 201,
+            farmId: 3,
+            zoneId: 2,
+            roleInFarm: 'ZONE_MANAGER',
+            isActive: true,
+          },
+        ],
+        accessibleFarms: [{ farmId: 3, assignedRole: 'ZONE_MANAGER' }],
+        operationalRole: 'ZONE_MANAGER',
+      },
+    });
+
+    let store = useAuthStore.getState();
+    expect(store.getManagedZoneIds(3)).toEqual([2]);
+    expect(store.getManagedZoneIds(99)).toEqual([]); // Trại khác không phụ trách
+
+    // Trường hợp 2: Farm Owner (Chủ trang trại) -> Toàn quyền (trả về null)
+    useAuthStore.setState({
+      userInfo: {
+        id: 1,
+        username: 'owner_user',
+        roles: [{ code: 'ROLE_FARM_OWNER', scopeLevel: 'TENANT' }],
+        isOwner: true,
+        scopeLevel: 'TENANT',
+      },
+    });
+
+    store = useAuthStore.getState();
+    expect(store.getManagedZoneIds(3)).toBeNull();
+
+    // Trường hợp 3: Farm Manager (Giám đốc trang trại 3) -> Toàn quyền trại 3 (trả về null)
+    useAuthStore.setState({
+      userInfo: {
+        id: 2,
+        username: 'manager_user',
+        roles: [{ code: 'ROLE_FARM_MANAGER' }],
+        operationalRole: 'FARM_MANAGER',
+        accessibleFarms: [{ farmId: 3, isManager: true, assignedRole: 'FARM_MANAGER' }],
+      },
+    });
+
+    store = useAuthStore.getState();
+    expect(store.getManagedZoneIds(3)).toBeNull();
+  });
 });
 

@@ -28,7 +28,7 @@ public class UpdateEmployeeRequest {
     @Pattern(regexp = "^$|^(0|\\+84)(3[2-9]|5[2689]|7[06-9]|8[1-9]|9[0-9])[0-9]{7}$", message = "Số điện thoại di động Việt Nam không hợp lệ")
     private String phone;
 
-    @Email(message = "Địa chỉ email không đúng định dạng")
+    @Pattern(regexp = "^$|^[A-Za-z0-9._%+-]+@gmail\\.com$", flags = Pattern.Flag.CASE_INSENSITIVE, message = "Email phải có định dạng @gmail.com")
     private String email;
 
     @Pattern(regexp = "^$|^([0-9]{9}|[0-9]{12})$", message = "Số CMND phải gồm 9 số hoặc CCCD gồm 12 chữ số")

@@ -35,6 +35,7 @@ public class FarmExpenseDetailResponse {
     private String recipientName;
     private String receiptPhotoUrl;
     private String notes;
+    private String itemSummary;
     private String status;
     private BigDecimal totalAllocatedAmount;
     private List<CostAllocationDto> allocations;

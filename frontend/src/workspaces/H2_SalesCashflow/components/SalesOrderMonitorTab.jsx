@@ -382,6 +382,10 @@ export function SalesOrderMonitorTab({ farmId }) {
           onClose={() => setSelectedOrderForQR(null)}
           amount={selectedOrderForQR.debtAmount || selectedOrderForQR.finalAmount || 0}
           orderCode={selectedOrderForQR.orderCode || 'SO-001'}
+          bankBin={selectedOrderForQR.bankBin}
+          bankName={selectedOrderForQR.bankName}
+          accountNo={selectedOrderForQR.bankAccountNo}
+          accountName={selectedOrderForQR.bankAccountName}
         />
       )}
     </div>

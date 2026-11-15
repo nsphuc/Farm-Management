@@ -59,10 +59,10 @@ public class TimeAttendance {
     @Column(name = "check_out_distance_m", precision = 8, scale = 2)
     private BigDecimal checkOutDistanceM;
 
-    @Column(name = "check_in_photo_url", length = 500)
+    @Column(name = "check_in_photo_url", columnDefinition = "TEXT")
     private String checkInPhotoUrl;
 
-    @Column(name = "check_out_photo_url", length = 500)
+    @Column(name = "check_out_photo_url", columnDefinition = "TEXT")
     private String checkOutPhotoUrl;
 
     @Column(name = "working_hours", nullable = false, precision = 5, scale = 2)

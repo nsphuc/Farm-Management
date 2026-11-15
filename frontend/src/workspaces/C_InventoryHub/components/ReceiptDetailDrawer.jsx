@@ -28,6 +28,7 @@ export function ReceiptDetailDrawer({ isOpen, onClose, receipt, farmId, onSucces
   const [cancelError, setCancelError] = React.useState('');
   const syncTrigger = useActiveFarmStore((state) => state.syncTrigger);
 
+  // Đồng bộ ngay lập tức khi receipt prop thay đổi để tránh hiển thị stale data của phiếu trước
   React.useEffect(() => {
     setCurrentReceipt(receipt);
     setShowCancelForm(false);
@@ -38,17 +39,25 @@ export function ReceiptDetailDrawer({ isOpen, onClose, receipt, farmId, onSucces
   const activeReceipt = currentReceipt || receipt;
   const targetFarmId = farmId || activeReceipt?.farmId;
 
-  // GAP-SYNC-05: Lắng nghe syncTrigger để tự động làm mới phiếu đang mở
+  // Lấy dữ liệu chi tiết phiếu nhập với cờ isCurrent để triệt tiêu race condition (tránh chớp giật)
   React.useEffect(() => {
-    if (isOpen && activeReceipt?.id && targetFarmId) {
+    let isCurrent = true;
+    if (isOpen && receipt?.id && targetFarmId) {
       inventoryService
-        .getReceiptById(targetFarmId, activeReceipt.id)
+        .getReceiptById(targetFarmId, receipt.id)
         .then((res) => {
-          if (res) setCurrentReceipt(res);
+          if (isCurrent && res) {
+            setCurrentReceipt(res);
+          }
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.error('Fetch receipt detail error:', err);
+        });
     }
-  }, [isOpen, activeReceipt?.id, targetFarmId, syncTrigger?.inventory, syncTrigger?.all]);
+    return () => {
+      isCurrent = false;
+    };
+  }, [isOpen, receipt?.id, targetFarmId, syncTrigger?.inventory, syncTrigger?.all]);
 
   if (!receipt && !currentReceipt) return null;
 
@@ -59,6 +68,9 @@ export function ReceiptDetailDrawer({ isOpen, onClose, receipt, farmId, onSucces
       await inventoryService.completeReceipt(targetFarmId, activeReceipt.id);
       useActiveFarmStore.getState().notifyDataChanged?.('all');
       useActiveFarmStore.getState().notifyDataChanged?.('inventory');
+      useActiveFarmStore.getState().notifyDataChanged?.('finance');
+      useActiveFarmStore.getState().notifyDataChanged?.('geography');
+      useActiveFarmStore.getState().notifyDataChanged?.('partners');
       toast.success('Đã phê duyệt và hoàn tất nhập kho thành công!');
       setCurrentReceipt((prev) => ({ ...prev, status: 'COMPLETED' }));
       onSuccess?.();
@@ -114,20 +126,29 @@ export function ReceiptDetailDrawer({ isOpen, onClose, receipt, farmId, onSucces
     },
     {
       key: 'batchNumber',
-      header: 'Số Lô & Hạn Dùng',
-      width: '140px',
-      render: (row) => (
-        <div>
-          <span className="font-mono font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded text-[11px] border border-amber-200">
-            {row.batchNumber}
-          </span>
-          {row.expiryDate && (
-            <span className="text-[10px] text-slate-400 block mt-0.5">
-              HSD: {formatDate(row.expiryDate)}
+      header: 'Số Lô & Thời Hạn',
+      width: '170px',
+      render: (row) => {
+        const diffDays = row.expiryDate && activeReceipt.receiptDate
+          ? Math.round((new Date(row.expiryDate) - new Date(activeReceipt.receiptDate)) / (1000 * 60 * 60 * 24))
+          : null;
+        return (
+          <div className="space-y-1">
+            <span className="font-mono font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded text-[11px] border border-amber-200 inline-block">
+              {row.batchNumber}
             </span>
-          )}
-        </div>
-      ),
+            <div className="text-[10px] text-slate-500 font-medium space-y-0.5">
+              <div>Ngày nhập: <strong className="text-slate-700">{formatDate(activeReceipt.receiptDate) || '—'}</strong></div>
+              {row.expiryDate && (
+                <div>
+                  Hạn dùng: <strong className="text-emerald-700">{formatDate(row.expiryDate)}</strong>
+                  {diffDays ? <span className="text-slate-400 ml-1">({diffDays} ngày)</span> : ''}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      },
     },
     {
       key: 'quantity',
@@ -282,8 +303,8 @@ export function ReceiptDetailDrawer({ isOpen, onClose, receipt, farmId, onSucces
           </div>
         )}
 
-        {/* Header Tóm Tắt */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+        {/* Header Tóm Tắt 5 Thông Số Chính */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nhà Cung Cấp</span>
             <span className="font-bold text-slate-900 text-xs flex items-center gap-1">
@@ -297,6 +318,14 @@ export function ReceiptDetailDrawer({ isOpen, onClose, receipt, farmId, onSucces
             <span className="font-bold text-slate-900 text-xs flex items-center gap-1">
               <Warehouse className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
               <span className="truncate">{activeReceipt.warehouseName}</span>
+            </span>
+          </div>
+
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Ngày Nhập Kho</span>
+            <span className="font-bold text-slate-900 text-xs flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span>{formatDate(activeReceipt.receiptDate) || '—'}</span>
             </span>
           </div>
 

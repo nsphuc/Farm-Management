@@ -11,4 +11,6 @@ public interface LivestockIndividualRepository extends JpaRepository<LivestockIn
     java.util.Optional<LivestockIndividual> findByTenantIdAndRfidTagCode(Long tenantId, String rfidTagCode);
     boolean existsByTenantIdAndRfidTagCode(Long tenantId, String rfidTagCode);
     java.util.List<LivestockIndividual> findByGroupId(Long groupId);
+    int countByGroupId(Long groupId);
+    java.util.List<LivestockIndividual> findByTenantIdAndRfidTagCodeIn(Long tenantId, java.util.Collection<String> rfidTagCodes);
 }

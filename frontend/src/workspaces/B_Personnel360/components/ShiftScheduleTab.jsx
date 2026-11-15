@@ -22,6 +22,13 @@ import { toast } from '@/store/useToastStore';
 import { extractApiErrors } from '@/utils/apiHelpers';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
 
+function formatLocalDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /**
  * Lấy danh sách 7 ngày trong tuần từ một ngày mốc (Thứ 2 -> Chủ Nhật)
  */
@@ -31,16 +38,20 @@ function getDaysOfWeek(baseDate) {
   // Điều chỉnh để Thứ 2 là ngày đầu tuần (0 là Chủ nhật)
   const diff = date.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(date.setDate(diff));
+  monday.setHours(0, 0, 0, 0);
+
+  const todayStr = formatLocalDate(new Date());
 
   const days = [];
   for (let i = 0; i < 7; i++) {
     const nextDate = new Date(monday);
     nextDate.setDate(monday.getDate() + i);
+    const dateStr = formatLocalDate(nextDate);
     days.push({
-      dateStr: nextDate.toISOString().split('T')[0],
+      dateStr,
       dayName: ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ Nhật'][i],
       formattedDate: `${nextDate.getDate()}/${nextDate.getMonth() + 1}`,
-      isToday: nextDate.toISOString().split('T')[0] === new Date().toISOString().split('T')[0],
+      isToday: dateStr === todayStr,
     });
   }
   return days;

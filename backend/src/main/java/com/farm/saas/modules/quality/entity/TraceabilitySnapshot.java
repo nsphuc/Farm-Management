@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import lombok.*;
 
+/**
+ * Thực thể lưu trữ bản chụp truy xuất nguồn gốc bất biến (traceability_snapshots) gồm 5 khối JSON và mã băm SHA-256.
+ */
 @Getter
 @Setter
 @Builder

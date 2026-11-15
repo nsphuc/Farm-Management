@@ -130,7 +130,7 @@ export function FarmContextSwitcher() {
               Cố Định
             </span>
           </div>
-          <span className="truncate font-extrabold text-slate-900 text-xs sm:max-w-[320px]">
+          <span className="truncate font-extrabold text-slate-900 text-xs max-w-[120px] xs:max-w-[180px] sm:max-w-[260px] md:max-w-[320px]">
             📍 {farmDisplayName} - Giám Đốc Trại
           </span>
         </div>
@@ -162,7 +162,7 @@ export function FarmContextSwitcher() {
               Cố định
             </span>
           </div>
-          <span className="max-w-[180px] truncate font-bold text-slate-900 text-xs sm:max-w-[240px]">
+          <span className="max-w-[110px] xs:max-w-[160px] sm:max-w-[240px] truncate font-bold text-slate-900 text-xs">
             📍 {farmDisplayName}
           </span>
         </div>
@@ -211,14 +211,14 @@ export function FarmContextSwitcher() {
               </span>
             )}
           </div>
-          <span className="max-w-[160px] truncate font-bold text-slate-900 text-xs sm:max-w-[200px]">
+          <span className="max-w-[110px] xs:max-w-[160px] sm:max-w-[200px] truncate font-bold text-slate-900 text-xs">
             {currentFarm?.farmName || currentFarm?.name || 'Chọn trang trại'}
           </span>
         </div>
 
         <ChevronDown
           className={cn(
-            'h-4 w-4 text-slate-400 transition-transform duration-200',
+            'h-4 w-4 text-slate-400 transition-transform duration-200 shrink-0',
             isOpen && (isAllSelected ? 'rotate-180 text-amber-600' : 'rotate-180 text-emerald-600')
           )}
         />
@@ -226,7 +226,7 @@ export function FarmContextSwitcher() {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute left-0 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl ring-1 ring-black/5 z-50 animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute left-0 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white p-2 shadow-xl ring-1 ring-black/5 z-50 animate-in fade-in zoom-in-95 duration-150">
           <div className="px-2 py-1.5 border-b border-slate-100 mb-1 flex items-center justify-between">
             <span className="text-[11px] font-semibold text-slate-600">
               Danh sách được cấp quyền ({accessibleFarms.length})

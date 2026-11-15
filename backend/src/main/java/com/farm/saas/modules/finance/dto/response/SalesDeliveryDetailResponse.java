@@ -51,6 +51,7 @@ public class SalesDeliveryDetailResponse {
         private String batchCode;
         private String itemName;
         private BigDecimal quantity;
+        private String unit;
         private BigDecimal unitPrice;
         private BigDecimal totalPrice;
         private String notes;

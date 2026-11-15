@@ -13,6 +13,8 @@ import {
   ShieldCheck,
   User,
   Layers,
+  Truck,
+  Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select } from '@/components/ui/FormControls';
@@ -73,6 +75,22 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGeneratingRoutines, setIsGeneratingRoutines] = useState(false);
+
+  const handleGenerateRoutines = async () => {
+    if (!farmId) return;
+    try {
+      setIsGeneratingRoutines(true);
+      await hrService.generateDailyRoutines(farmId);
+      toast.success('Đã kích hoạt tạo danh sách việc làm thường nhật hôm nay cho công nhân thành công!');
+      loadTasks();
+    } catch (err) {
+      console.error('Lỗi sinh việc thường nhật:', err);
+      toast.error(err.response?.data?.message || err.message || 'Lỗi khi kích hoạt công việc hàng ngày');
+    } finally {
+      setIsGeneratingRoutines(false);
+    }
+  };
 
   // Nạp danh sách nhiệm vụ cố định theo Phân khu
   const loadTasks = async () => {
@@ -144,6 +162,7 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
 
       const payload = {
         zoneId: item.zoneId,
+        locationId: item.locationId ? Number(item.locationId) : null,
         taskTitle: formattedTitle,
         taskType: routineForm.taskType,
         priority: routineForm.priority,
@@ -204,6 +223,7 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
 
       const payload = {
         zoneId: item.zoneId,
+        locationId: item.locationId ? Number(item.locationId) : null,
         taskTitle: title,
         taskType: 'HARVESTING',
         priority: harvestForm.priority,
@@ -269,13 +289,28 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Nút Sinh Việc Hôm Nay */}
+          <Can permission={sector === 'CROP' ? 'PERM_CROP_PLAN' : 'PERM_LIVESTOCK_MANAGE'} role={['ROLE_TECHNICAL_STAFF', 'ROLE_FARM_MANAGER']}>
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<Zap className="h-3.5 w-3.5 text-amber-500" />}
+              onClick={handleGenerateRoutines}
+              isLoading={isGeneratingRoutines}
+              title="Kích hoạt tự động sinh các đầu việc thường nhật hôm nay cho công nhân"
+              className="border-amber-300 text-amber-800 hover:bg-amber-50 font-bold"
+            >
+              ⚡ Sinh Việc Hôm Nay
+            </Button>
+          </Can>
+
           {/* Nút Lên Lịch Thu Hoạch / Xuất Chuồng */}
           <Can permission={sector === 'CROP' ? 'PERM_CROP_PLAN' : 'PERM_LIVESTOCK_MANAGE'} role={['ROLE_TECHNICAL_STAFF', 'ROLE_FARM_MANAGER']}>
             <Button
               size="sm"
               variant="success"
-              icon={<Apple className="h-3.5 w-3.5" />}
+              icon={sector === 'CROP' ? <Apple className="h-3.5 w-3.5" /> : <Truck className="h-3.5 w-3.5" />}
               onClick={() => {
                 const isCrop = sector === 'CROP';
                 setHarvestForm({
@@ -365,8 +400,12 @@ export function RoutineTaskTemplateTab({ item, sector, farmId, onDataChanged }) 
 
                   <div className="mt-2.5 flex items-center gap-3 text-[11px] text-slate-500">
                     <span className="flex items-center gap-1 font-mono">
-                      <Clock className="h-3.5 w-3.5 text-slate-400" />
-                      <span>{task.deadline ? formatDate(task.deadline) : 'Hàng ngày'}</span>
+                      <Clock className="h-3.5 w-3.5 text-amber-500" />
+                      <span>
+                        {(task.startTime || task.endTime)
+                          ? `${task.startTime?.substring(0, 5) || '--:--'} - ${task.endTime?.substring(0, 5) || '--:--'}`
+                          : (task.shiftName || (task.deadline ? formatDate(task.deadline) : 'Hàng ngày'))}
+                      </span>
                     </span>
 
                     {task.assignedToEmployeeName && (

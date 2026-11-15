@@ -27,6 +27,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable } from '@/components/common/DataTable';
 import { Modal } from '@/components/ui/Modal';
 import { FormField, Input } from '@/components/ui/FormControls';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 import { Can } from '@/components/common/Can';
 import { financeService } from '@/services/modules/financeService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
@@ -513,26 +514,12 @@ export function SalesDeliveryMonitorTab({ farmId, onOpenCreateDelivery }) {
               <div>Địa chỉ giao: <strong className="text-slate-900">{selectedDeliveryForPod.shippingAddress || 'N/A'}</strong></div>
             </div>
 
-            <FormField label="URL Ảnh Biên Bản Giao Nhận Có Chữ Ký (POD) *" required>
-              <div className="space-y-2">
-                <Input
-                  value={podFormData.proofOfDeliveryUrl}
-                  onChange={(e) => setPodFormData({ ...podFormData, proofOfDeliveryUrl: e.target.value })}
-                  placeholder="https://cdn.greenfarm.vn/pod/signed-receipt.jpg"
-                  required
-                />
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-slate-500">Đính kèm ảnh chụp rõ chữ ký và dấu mộc của bên nhận</span>
-                  <button
-                    type="button"
-                    onClick={handleFillSamplePod}
-                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 underline"
-                  >
-                    Điền link ảnh mẫu nhanh
-                  </button>
-                </div>
-              </div>
-            </FormField>
+            <ImageUploadField
+              value={podFormData.proofOfDeliveryUrl || ''}
+              onChange={(url) => setPodFormData({ ...podFormData, proofOfDeliveryUrl: url })}
+              label="Ảnh Biên Bản Giao Nhận Có Chữ Ký (POD) *"
+              hint="Tải ảnh biên bản bàn giao từ máy tính hoặc dán link ảnh chứng từ."
+            />
 
             <FormField label="Tên Người Ký Nhận Hàng">
               <Input
@@ -655,7 +642,7 @@ export function SalesDeliveryMonitorTab({ farmId, onOpenCreateDelivery }) {
                         <td className="py-2 px-3 font-mono text-slate-400">{idx + 1}</td>
                         <td className="py-2 px-3 font-bold text-slate-800">{it.itemName || `Mặt hàng #${it.salesOrderItemId}`}</td>
                         <td className="py-2 px-3 font-mono text-blue-700 font-semibold">{it.batchCode || `Lô #${it.productBatchId}`}</td>
-                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{formatWeight(it.quantity)}</td>
+                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">{formatWeight(it.quantity, it.unit)}</td>
                         <td className="py-2 px-3 text-right font-mono text-slate-600">{formatCurrency(it.unitPrice)}</td>
                         <td className="py-2 px-3 text-right font-mono font-black text-emerald-700">{formatCurrency(it.totalPrice)}</td>
                       </tr>

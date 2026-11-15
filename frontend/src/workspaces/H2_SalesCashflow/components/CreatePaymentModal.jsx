@@ -14,6 +14,7 @@ import {
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select } from '@/components/ui/FormControls';
+import { ImageUploadField } from '@/components/common/ImageUploadField';
 import { financeService } from '@/services/modules/financeService';
 import { partnerService } from '@/services/modules/partnerService';
 import { useActiveFarmStore } from '@/store/useActiveFarmStore';
@@ -34,48 +35,61 @@ const PAYMENT_METHODS = [
   { value: 'DEBT_OFFSET', label: 'Cấn trừ bù trừ công nợ (DEBT_OFFSET)' },
 ];
 
-export function CreatePaymentModal({ isOpen, onClose, onSuccess, initialFarmId, preselectedPartnerId }) {
+export function CreatePaymentModal({ isOpen, onClose, onSuccess, initialFarmId, preselectedPartnerId, initialDebt }) {
   const { farms, activeFarmId } = useActiveFarmStore();
-  const currentFarmId = (initialFarmId && initialFarmId !== 'ALL') ? initialFarmId : (activeFarmId !== 'ALL' ? activeFarmId : '');
+  const currentFarmId = (initialDebt?.farmId) || ((initialFarmId && initialFarmId !== 'ALL') ? initialFarmId : (activeFarmId !== 'ALL' ? activeFarmId : ''));
+
+  const isPayable = initialDebt?.debtType === 'PAYABLE';
 
   const [formData, setFormData] = useState({
     farmId: currentFarmId ? String(currentFarmId) : (farms[0]?.id ? String(farms[0].id) : ''),
-    partnerId: preselectedPartnerId ? String(preselectedPartnerId) : '',
-    paymentType: 'RECEIPT',
-    paymentMethod: 'VIETQR',
-    amount: '',
+    partnerId: initialDebt?.partnerId ? String(initialDebt.partnerId) : (preselectedPartnerId ? String(preselectedPartnerId) : ''),
+    paymentType: isPayable ? 'PAYMENT' : 'RECEIPT',
+    paymentMethod: isPayable ? 'BANK_TRANSFER' : 'VIETQR',
+    amount: initialDebt?.remainingDebt ? String(initialDebt.remainingDebt) : '',
     paymentDate: new Date().toISOString().split('T')[0],
-    referenceCode: '',
-    qrTransferContent: '',
+    referenceCode: initialDebt?.orderCode || initialDebt?.receiptCode || '',
+    qrTransferContent: (!isPayable && initialDebt?.orderCode) ? `GF DALAT TT DON HANG ${initialDebt.orderCode}` : '',
     proofImageUrl: '',
-    notes: '',
+    notes: initialDebt
+      ? (isPayable ? `Chi trả nợ tiền vật tư cho ${initialDebt.partnerName || 'NCC'}` : `Thu tiền công nợ đơn hàng ${initialDebt.orderCode || initialDebt.id}`)
+      : '',
   });
 
   const [partners, setPartners] = useState([]);
   const [partnerDebts, setPartnerDebts] = useState([]);
-  const [selectedDebtId, setSelectedDebtId] = useState('');
+  const [selectedDebtId, setSelectedDebtId] = useState(initialDebt?.id ? String(initialDebt.id) : '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
     if (isOpen) {
-      const defFarm = currentFarmId ? String(currentFarmId) : (farms[0]?.id ? String(farms[0].id) : '');
+      const defFarm = initialDebt?.farmId ? String(initialDebt.farmId) : (currentFarmId ? String(currentFarmId) : (farms[0]?.id ? String(farms[0].id) : ''));
+      const defPartner = initialDebt?.partnerId ? String(initialDebt.partnerId) : (preselectedPartnerId ? String(preselectedPartnerId) : '');
+      const defType = initialDebt?.debtType === 'PAYABLE' ? 'PAYMENT' : 'RECEIPT';
+      const defMethod = defType === 'PAYMENT' ? 'BANK_TRANSFER' : 'VIETQR';
+      const defAmount = initialDebt?.remainingDebt ? String(initialDebt.remainingDebt) : '';
+      const defRef = initialDebt?.orderCode || initialDebt?.receiptCode || '';
+      const defQr = (defType === 'RECEIPT' && defRef) ? `GF DALAT TT DON HANG ${defRef}` : '';
+
       setFormData({
         farmId: defFarm,
-        partnerId: preselectedPartnerId ? String(preselectedPartnerId) : '',
-        paymentType: 'RECEIPT',
-        paymentMethod: 'VIETQR',
-        amount: '',
+        partnerId: defPartner,
+        paymentType: defType,
+        paymentMethod: defMethod,
+        amount: defAmount,
         paymentDate: new Date().toISOString().split('T')[0],
-        referenceCode: '',
-        qrTransferContent: '',
+        referenceCode: defRef,
+        qrTransferContent: defQr,
         proofImageUrl: '',
-        notes: '',
+        notes: initialDebt
+          ? (defType === 'PAYMENT' ? `Chi trả nợ tiền vật tư cho ${initialDebt.partnerName || 'NCC'}` : `Thu tiền công nợ đơn hàng ${defRef || initialDebt.id}`)
+          : '',
       });
-      setSelectedDebtId('');
+      setSelectedDebtId(initialDebt?.id ? String(initialDebt.id) : '');
       setErrors({});
     }
-  }, [isOpen]);
+  }, [isOpen, initialDebt, preselectedPartnerId, currentFarmId, farms]);
 
   // Load partners
   useEffect(() => {
@@ -102,18 +116,26 @@ export function CreatePaymentModal({ isOpen, onClose, onSuccess, initialFarmId, 
           farmId: Number(formData.farmId),
           partnerId: Number(formData.partnerId),
           debtType,
-          status: 'OPEN',
           size: 50,
         });
         const list = res?.content || (Array.isArray(res) ? res : []);
-        setPartnerDebts(list);
+        // Filter out fully paid or cancelled
+        const activeDebts = list.filter((d) => Number(d.remainingDebt || 0) > 0 && d.status !== 'PAID' && d.status !== 'CANCELLED');
+        setPartnerDebts(activeDebts);
+
+        if (initialDebt && String(initialDebt.partnerId) === String(formData.partnerId)) {
+          setSelectedDebtId(String(initialDebt.id));
+          if (!formData.amount) {
+            setFormData((prev) => ({ ...prev, amount: String(initialDebt.remainingDebt || '') }));
+          }
+        }
       } catch (err) {
         console.error('Failed to load partner debts:', err);
         setPartnerDebts([]);
       }
     };
     loadDebts();
-  }, [isOpen, formData.partnerId, formData.farmId, formData.paymentType]);
+  }, [isOpen, formData.partnerId, formData.farmId, formData.paymentType, initialDebt]);
 
   const handleDebtSelect = (debtIdVal) => {
     setSelectedDebtId(debtIdVal);
@@ -351,15 +373,12 @@ export function CreatePaymentModal({ isOpen, onClose, onSuccess, initialFarmId, 
           </FormField>
         </div>
 
-        <FormField label="URL Ảnh Biên Lai / Ủy Nhiệm Chi">
-          <Input
-            type="text"
-            placeholder="https://... ảnh chụp sao kê hoặc biên lai chuyển khoản"
-            value={formData.proofImageUrl}
-            onChange={(e) => setFormData((prev) => ({ ...prev, proofImageUrl: e.target.value }))}
-            className="w-full text-xs"
-          />
-        </FormField>
+        <ImageUploadField
+          label="Ảnh Biên Lai / Ủy Nhiệm Chi / Chứng Từ Chuyển Khoản"
+          value={formData.proofImageUrl}
+          onChange={(url) => setFormData((prev) => ({ ...prev, proofImageUrl: url }))}
+          placeholder="https://... hoặc tải ảnh chụp biên lai thanh toán từ thiết bị"
+        />
 
         <FormField label="Ghi Chú Giao Dịch">
           <textarea

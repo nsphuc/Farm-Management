@@ -37,7 +37,7 @@ public class DebtAndPaymentController {
             @RequestParam(required = false) Long partnerId,
             @RequestParam(required = false) String debtType,
             @RequestParam(required = false) String status,
-            @PageableDefault(sort = "dueDate", direction = Sort.Direction.ASC) Pageable pageable) {
+            @PageableDefault(sort = "id", direction = Sort.Direction.DESC, size = 50) Pageable pageable) {
         Long targetFarmId = (farmId != null && farmId > 0) ? farmId : filterFarmId;
         return ResponseEntity.ok(debtAndPaymentService.getDebts(targetFarmId, partnerId, debtType, status, pageable));
     }
@@ -49,6 +49,30 @@ public class DebtAndPaymentController {
             @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
         return ResponseEntity.ok(debtAndPaymentService.getDebtById(farmId, id));
+    }
+
+    @GetMapping("/payments")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @Operation(summary = "Danh sách giao dịch thanh toán thu/chi", description = "Truy vấn lịch sử các phiếu thu/chi, VietQR theo trang trại")
+    public ResponseEntity<Page<PaymentTransactionDetailResponse>> getPayments(
+            @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long filterFarmId,
+            @RequestParam(required = false) Long partnerId,
+            @RequestParam(required = false) String paymentType,
+            @RequestParam(required = false) String paymentMethod,
+            @RequestParam(required = false) String status,
+            @PageableDefault(sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
+        Long targetFarmId = (farmId != null && farmId > 0) ? farmId : filterFarmId;
+        return ResponseEntity.ok(debtAndPaymentService.getPayments(targetFarmId, partnerId, paymentType, paymentMethod, status, pageable));
+    }
+
+    @GetMapping("/payments/{id}")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @Operation(summary = "Chi tiết giao dịch thanh toán", description = "Xem chi tiết một phiếu thu/chi hoặc giao dịch VietQR")
+    public ResponseEntity<PaymentTransactionDetailResponse> getPaymentById(
+            @PathVariable(required = false) Long farmId,
+            @PathVariable Long id) {
+        return ResponseEntity.ok(debtAndPaymentService.getPaymentById(farmId, id));
     }
 
     @PostMapping("/payments")

@@ -20,6 +20,7 @@ public class UpdateWarehouseRequest {
     private String name;
 
     private String warehouseType;
+    private Long zoneId;
     private BigDecimal capacityM3;
     private BigDecimal floorAreaM2;
     private BigDecimal standardTempC;

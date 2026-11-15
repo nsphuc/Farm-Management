@@ -179,6 +179,12 @@ export const useActiveFarmStore = create((set, get) => ({
       }
     }
 
+    // 0. Nếu chưa đăng nhập hoặc đang có cờ mustChangePassword, TUYỆT ĐỐI không gọi fetchFarms để tránh 403 Forbidden!
+    const authState = useAuthStore.getState();
+    if (!authState.isAuthenticated || !authState.accessToken || authState.userInfo?.mustChangePassword) {
+      return;
+    }
+
     // Nếu entityKey là 'farms' hoặc 'all' thì tự động gọi lại fetchFarms() ngầm với force = true
     if (!entityKey || entityKey === 'farms' || entityKey === 'all') {
       return await get().fetchFarms(true);
@@ -197,6 +203,12 @@ export const useActiveFarmStore = create((set, get) => ({
    * Hỗ trợ In-flight Promise deduplication và xử lý êm ái Request aborted
    */
   fetchFarms: async (force = false) => {
+    // 0. Nếu chưa đăng nhập hoặc đang có cờ mustChangePassword, TUYỆT ĐỐI không gọi fetchFarms để tránh 403 Forbidden
+    const authState = useAuthStore.getState();
+    if (!authState.isAuthenticated || !authState.accessToken || authState.userInfo?.mustChangePassword) {
+      return [];
+    }
+
     // 1. Chống gọi trùng API: Nếu đang có request in-flight thì tái sử dụng Promise đó
     if (fetchFarmsInFlightPromise) {
       return fetchFarmsInFlightPromise;
@@ -258,13 +270,19 @@ export const useActiveFarmStore = create((set, get) => ({
         const isOwner = authStore?.isOwner ? authStore.isOwner() : false;
 
         if (isFm || (isLocked && !isOwner)) {
+          const userAccessibleFarmIds = (authStore?.userInfo?.accessibleFarms || []).map((f) =>
+            Number(f.farmId || f.id)
+          );
+
           const appointedFarm =
             farmList.find(
               (f) =>
                 f.isManager ||
                 f.assignedRole === 'FARM_MANAGER' ||
                 Number(f.managerUserId) === Number(authStore?.userInfo?.id)
-            ) || farmList[0];
+            ) ||
+            farmList.find((f) => userAccessibleFarmIds.includes(Number(f.id || f.farmId))) ||
+            farmList[0];
 
           if (appointedFarm) {
             const appointedId = Number(appointedFarm.id || appointedFarm.farmId);
@@ -611,12 +629,27 @@ if (typeof window !== 'undefined') {
     }
   });
 
-  // Tab Visibility & Focus Reactivity với debounce tối thiểu 5s
+  // Tab Visibility & Focus Reactivity với debounce tối thiểu 30s và bảo vệ form đang mở
   let lastFocusSyncTime = Date.now();
   const handleFocusOrVisibilityChange = () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+      const authState = useAuthStore.getState();
+      if (!authState.isAuthenticated || !authState.accessToken || authState.userInfo?.mustChangePassword) {
+        return;
+      }
+
+      // Nếu đang có Modal mở hoặc người dùng đang thao tác trong form, TUYỆT ĐỐI không re-fetch ngầm gây reset form
+      const isAnyModalOpen = Boolean(
+        document.querySelector('[role="dialog"]') ||
+        document.querySelector('.fixed.inset-0') ||
+        document.querySelector('.backdrop-blur-xs')
+      );
+      if (isAnyModalOpen) {
+        return;
+      }
+
       const now = Date.now();
-      if (now - lastFocusSyncTime >= 5000) {
+      if (now - lastFocusSyncTime >= 30000) {
         lastFocusSyncTime = now;
         useActiveFarmStore.getState().notifyDataChanged('all', { broadcast: false });
       }

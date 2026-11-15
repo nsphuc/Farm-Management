@@ -72,6 +72,7 @@ export function DailyRoutineTaskTab({
   tasks = [],
   zones = [],
   employees = [],
+  assignments = [],
   isTechnicalLead = false,
   isWarehouseKeeper = false,
   isZoneManager = false,
@@ -336,16 +337,66 @@ export function DailyRoutineTaskTab({
                   return (
                     <tr key={task.id} className="hover:bg-slate-50/70 transition-colors">
                       {/* Tiêu đề & Loại việc */}
-                      <td className="py-3.5 px-4 max-w-xs">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                      <td className="py-3.5 px-4 max-w-sm">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="rounded bg-emerald-100 text-emerald-800 text-[10px] font-black px-1.5 py-0.5">
                               CỐ ĐỊNH
                             </span>
-                            <span className="font-bold text-slate-900 text-xs truncate">
+                            <span className="font-bold text-slate-900 text-xs">
                               {cleanTitle}
                             </span>
+                            {(task.startTime || task.endTime) ? (
+                              <span className="rounded-full bg-amber-50 text-amber-800 border border-amber-300 text-[10px] font-bold px-2 py-0.5 flex items-center gap-1">
+                                <Clock className="h-3 w-3 text-amber-600" />
+                                <span>{task.startTime?.substring(0, 5) || '--:--'} - {task.endTime?.substring(0, 5) || '--:--'}</span>
+                                {task.shiftName && <span className="text-slate-500 font-normal">({task.shiftName})</span>}
+                              </span>
+                            ) : task.shiftName ? (
+                              <span className="rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-semibold px-2 py-0.2 flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                <span>{task.shiftName}</span>
+                              </span>
+                            ) : null}
                           </div>
+
+                          {/* Chi tiết Vật tư & Lặp lại */}
+                          <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                            {task.recurrenceDays && task.recurrenceDays !== 'ALL' ? (
+                              <span className="text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                                📅 {task.recurrenceDays}
+                              </span>
+                            ) : (
+                              <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-medium">
+                                📅 Mỗi ngày
+                              </span>
+                            )}
+
+                            {task.materialName && (
+                              <span className="text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
+                                <Boxes className="h-3 w-3 text-amber-600" />
+                                <span>
+                                  {task.standardQuantity ? `${task.standardQuantity} ` : ''}
+                                  {task.materialUnit ? `${task.materialUnit} ` : ''}
+                                  {task.materialName}
+                                  {task.warehouseName ? ` (${task.warehouseName})` : ''}
+                                </span>
+                              </span>
+                            )}
+
+                            {task.cropSeasonName && (
+                              <span className="text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium">
+                                🌱 Vụ: {task.cropSeasonName}
+                              </span>
+                            )}
+
+                            {task.livestockGroupName && (
+                              <span className="text-purple-800 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-medium">
+                                🐄 Đàn: {task.livestockGroupName}
+                              </span>
+                            )}
+                          </div>
+
                           {task.completionNotes && (
                             <p className="text-[11px] text-slate-500 truncate max-w-md">
                               {task.completionNotes}
@@ -359,7 +410,12 @@ export function DailyRoutineTaskTab({
                         {task.zoneName ? (
                           <span className="inline-flex items-center gap-1 font-medium text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md text-[11px]">
                             <MapPin className="h-3 w-3 text-slate-400" />
-                            {task.zoneName}
+                            <span>
+                              {task.zoneName}
+                              {task.locationName && (
+                                <strong className="text-emerald-700"> • {task.locationName}</strong>
+                              )}
+                            </span>
                           </span>
                         ) : (
                           <span className="text-slate-400 text-[11px]">Toàn trang trại</span>
@@ -368,10 +424,16 @@ export function DailyRoutineTaskTab({
 
                       {/* Danh sách người thực hiện: Phân biệt Role 6A vs Role 6B */}
                       <td className="py-3.5 px-4">
+                        {task.assignmentMode === 'DYNAMIC_BY_SHIFT' && (
+                          <div className="mb-1.5 inline-flex items-center gap-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold px-1.5 py-0.5">
+                            <Zap className="h-3 w-3 text-emerald-600 fill-emerald-600" />
+                            <span>Tự động theo Ca trực hôm đó</span>
+                          </div>
+                        )}
                         {assignees.length === 0 ? (
                           <span className="text-amber-600 font-medium text-[11px] flex items-center gap-1">
                             <AlertCircle className="h-3 w-3" />
-                            Chưa phân công ai
+                            {task.assignmentMode === 'DYNAMIC_BY_SHIFT' ? 'Lấy theo ca trực' : 'Chưa phân công ai'}
                           </span>
                         ) : (
                           <div className="flex flex-wrap gap-1.5 max-w-sm">
@@ -471,6 +533,7 @@ export function DailyRoutineTaskTab({
         farmId={farmId}
         zones={zones}
         employees={employees}
+        assignments={assignments}
         initialData={editingTask}
       />
     </div>
