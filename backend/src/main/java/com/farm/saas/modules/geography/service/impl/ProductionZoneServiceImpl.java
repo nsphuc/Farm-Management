@@ -63,7 +63,13 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
     @Transactional(readOnly = true)
     public List<ProductionZoneResponse> getZones(Long farmId) {
         Farm farm = getFarmOrThrow(farmId);
-        List<ProductionZone> zones = productionZoneRepository.findByFarmId(farmId);
+        Long currentBranchId = SecurityUtils.getCurrentBranchId();
+        List<ProductionZone> zones;
+        if (currentBranchId != null) {
+            zones = productionZoneRepository.findByFarmIdAndBranchId(farmId, currentBranchId);
+        } else {
+            zones = productionZoneRepository.findByFarmId(farmId);
+        }
         return zones.stream()
                 .filter(z -> !"DELETED".equalsIgnoreCase(z.getStatus()))
                 .map(z -> toZoneResponse(z, farm.getName()))
@@ -127,9 +133,15 @@ public class ProductionZoneServiceImpl implements ProductionZoneService {
             }
         }
 
+        Long branchId = request.getBranchId();
+        if (branchId == null) {
+            branchId = SecurityUtils.getCurrentBranchId();
+        }
+
         ProductionZone zone = ProductionZone.builder()
                 .tenantId(farm.getTenantId())
                 .farmId(farmId)
+                .branchId(branchId)
                 .code(request.getCode().trim().toUpperCase())
                 .name(request.getName().trim())
                 .zoneType(type)

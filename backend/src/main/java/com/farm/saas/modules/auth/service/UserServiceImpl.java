@@ -29,8 +29,8 @@ import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.geography.repository.UserFarmAccessRepository;
 import com.farm.saas.modules.platform.entity.TenantSubscription;
 import com.farm.saas.modules.platform.repository.TenantSubscriptionRepository;
-import com.farm.saas.modules.hr.repository.EmployeeRepository;
-import com.farm.saas.modules.hr.entity.Employee;
+import com.farm.saas.modules.workforce.repository.EmployeeRepository;
+import com.farm.saas.modules.workforce.entity.Employee;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -69,6 +69,7 @@ public class UserServiceImpl implements UserService {
     private final ApplicationEventPublisher eventPublisher;
     private final com.farm.saas.common.security.FarmSecurityEvaluator farmSecurity;
     private final EmailService emailService;
+    private final com.farm.saas.modules.auth.repository.FarmMemberRepository farmMemberRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -299,7 +300,7 @@ public class UserServiceImpl implements UserService {
             });
         }
 
-        Set<String> allowedTier4Roles = Set.of("ROLE_TECHNICAL_STAFF", "ROLE_WAREHOUSE_STAFF", "ROLE_ACCOUNTANT", "ROLE_FIELD_STAFF");
+        Set<String> allowedTier4Roles = Set.of("ROLE_TECHNICAL_STAFF", "ROLE_ACCOUNTANT", "ROLE_FIELD_STAFF");
 
         for (Role role : selectedRoles) {
             if ("ROLE_SUPER_ADMIN".equalsIgnoreCase(role.getCode()) && !Boolean.TRUE.equals(user.getIsSuperAdmin())) {
@@ -411,6 +412,8 @@ public class UserServiceImpl implements UserService {
                     .code(role.getCode())
                     .name(role.getName())
                     .scopeLevel(role.getScopeLevel())
+                    .farmId(role.getFarmId())
+                    .isSystem(Boolean.TRUE.equals(role.getIsSystem()))
                     .description(role.getDescription())
                     .permissions(permDtos)
                     .build());
@@ -484,14 +487,11 @@ public class UserServiceImpl implements UserService {
                                     .build());
                         }
                     } else if ("ROLE_TECHNICAL_STAFF".equalsIgnoreCase(role.getCode())
-                            || "ROLE_WAREHOUSE_STAFF".equalsIgnoreCase(role.getCode())
                             || "ROLE_ACCOUNTANT".equalsIgnoreCase(role.getCode())
                             || "ROLE_FIELD_STAFF".equalsIgnoreCase(role.getCode())) {
                         String mappedRoleInFarm;
                         if ("ROLE_TECHNICAL_STAFF".equalsIgnoreCase(role.getCode())) {
                             mappedRoleInFarm = "TECHNICAL_LEAD";
-                        } else if ("ROLE_WAREHOUSE_STAFF".equalsIgnoreCase(role.getCode())) {
-                            mappedRoleInFarm = "WAREHOUSE_KEEPER";
                         } else if ("ROLE_ACCOUNTANT".equalsIgnoreCase(role.getCode())) {
                             mappedRoleInFarm = "ACCOUNTANT";
                         } else {
@@ -728,7 +728,6 @@ public class UserServiceImpl implements UserService {
         boolean hasOwnerRole = roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equals(r.getCode()));
         boolean hasAccountantRole = roles.stream().anyMatch(r -> "ROLE_ACCOUNTANT".equals(r.getCode()));
         boolean hasTechRole = roles.stream().anyMatch(r -> "ROLE_TECHNICAL_STAFF".equals(r.getCode()));
-        boolean hasWarehouseRole = roles.stream().anyMatch(r -> "ROLE_WAREHOUSE_STAFF".equals(r.getCode()));
         boolean hasFieldStaffRole = roles.stream().anyMatch(r -> "ROLE_FIELD_STAFF".equals(r.getCode()));
 
         List<FarmAssignment> activeAssignments = farmAssignmentRepository.findByUserIdAndIsActiveTrue(user.getId());
@@ -797,8 +796,6 @@ public class UserServiceImpl implements UserService {
                     assignedRole = "ACCOUNTANT";
                 } else if (hasTechRole) {
                     assignedRole = "TECHNICAL_LEAD";
-                } else if (hasWarehouseRole) {
-                    assignedRole = "WAREHOUSE_KEEPER";
                 } else if (hasFieldStaffRole) {
                     assignedRole = "FIELD_WORKER";
                 }
@@ -822,12 +819,10 @@ public class UserServiceImpl implements UserService {
             operationalRole = "OWNER";
         } else if (isDirectFarmManager || (hasOwnerRole && !isOwnerTenantScope)) {
             operationalRole = "FARM_MANAGER";
-        } else if (hasAccountantRole) {
+        } else if (hasAccountantRole || activeAssignments.stream().anyMatch(a -> Arrays.asList("FARM_ACCOUNTANT", "ACCOUNTANT", "WAREHOUSE_KEEPER").contains(a.getRoleInFarm()))) {
             operationalRole = "FARM_ACCOUNTANT";
         } else if (hasTechRole || activeAssignments.stream().anyMatch(a -> Arrays.asList("ZONE_MANAGER", "TECHNICAL_LEAD", "AGRONOMIST", "VETERINARIAN").contains(a.getRoleInFarm()))) {
             operationalRole = "TECHNICAL_LEAD";
-        } else if (hasWarehouseRole || activeAssignments.stream().anyMatch(a -> "WAREHOUSE_KEEPER".equalsIgnoreCase(a.getRoleInFarm()))) {
-            operationalRole = "WAREHOUSE_KEEPER";
         } else if (hasFieldStaffRole || activeAssignments.stream().anyMatch(a -> "FIELD_WORKER".equalsIgnoreCase(a.getRoleInFarm()))) {
             operationalRole = "FIELD_WORKER";
         }
@@ -859,5 +854,322 @@ public class UserServiceImpl implements UserService {
                 .operationalRole(operationalRole)
                 .createdAt(user.getCreatedAt())
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RoleMatrixResponse> getRolesForFarm(Long farmId) {
+        if (!farmSecurity.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Không có quyền truy cập trang trại này");
+        }
+        List<Role> roles = roleRepository.findAvailableRolesForFarm(farmId);
+        Map<Long, Long> roleUserCounts = new HashMap<>();
+        try {
+            List<com.farm.saas.modules.auth.dto.response.FarmMemberResponse> farmMembers = getFarmMembers(farmId);
+            for (com.farm.saas.modules.auth.dto.response.FarmMemberResponse fm : farmMembers) {
+                if (fm.getRoleId() != null) {
+                    roleUserCounts.merge(fm.getRoleId(), 1L, Long::sum);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        List<RoleMatrixResponse> responses = new ArrayList<>();
+        for (Role role : roles) {
+            List<RolePermission> rps = rolePermissionRepository.findByRoleId(role.getId());
+            List<Long> permIds = rps.stream().map(RolePermission::getPermissionId).toList();
+            List<Permission> permissions = permissionRepository.findAllById(permIds);
+            List<RoleMatrixResponse.PermissionDto> permDtos = permissions.stream()
+                    .map(p -> RoleMatrixResponse.PermissionDto.builder()
+                            .id(p.getId())
+                            .code(p.getCode())
+                            .name(p.getDescription() != null ? p.getDescription() : p.getCode())
+                            .module(p.getModule())
+                            .description(p.getDescription())
+                            .build())
+                    .toList();
+
+            responses.add(RoleMatrixResponse.builder()
+                    .id(role.getId())
+                    .code(role.getCode())
+                    .name(role.getName())
+                    .scopeLevel(role.getScopeLevel())
+                    .farmId(role.getFarmId())
+                    .isSystem(Boolean.TRUE.equals(role.getIsSystem()))
+                    .description(role.getDescription())
+                    .userCount(roleUserCounts.getOrDefault(role.getId(), 0L))
+                    .permissions(permDtos)
+                    .build());
+        }
+        return responses;
+    }
+
+    @Override
+    @Transactional
+    public RoleMatrixResponse createCustomRole(Long farmId, com.farm.saas.modules.auth.dto.request.CreateCustomRoleRequest request) {
+        if (!farmSecurity.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Không có quyền thao tác trên trang trại này");
+        }
+        String slug = request.getName().trim().toUpperCase().replaceAll("[^A-Z0-9_]+", "_");
+        String code = "ROLE_CUSTOM_" + farmId + "_" + (slug.length() > 15 ? slug.substring(0, 15) : slug) + "_" + (System.currentTimeMillis() % 10000);
+
+        Role role = Role.builder()
+                .code(code)
+                .name(request.getName().trim())
+                .scopeLevel("FARM")
+                .farmId(farmId)
+                .isSystem(false)
+                .description(request.getDescription())
+                .createdAt(Instant.now())
+                .createdBy(SecurityUtils.getCurrentUserId())
+                .build();
+        Role savedRole = roleRepository.save(role);
+
+        if (request.getPermissionIds() != null && !request.getPermissionIds().isEmpty()) {
+            List<RolePermission> rps = request.getPermissionIds().stream()
+                    .map(pId -> RolePermission.builder()
+                            .roleId(savedRole.getId())
+                            .permissionId(pId)
+                            .build())
+                    .toList();
+            rolePermissionRepository.saveAll(rps);
+        }
+
+        List<Permission> perms = permissionRepository.findAllById(request.getPermissionIds() != null ? request.getPermissionIds() : Collections.emptyList());
+        List<RoleMatrixResponse.PermissionDto> permDtos = perms.stream()
+                .map(p -> RoleMatrixResponse.PermissionDto.builder()
+                        .id(p.getId())
+                        .code(p.getCode())
+                        .name(p.getDescription() != null ? p.getDescription() : p.getCode())
+                        .module(p.getModule())
+                        .description(p.getDescription())
+                        .build())
+                .toList();
+
+        return RoleMatrixResponse.builder()
+                .id(savedRole.getId())
+                .code(savedRole.getCode())
+                .name(savedRole.getName())
+                .scopeLevel(savedRole.getScopeLevel())
+                .farmId(savedRole.getFarmId())
+                .isSystem(false)
+                .description(savedRole.getDescription())
+                .permissions(permDtos)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public RoleMatrixResponse updateCustomRole(Long farmId, Long roleId, com.farm.saas.modules.auth.dto.request.UpdateCustomRoleRequest request) {
+        if (!farmSecurity.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Không có quyền thao tác trên trang trại này");
+        }
+        Role role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ROLE_NOT_FOUND", "Không tìm thấy vai trò"));
+        if (Boolean.TRUE.equals(role.getIsSystem())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CANNOT_MODIFY_SYSTEM_ROLE", "Không thể chỉnh sửa vai trò mẫu mặc định của hệ thống");
+        }
+        if (role.getFarmId() == null || !role.getFarmId().equals(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Vai trò này không thuộc trang trại đang chọn");
+        }
+        role.setName(request.getName().trim());
+        role.setDescription(request.getDescription());
+        role.setUpdatedAt(Instant.now());
+        role.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        Role savedRole = roleRepository.save(role);
+
+        rolePermissionRepository.deleteByRoleId(role.getId());
+        if (request.getPermissionIds() != null && !request.getPermissionIds().isEmpty()) {
+            List<RolePermission> rps = request.getPermissionIds().stream()
+                    .map(pId -> RolePermission.builder()
+                            .roleId(savedRole.getId())
+                            .permissionId(pId)
+                            .build())
+                    .toList();
+            rolePermissionRepository.saveAll(rps);
+        }
+
+        List<Permission> perms = permissionRepository.findAllById(request.getPermissionIds() != null ? request.getPermissionIds() : Collections.emptyList());
+        List<RoleMatrixResponse.PermissionDto> permDtos = perms.stream()
+                .map(p -> RoleMatrixResponse.PermissionDto.builder()
+                        .id(p.getId())
+                        .code(p.getCode())
+                        .name(p.getDescription() != null ? p.getDescription() : p.getCode())
+                        .module(p.getModule())
+                        .description(p.getDescription())
+                        .build())
+                .toList();
+
+        return RoleMatrixResponse.builder()
+                .id(savedRole.getId())
+                .code(savedRole.getCode())
+                .name(savedRole.getName())
+                .scopeLevel(savedRole.getScopeLevel())
+                .farmId(savedRole.getFarmId())
+                .isSystem(false)
+                .description(savedRole.getDescription())
+                .permissions(permDtos)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void deleteCustomRole(Long farmId, Long roleId) {
+        if (!farmSecurity.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Không có quyền thao tác trên trang trại này");
+        }
+        Role role = roleRepository.findById(roleId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ROLE_NOT_FOUND", "Không tìm thấy vai trò"));
+        if (Boolean.TRUE.equals(role.getIsSystem())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CANNOT_DELETE_SYSTEM_ROLE", "Không thể xóa vai trò mặc định của hệ thống");
+        }
+        if (role.getFarmId() == null || !role.getFarmId().equals(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Vai trò này không thuộc trang trại đang chọn");
+        }
+        rolePermissionRepository.deleteByRoleId(roleId);
+        roleRepository.delete(role);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RoleMatrixResponse.PermissionDto> getAllPermissions() {
+        return permissionRepository.findAllByOrderByModuleAscCodeAsc().stream()
+                .map(p -> RoleMatrixResponse.PermissionDto.builder()
+                        .id(p.getId())
+                        .code(p.getCode())
+                        .name(p.getDescription() != null ? p.getDescription() : p.getCode())
+                        .module(p.getModule())
+                        .description(p.getDescription())
+                        .build())
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<com.farm.saas.modules.auth.dto.response.FarmMemberResponse> getFarmMembers(Long farmId) {
+        if (!farmSecurity.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Không có quyền truy cập trang trại này");
+        }
+        List<com.farm.saas.modules.auth.entity.FarmMember> members = farmMemberRepository.findByFarmId(farmId);
+        List<com.farm.saas.modules.auth.dto.response.FarmMemberResponse> responses = new ArrayList<>();
+        for (com.farm.saas.modules.auth.entity.FarmMember m : members) {
+            Optional<User> uOpt = userRepository.findById(m.getUserId());
+            Optional<Role> rOpt = roleRepository.findById(m.getRoleId());
+            List<Long> bIds = Collections.emptyList();
+            if (m.getBarnIds() != null && !m.getBarnIds().isBlank()) {
+                try {
+                    String raw = m.getBarnIds().trim();
+                    if (raw.startsWith("[") && raw.endsWith("]")) {
+                        raw = raw.substring(1, raw.length() - 1).trim();
+                        if (!raw.isEmpty()) {
+                            bIds = Arrays.stream(raw.split(","))
+                                    .map(String::trim)
+                                    .filter(s -> !s.isEmpty())
+                                    .map(Long::parseLong)
+                                    .toList();
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+            responses.add(com.farm.saas.modules.auth.dto.response.FarmMemberResponse.builder()
+                    .id(m.getId())
+                    .farmId(m.getFarmId())
+                    .userId(m.getUserId())
+                    .username(uOpt.map(User::getUsername).orElse(null))
+                    .fullName(uOpt.map(User::getFullName).orElse(null))
+                    .email(uOpt.map(User::getEmail).orElse(null))
+                    .phone(uOpt.map(User::getPhone).orElse(null))
+                    .roleId(m.getRoleId())
+                    .roleCode(rOpt.map(Role::getCode).orElse(null))
+                    .roleName(rOpt.map(Role::getName).orElse(null))
+                    .isSystemRole(rOpt.map(r -> Boolean.TRUE.equals(r.getIsSystem())).orElse(false))
+                    .branchId(m.getBranchId())
+                    .allBarns(m.getAllBarns() != null ? m.getAllBarns() : true)
+                    .barnIds(bIds)
+                    .createdAt(m.getCreatedAt())
+                    .updatedAt(m.getUpdatedAt())
+                    .build());
+        }
+        return responses;
+    }
+
+    @Override
+    @Transactional
+    public com.farm.saas.modules.auth.dto.response.FarmMemberResponse upsertFarmMember(Long farmId, com.farm.saas.modules.auth.dto.request.FarmMemberRequest request) {
+        if (!farmSecurity.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Không có quyền quản lý nhân sự trang trại này");
+        }
+        User targetUser = userRepository.findById(request.getUserId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "Không tìm thấy người dùng"));
+        Role targetRole = roleRepository.findById(request.getRoleId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "ROLE_NOT_FOUND", "Không tìm thấy vai trò"));
+
+        String barnIdsJson = "[]";
+        if (request.getBarnIds() != null && !request.getBarnIds().isEmpty()) {
+            barnIdsJson = request.getBarnIds().toString();
+        }
+
+        com.farm.saas.modules.auth.entity.FarmMember member = farmMemberRepository.findByFarmIdAndUserId(farmId, request.getUserId())
+                .orElseGet(() -> com.farm.saas.modules.auth.entity.FarmMember.builder()
+                        .tenantId(targetUser.getTenantId() != null ? targetUser.getTenantId() : 1L)
+                        .farmId(farmId)
+                        .userId(targetUser.getId())
+                        .build());
+
+        member.setRoleId(targetRole.getId());
+        if ("ROLE_FARM_OWNER".equalsIgnoreCase(targetRole.getCode())) {
+            member.setBranchId(null);
+        } else if (request.getBranchId() != null) {
+            member.setBranchId(request.getBranchId());
+        } else if (member.getBranchId() == null) {
+            member.setBranchId(1L);
+        }
+        member.setAllBarns(Boolean.TRUE.equals(request.getAllBarns()));
+        member.setBarnIds(barnIdsJson);
+        member.setUpdatedAt(Instant.now());
+        member.setUpdatedBy(SecurityUtils.getCurrentUserId());
+        com.farm.saas.modules.auth.entity.FarmMember saved = farmMemberRepository.save(member);
+
+        // Also ensure user_roles has this role assigned for the farm
+        boolean alreadyHasRole = userRoleRepository.existsByUserIdAndRoleIdAndFarmId(request.getUserId(), targetRole.getId(), farmId);
+        if (!alreadyHasRole) {
+            userRoleRepository.save(com.farm.saas.modules.auth.entity.UserRole.builder()
+                    .tenantId(targetUser.getTenantId() != null ? targetUser.getTenantId() : 1L)
+                    .userId(targetUser.getId())
+                    .roleId(targetRole.getId())
+                    .farmId(farmId)
+                    .assignedAt(Instant.now())
+                    .assignedBy(SecurityUtils.getCurrentUserId())
+                    .build());
+        }
+
+        return com.farm.saas.modules.auth.dto.response.FarmMemberResponse.builder()
+                .id(saved.getId())
+                .farmId(saved.getFarmId())
+                .userId(saved.getUserId())
+                .username(targetUser.getUsername())
+                .fullName(targetUser.getFullName())
+                .email(targetUser.getEmail())
+                .phone(targetUser.getPhone())
+                .roleId(targetRole.getId())
+                .roleCode(targetRole.getCode())
+                .roleName(targetRole.getName())
+                .isSystemRole(Boolean.TRUE.equals(targetRole.getIsSystem()))
+                .branchId(saved.getBranchId())
+                .allBarns(saved.getAllBarns())
+                .barnIds(request.getBarnIds())
+                .createdAt(saved.getCreatedAt())
+                .updatedAt(saved.getUpdatedAt())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void removeFarmMember(Long farmId, Long userId) {
+        if (!farmSecurity.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "Không có quyền quản lý nhân sự trang trại này");
+        }
+        farmMemberRepository.deleteByFarmIdAndUserId(farmId, userId);
+        userRoleRepository.deleteByUserIdAndFarmId(userId, farmId);
+        userFarmAccessRepository.deleteByUserIdAndFarmId(userId, farmId);
     }
 }

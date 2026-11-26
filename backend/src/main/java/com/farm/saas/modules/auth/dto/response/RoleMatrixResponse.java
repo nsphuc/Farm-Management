@@ -17,7 +17,10 @@ public class RoleMatrixResponse {
     private String code;
     private String name;
     private String scopeLevel;
+    private Long farmId;
+    private Boolean isSystem;
     private String description;
+    private Long userCount;
     private List<PermissionDto> permissions;
 
     @Data

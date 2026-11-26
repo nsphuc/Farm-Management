@@ -37,6 +37,15 @@ public class LivestockBreed {
     @Column(name = "target_weight_kg", precision = 8, scale = 2)
     private BigDecimal targetWeightKg;
 
+    @Column(name = "fcr_target", precision = 5, scale = 2)
+    private BigDecimal fcrTarget;
+
+    @Column(name = "adg_target", precision = 8, scale = 2)
+    private BigDecimal adgTarget;
+
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
     @Column(name = "management_type", length = 30)
     private String managementType;
 

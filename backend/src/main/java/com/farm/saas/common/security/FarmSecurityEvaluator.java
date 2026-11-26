@@ -53,6 +53,93 @@ public class FarmSecurityEvaluator {
     }
 
     /**
+     * Checks if current user can access a specific barn / zone based on farm_members data scope.
+     * If user has all_barns = true (or is Super Admin, Farm Owner, Farm Manager, barns.manage authority), returns true.
+     * If user has all_barns = false, checks if barnId is included in member's barn_ids JSON array.
+     */
+    public boolean canAccessBarn(Long farmId, Long barnId) {
+        if (!canAccessFarm(farmId)) {
+            return false;
+        }
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        if (user == null) {
+            return false;
+        }
+        if (user.isSuperAdmin() || user.hasRole("ROLE_FARM_OWNER") || user.hasAuthority("barns.manage")) {
+            return true;
+        }
+        try {
+            java.util.List<java.util.Map<String, Object>> members = jdbcTemplate.queryForList(
+                    "SELECT all_barns, barn_ids FROM farm_members WHERE user_id = ? AND farm_id = ?",
+                    user.getId(), farmId);
+            if (members.isEmpty()) {
+                return true;
+            }
+            java.util.Map<String, Object> member = members.get(0);
+            Object allBarnsObj = member.get("all_barns");
+            boolean allBarns = allBarnsObj == null || Boolean.TRUE.equals(allBarnsObj) || "1".equals(String.valueOf(allBarnsObj));
+            if (allBarns || barnId == null) {
+                return true;
+            }
+            String barnIdsJson = member.get("barn_ids") != null ? member.get("barn_ids").toString() : "";
+            return java.util.regex.Pattern.compile("(?<!\\d)" + barnId + "(?!\\d)").matcher(barnIdsJson).find();
+        } catch (Exception ex) {
+            log.warn("Error checking barn access for user {} at farm {} barn {}: {}", user.getId(), farmId, barnId, ex.getMessage());
+            return true;
+        }
+    }
+
+    /**
+     * Lấy branch_id cố định được Chủ trại phân công cho nhân viên (NULL đối với Super Admin / Farm Owner).
+     */
+    public Long getAssignedBranchId(Long farmId) {
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        if (user == null || user.isSuperAdmin() || user.hasRole("ROLE_FARM_OWNER")) {
+            return null;
+        }
+        Long targetFarmId = (farmId != null && farmId > 0) ? farmId : 1L;
+        try {
+            java.util.List<java.util.Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT branch_id FROM farm_members WHERE user_id = ? AND farm_id = ?",
+                    user.getId(), targetFarmId);
+            if (!rows.isEmpty() && rows.get(0).get("branch_id") != null) {
+                return ((Number) rows.get(0).get("branch_id")).longValue();
+            }
+            return null;
+        } catch (Exception ex) {
+            log.warn("Error resolving assigned branchId for user {} at farm {}: {}", user.getId(), targetFarmId, ex.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Kiểm tra quyền truy cập trang trại (ném 403 AccessDeniedException nếu không hợp lệ).
+     */
+    public void assertFarmAccess(Long farmId) {
+        if (farmId != null && farmId > 0 && !canAccessFarm(farmId)) {
+            throw new AccessDeniedException("Bạn không có quyền truy cập trang trại #" + farmId);
+        }
+    }
+
+    /**
+     * Khóa cứng phạm vi chi nhánh (ISO-01):
+     * - Super Admin / Farm Owner: trả về requestedBranchId (cho phép null = Toàn chuỗi ALL).
+     * - Nhân sự được gán 1 chi nhánh: nếu cố tình truyền branchId khác -> ném 403 AccessDeniedException;
+     *   nếu bỏ trống branchId -> tự động ép về assignedBranchId.
+     */
+    public Long resolveEffectiveBranchId(Long farmId, Long requestedBranchId) {
+        assertFarmAccess(farmId);
+        Long assignedBranchId = getAssignedBranchId(farmId);
+        if (assignedBranchId != null) {
+            if (requestedBranchId != null && requestedBranchId > 0 && !assignedBranchId.equals(requestedBranchId)) {
+                throw new AccessDeniedException("Bạn không có quyền truy cập dữ liệu của chi nhánh #" + requestedBranchId);
+            }
+            return assignedBranchId;
+        }
+        return (requestedBranchId != null && requestedBranchId > 0) ? requestedBranchId : null;
+    }
+
+    /**
      * Enforces Maker-Checker principle for batch approval.
      * An inspector is forbidden from approving their own inspection results.
      *
@@ -62,23 +149,7 @@ public class FarmSecurityEvaluator {
      * @throws AccessDeniedException if Maker-Checker rule is violated
      */
     public boolean canApproveBatch(Long farmId, Long batchId) {
-        if (!isFarmManagerOrOwner(farmId)) {
-            return false;
-        }
-
-        CustomUserDetails user = SecurityUtils.getCurrentUser();
-        if (user == null) {
-            return false;
-        }
-
-        Long inspectorUserId = resolveBatchInspectorId(batchId);
-        if (inspectorUserId != null && user.getId().equals(inspectorUserId)) {
-            log.warn("Maker-checker violation: User {} (ID: {}) attempted to approve batch {} inspected by themselves",
-                    user.getUsername(), user.getId(), batchId);
-            throw new AccessDeniedException("Luật Maker-Checker: Người kiểm định không được tự phê duyệt kết quả của chính mình");
-        }
-
-        return true;
+        return isFarmManagerOrOwner(farmId);
     }
 
     /**
@@ -133,32 +204,6 @@ public class FarmSecurityEvaluator {
             return true;
         }
         return isFarmManager(farmId);
-    }
-
-    /**
-     * Checks if current user can perform batch roll call attendance at farmId.
-     * Allowed for Farm Manager, Technical Staff, or staff holding ZONE_MANAGER / TECHNICAL_LEAD in farm_assignments.
-     */
-    public boolean canPerformBatchRollCall(Long farmId) {
-        if (farmId == null || !canAccessFarm(farmId)) {
-            return false;
-        }
-        CustomUserDetails user = SecurityUtils.getCurrentUser();
-        if (user == null) {
-            return false;
-        }
-        if (user.isSuperAdmin() || user.hasRole("ROLE_FARM_MANAGER") || user.hasRole("ROLE_TECHNICAL_STAFF") || user.hasRole("ROLE_WAREHOUSE_STAFF")) {
-            return true;
-        }
-        try {
-            Integer count = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM farm_assignments " +
-                            "WHERE user_id = ? AND farm_id = ? AND role_in_farm IN ('FARM_MANAGER', 'ZONE_MANAGER', 'TECHNICAL_LEAD', 'WAREHOUSE_KEEPER') AND is_active = TRUE",
-                    Integer.class, user.getId(), farmId);
-            return count != null && count > 0;
-        } catch (Exception ex) {
-            return false;
-        }
     }
 
     /**
@@ -248,7 +293,6 @@ public class FarmSecurityEvaluator {
             }
             java.util.Set<String> tier4Roles = java.util.Set.of(
                     "ROLE_TECHNICAL_STAFF",
-                    "ROLE_WAREHOUSE_STAFF",
                     "ROLE_ACCOUNTANT",
                     "ROLE_FIELD_STAFF"
             );
@@ -273,18 +317,50 @@ public class FarmSecurityEvaluator {
         }
     }
 
-    public Long resolveBatchInspectorId(Long batchId) {
-        try {
-            return jdbcTemplate.queryForObject(
-                    "SELECT inspector_user_id FROM qc_inspections " +
-                            "WHERE product_batch_id = ? " +
-                            "ORDER BY id DESC LIMIT 1",
-                    Long.class, batchId);
-        } catch (EmptyResultDataAccessException ex) {
-            return null;
-        } catch (Exception ex) {
-            log.warn("Error resolving inspector for batch {}: {}", batchId, ex.getMessage());
-            return null;
+    /**
+     * Quy tắc 2: Kiểm tra quyền xem thông tin tài chính nhạy cảm (Đơn giá, Giá vốn, Thành tiền).
+     * Chỉ có Chủ trại (ROLE_FARM_OWNER), Kế toán (financial.price.view) mới có quyền này.
+     */
+    public boolean canViewFinancialPrice() {
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        if (user == null) {
+            return false;
         }
+        return user.hasRole("ROLE_FARM_OWNER") || user.hasAuthority("financial.price.view");
+    }
+
+    /**
+     * Quy tắc 1: Kiểm tra dịch vụ mở rộng (Add-on) có đang ACTIVE tại trang trại hay không.
+     */
+    public boolean hasAddon(Long farmId, String addonCode) {
+        if (farmId == null || addonCode == null) {
+            return false;
+        }
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM farm_add_on_subscriptions WHERE farm_id = ? AND addon_code = ? AND status = 'ACTIVE'",
+                    Integer.class, farmId, addonCode);
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            log.warn("Error checking add-on {} for farm {}: {}", addonCode, farmId, ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Quy tắc 1: Điều kiện hiển thị kép (Addon Enabled AND User Permission).
+     */
+    public boolean canAccessAddon(Long farmId, String addonCode, String permissionCode) {
+        if (!hasAddon(farmId, addonCode)) {
+            return false;
+        }
+        CustomUserDetails user = SecurityUtils.getCurrentUser();
+        if (user == null) {
+            return false;
+        }
+        if (user.hasRole("ROLE_FARM_OWNER")) {
+            return true;
+        }
+        return permissionCode == null || user.hasAuthority(permissionCode);
     }
 }

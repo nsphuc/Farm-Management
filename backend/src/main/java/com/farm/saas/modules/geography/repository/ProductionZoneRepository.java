@@ -8,6 +8,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface ProductionZoneRepository extends JpaRepository<ProductionZone, Long>, JpaSpecificationExecutor<ProductionZone> {
     java.util.List<ProductionZone> findByFarmId(Long farmId);
+    java.util.List<ProductionZone> findByBranchId(Long branchId);
+    java.util.List<ProductionZone> findByFarmIdAndBranchId(Long farmId, Long branchId);
     java.util.Optional<ProductionZone> findByFarmIdAndId(Long farmId, Long id);
     java.util.Optional<ProductionZone> findByFarmIdAndCode(Long farmId, String code);
     boolean existsByFarmIdAndCode(Long farmId, String code);

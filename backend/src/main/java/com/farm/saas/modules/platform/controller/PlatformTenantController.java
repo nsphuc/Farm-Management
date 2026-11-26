@@ -16,7 +16,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/platform/tenants")
+@RequestMapping("/api/v1/platform/system-tenants")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('PERM_TENANT_MANAGE')")
 public class PlatformTenantController {

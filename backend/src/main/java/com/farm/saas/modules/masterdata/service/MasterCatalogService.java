@@ -6,13 +6,6 @@ import com.farm.saas.modules.masterdata.dto.response.*;
 import java.util.List;
 
 public interface MasterCatalogService {
-    // Crop Types
-    List<CropTypeResponse> getCropTypes();
-    CropTypeResponse getCropTypeById(Long id);
-    CropTypeResponse createCropType(CreateCropTypeRequest request);
-    CropTypeResponse updateCropType(Long id, UpdateCropTypeRequest request);
-    void deleteCropType(Long id);
-
     // Livestock Breeds
     List<LivestockBreedResponse> getLivestockBreeds(String species);
     LivestockBreedResponse getLivestockBreedById(Long id);
@@ -25,12 +18,6 @@ public interface MasterCatalogService {
     ConsumptionQuotaResponse createQuota(CreateConsumptionQuotaRequest request);
     ConsumptionQuotaResponse updateQuota(Long id, UpdateConsumptionQuotaRequest request);
     void deleteQuota(Long id);
-
-    // Work Shifts
-    List<WorkShiftResponse> getWorkShifts();
-    WorkShiftResponse createWorkShift(CreateWorkShiftRequest request);
-    WorkShiftResponse updateWorkShift(Long id, UpdateWorkShiftRequest request);
-    void deleteWorkShift(Long id);
 
     // Cost Categories
     List<CostCategoryResponse> getCostCategories();

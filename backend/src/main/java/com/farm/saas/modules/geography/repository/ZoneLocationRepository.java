@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface ZoneLocationRepository extends JpaRepository<ZoneLocation, Long>, JpaSpecificationExecutor<ZoneLocation> {
     java.util.List<ZoneLocation> findByZoneId(Long zoneId);
+    java.util.List<ZoneLocation> findByZoneIdIn(java.util.Collection<Long> zoneIds);
     java.util.List<ZoneLocation> findByFarmId(Long farmId);
     java.util.Optional<ZoneLocation> findByZoneIdAndId(Long zoneId, Long id);
     boolean existsByZoneIdAndCode(Long zoneId, String code);

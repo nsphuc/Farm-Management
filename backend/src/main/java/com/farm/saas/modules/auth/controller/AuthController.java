@@ -81,4 +81,25 @@ public class AuthController {
     public ResponseEntity<List<String>> getMyPermissions() {
         return ResponseEntity.ok(authService.getMyPermissions());
     }
+
+    @PostMapping("/send-otp")
+    public ResponseEntity<java.util.Map<String, String>> sendOtp(@Valid @RequestBody com.farm.saas.modules.auth.dto.request.SendOtpRequest request) {
+        authService.sendEmailOtp(request);
+        return ResponseEntity.ok(java.util.Map.of("message", "Mã xác thực OTP đã được gửi thành công đến " + request.getEmail()));
+    }
+
+    @PostMapping({"/register", "/register-with-otp"})
+    public ResponseEntity<AuthResponse> registerWithOtp(
+            @Valid @RequestBody com.farm.saas.modules.auth.dto.request.RegisterWithOtpRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
+        return ResponseEntity.ok(authService.registerWithOtp(request, httpRequest, httpResponse));
+    }
+
+    @PostMapping("/forgot-password-with-otp")
+    public ResponseEntity<java.util.Map<String, String>> forgotPasswordWithOtp(
+            @Valid @RequestBody com.farm.saas.modules.auth.dto.request.ForgotPasswordWithOtpRequest request) {
+        authService.forgotPasswordWithOtp(request);
+        return ResponseEntity.ok(java.util.Map.of("message", "Mật khẩu đã được cập nhật thành công."));
+    }
 }

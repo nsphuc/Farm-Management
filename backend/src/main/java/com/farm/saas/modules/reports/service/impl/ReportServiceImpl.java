@@ -2,16 +2,12 @@ package com.farm.saas.modules.reports.service.impl;
 
 import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.security.SecurityUtils;
-import com.farm.saas.modules.crop.entity.CropSeason;
-import com.farm.saas.modules.crop.repository.CropSeasonRepository;
 import com.farm.saas.modules.geography.entity.OperationalCycle;
 import com.farm.saas.modules.geography.repository.OperationalCycleRepository;
-import com.farm.saas.modules.finance.entity.Budget;
 import com.farm.saas.modules.finance.entity.DebtRecord;
 import com.farm.saas.modules.finance.entity.FarmExpense;
 import com.farm.saas.modules.finance.entity.SalesOrder;
 import com.farm.saas.modules.finance.entity.SalesOrderItem;
-import com.farm.saas.modules.finance.repository.BudgetRepository;
 import com.farm.saas.modules.finance.repository.CostAllocationRepository;
 import com.farm.saas.modules.finance.repository.DebtRecordRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
@@ -26,18 +22,13 @@ import com.farm.saas.modules.livestock.entity.LivestockWeightLog;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import com.farm.saas.modules.livestock.repository.LivestockWeightLogRepository;
 import com.farm.saas.modules.masterdata.entity.CostCategory;
-import com.farm.saas.modules.masterdata.entity.CropType;
 import com.farm.saas.modules.masterdata.entity.LivestockBreed;
 import com.farm.saas.modules.masterdata.entity.Material;
 import com.farm.saas.modules.masterdata.repository.CostCategoryRepository;
-import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
 import com.farm.saas.modules.masterdata.repository.LivestockBreedRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialRepository;
 import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.PartnerRepository;
-import com.farm.saas.modules.quality.entity.ProductBatch;
-import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
-import com.farm.saas.modules.quality.repository.ProductBatchRepository;
 import com.farm.saas.modules.reports.dto.*;
 import com.farm.saas.modules.reports.service.ReportService;
 import lombok.RequiredArgsConstructor;
@@ -61,17 +52,12 @@ public class ReportServiceImpl implements ReportService {
     private final FarmExpenseRepository farmExpenseRepository;
     private final CostAllocationRepository costAllocationRepository;
     private final DebtRecordRepository debtRecordRepository;
-    private final HarvestRecordRepository harvestRecordRepository;
     private final WarehouseInventoryRepository warehouseInventoryRepository;
-    private final CropSeasonRepository cropSeasonRepository;
     private final LivestockGroupRepository livestockGroupRepository;
     private final LivestockWeightLogRepository livestockWeightLogRepository;
     private final MaterialRepository materialRepository;
     private final PartnerRepository partnerRepository;
     private final FarmRepository farmRepository;
-    private final BudgetRepository budgetRepository;
-    private final CropTypeRepository cropTypeRepository;
-    private final ProductBatchRepository productBatchRepository;
     private final SalesOrderItemRepository salesOrderItemRepository;
     private final CostCategoryRepository costCategoryRepository;
     private final LivestockBreedRepository livestockBreedRepository;
@@ -106,17 +92,9 @@ public class ReportServiceImpl implements ReportService {
             grossMarginPct = grossProfit.multiply(new BigDecimal("100")).divide(totalRevenue, 2, RoundingMode.HALF_UP);
         }
 
-        BigDecimal totalHarvestYieldKg = (farmId != null)
-                ? harvestRecordRepository.findByFarmIdOrderByHarvestDateDescCreatedAtDesc(farmId).stream()
-                .map(h -> h.getQuantity() != null ? h.getQuantity() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                : BigDecimal.ZERO;
+        BigDecimal totalHarvestYieldKg = BigDecimal.ZERO;
 
-        long totalActiveSeasons = (farmId != null)
-                ? cropSeasonRepository.findByFarmId(farmId).stream()
-                .filter(s -> !"CLOSED".equalsIgnoreCase(s.getStatus()) && !"CANCELLED".equalsIgnoreCase(s.getStatus()))
-                .count()
-                : 0L;
+        long totalActiveSeasons = 0L;
 
         long totalActiveLivestockHeads = (farmId != null)
                 ? livestockGroupRepository.findByFarmId(farmId).stream()
@@ -311,118 +289,11 @@ public class ReportServiceImpl implements ReportService {
     @Override
     @Transactional(readOnly = true)
     public CropCostProfitResponse getCropCostProfit(Long farmId, Long cycleId) {
-        Long tenantId = SecurityUtils.getCurrentTenantId();
-        List<CropSeason> seasons = (farmId != null)
-                ? cropSeasonRepository.findByFarmId(farmId)
-                : cropSeasonRepository.findByTenantId(tenantId);
-
-        if (cycleId != null) {
-            seasons = seasons.stream()
-                    .filter(s -> cycleId.equals(s.getOperationalCycleId()))
-                    .toList();
-        }
-
-        List<CropCostProfitResponse.CropSeasonFinancialSummary> seasonSummaries = new ArrayList<>();
-        BigDecimal overallRev = BigDecimal.ZERO;
-        BigDecimal overallCost = BigDecimal.ZERO;
-
-        for (CropSeason season : seasons) {
-            BigDecimal directCost = farmExpenseRepository.sumConfirmedExpensesBySeasonId(season.getId());
-            BigDecimal allocatedCost = costAllocationRepository.sumAllocatedAmountByTarget("CROP_SEASON", season.getId());
-            BigDecimal actualCost = (directCost != null ? directCost : BigDecimal.ZERO)
-                    .add(allocatedCost != null ? allocatedCost : BigDecimal.ZERO);
-
-            BigDecimal actualYieldKg = harvestRecordRepository.sumQuantityBySeasonId(season.getId());
-            if (actualYieldKg == null || actualYieldKg.compareTo(BigDecimal.ZERO) == 0) {
-                actualYieldKg = season.getActualYieldKg() != null ? season.getActualYieldKg() : BigDecimal.ZERO;
-            }
-
-            BigDecimal unitCostPerKg = BigDecimal.ZERO;
-            if (actualYieldKg.compareTo(BigDecimal.ZERO) > 0) {
-                unitCostPerKg = actualCost.divide(actualYieldKg, 2, RoundingMode.HALF_UP);
-            }
-
-            // Real revenue from sales orders linked to this season's batches
-            BigDecimal revenue = BigDecimal.ZERO;
-            List<ProductBatch> batches = productBatchRepository.findByFarmIdOrderByCreatedAtDesc(season.getFarmId()).stream()
-                    .filter(b -> season.getId().equals(b.getSeasonId()))
-                    .toList();
-            Set<Long> batchIds = batches.stream().map(ProductBatch::getId).collect(Collectors.toSet());
-
-            List<SalesOrder> orders = salesOrderRepository.findByFarmId(season.getFarmId());
-            for (SalesOrder o : orders) {
-                if (!"CANCELLED".equalsIgnoreCase(o.getStatus())) {
-                    List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(o.getId());
-                    for (SalesOrderItem item : items) {
-                        if (item.getProductBatchId() != null && batchIds.contains(item.getProductBatchId())) {
-                            revenue = revenue.add(item.getFinalAmount() != null ? item.getFinalAmount() : BigDecimal.ZERO);
-                        }
-                    }
-                }
-            }
-
-            // If not found by batch, and crop type matches, map sales order items matching crop type name
-            CropType cropType = season.getCropTypeId() != null
-                    ? cropTypeRepository.findById(season.getCropTypeId()).orElse(null)
-                    : null;
-            String cropName = cropType != null ? cropType.getName() : season.getSeasonCode();
-
-            if (revenue.compareTo(BigDecimal.ZERO) == 0 && cropType != null) {
-                for (SalesOrder o : orders) {
-                    if (!"CANCELLED".equalsIgnoreCase(o.getStatus())) {
-                        List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(o.getId());
-                        for (SalesOrderItem item : items) {
-                            if (item.getItemName() != null && item.getItemName().toLowerCase().contains(cropType.getName().toLowerCase())) {
-                                revenue = revenue.add(item.getFinalAmount() != null ? item.getFinalAmount() : BigDecimal.ZERO);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Planned budget from BudgetRepository
-            BigDecimal plannedBudget = BigDecimal.ZERO;
-            if (season.getOperationalCycleId() != null) {
-                List<Budget> budgets = budgetRepository.findByFarmIdAndFiscalYear(season.getFarmId(),
-                        season.getStartDate() != null ? season.getStartDate().getYear() : LocalDate.now().getYear());
-                for (Budget b : budgets) {
-                    if (season.getOperationalCycleId().equals(b.getOperationalCycleId())) {
-                        plannedBudget = plannedBudget.add(b.getTotalBudgetAmount() != null ? b.getTotalBudgetAmount() : BigDecimal.ZERO);
-                    }
-                }
-            }
-
-            BigDecimal grossProfit = revenue.subtract(actualCost);
-            BigDecimal grossMarginPct = BigDecimal.ZERO;
-            if (revenue.compareTo(BigDecimal.ZERO) > 0) {
-                grossMarginPct = grossProfit.multiply(new BigDecimal("100")).divide(revenue, 2, RoundingMode.HALF_UP);
-            }
-
-            overallRev = overallRev.add(revenue);
-            overallCost = overallCost.add(actualCost);
-
-            seasonSummaries.add(CropCostProfitResponse.CropSeasonFinancialSummary.builder()
-                    .seasonId(season.getId())
-                    .seasonName(season.getSeasonCode() + " - " + cropName)
-                    .seasonCode(season.getSeasonCode())
-                    .cropName(cropName)
-                    .plannedBudget(plannedBudget)
-                    .actualCost(actualCost)
-                    .actualYieldKg(actualYieldKg)
-                    .unitCostPerKg(unitCostPerKg)
-                    .revenue(revenue)
-                    .grossProfit(grossProfit)
-                    .grossMarginPct(grossMarginPct)
-                    .build());
-        }
-
-        BigDecimal overallProfit = overallRev.subtract(overallCost);
-
         return CropCostProfitResponse.builder()
-                .seasons(seasonSummaries)
-                .overallRevenue(overallRev)
-                .overallCost(overallCost)
-                .overallGrossProfit(overallProfit)
+                .seasons(Collections.emptyList())
+                .overallRevenue(BigDecimal.ZERO)
+                .overallCost(BigDecimal.ZERO)
+                .overallGrossProfit(BigDecimal.ZERO)
                 .build();
     }
 
@@ -492,7 +363,7 @@ public class ReportServiceImpl implements ReportService {
             BigDecimal totalCost = initialCost.add(directExpense).add(allocatedCost);
 
             // 5. Sản lượng xuất chuồng / thu hoạch
-            BigDecimal actualYield = harvestRecordRepository.sumQuantityByLivestockGroupId(group.getId());
+            BigDecimal actualYield = BigDecimal.ZERO;
             if (actualYield == null) {
                 actualYield = BigDecimal.ZERO;
             }
@@ -504,20 +375,6 @@ public class ReportServiceImpl implements ReportService {
                 yieldUnit = "LIT";
             }
 
-            List<ProductBatch> batches = productBatchRepository.findByFarmIdOrderByCreatedAtDesc(group.getFarmId()).stream()
-                    .filter(b -> group.getId().equals(b.getLivestockGroupId()))
-                    .toList();
-
-            BigDecimal batchQty = BigDecimal.ZERO;
-            for (ProductBatch b : batches) {
-                if (b.getInitialQuantity() != null) {
-                    batchQty = batchQty.add(b.getInitialQuantity());
-                }
-            }
-
-            if (actualYield.compareTo(BigDecimal.ZERO) == 0 && batchQty.compareTo(BigDecimal.ZERO) > 0) {
-                actualYield = batchQty;
-            }
             if (actualYield.compareTo(BigDecimal.ZERO) == 0) {
                 actualYield = BigDecimal.valueOf(group.getCurrentQuantity() != null ? group.getCurrentQuantity() : 0);
             }
@@ -529,14 +386,13 @@ public class ReportServiceImpl implements ReportService {
             }
 
             // 7. Doanh thu bán hàng từ Sales Orders
-            Set<Long> batchIds = batches.stream().map(ProductBatch::getId).collect(Collectors.toSet());
             BigDecimal revenue = BigDecimal.ZERO;
             List<SalesOrder> orders = salesOrderRepository.findByFarmId(group.getFarmId());
             for (SalesOrder o : orders) {
                 if (!"CANCELLED".equalsIgnoreCase(o.getStatus())) {
                     List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(o.getId());
                     for (SalesOrderItem item : items) {
-                        if (item.getProductBatchId() != null && batchIds.contains(item.getProductBatchId())) {
+                        if (group.getId().equals(item.getLivestockGroupId())) {
                             revenue = revenue.add(item.getFinalAmount() != null ? item.getFinalAmount() : BigDecimal.ZERO);
                         } else if (item.getItemName() != null) {
                             String nameLower = item.getItemName().toLowerCase();

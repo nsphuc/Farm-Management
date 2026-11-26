@@ -6,6 +6,10 @@ export const API_ENDPOINTS = {
   // 1. Auth & Profile
   AUTH: {
     LOGIN: '/auth/login',
+    REGISTER: '/auth/register',
+    REGISTER_WITH_OTP: '/auth/register-with-otp',
+    SEND_OTP: '/auth/send-otp',
+    FORGOT_PASSWORD_WITH_OTP: '/auth/forgot-password-with-otp',
     REFRESH: '/auth/refresh',
     LOGOUT: '/auth/logout',
     CHANGE_PASSWORD: '/auth/change-password',
@@ -75,12 +79,6 @@ export const API_ENDPOINTS = {
     SHIFT_ASSIGNMENTS: '/hr/shifts/assignments',
     SHIFT_ASSIGNMENT_UPDATE: (id) => `/hr/shifts/assignments/${id}`,
     SHIFT_ASSIGNMENT_CANCEL: (id) => `/hr/shifts/assignments/${id}/cancel`,
-    ATTENDANCE: '/hr/attendance',
-    ATTENDANCE_DETAIL: (id) => `/hr/attendance/${id}`,
-    CHECK_IN: '/hr/attendance/check-in',
-    CHECK_OUT: '/hr/attendance/check-out',
-    BATCH_ROLL_CALL: '/hr/attendance/batch-roll-call',
-    ADJUST_ATTENDANCE: (id) => `/hr/attendance/${id}/adjust`,
     LEAVE_REQUESTS: '/hr/leaves',
     LEAVE_DETAIL: (id) => `/hr/leaves/${id}`,
     LEAVE_APPROVE: (id) => `/hr/leaves/${id}/approve`,
@@ -129,18 +127,44 @@ export const API_ENDPOINTS = {
     HARVEST_RECORDS: (farmId) => `/farms/${farmId}/harvest-records`,
   },
 
-  // 9. QA & Traceability
-  QA: {
-    BATCHES: (farmId) => `/farms/${farmId}/product-batches`,
-    BATCH_APPROVE: (farmId, id) => `/farms/${farmId}/product-batches/${id}/approve`,
-    BATCH_REJECT: (farmId, id) => `/farms/${farmId}/product-batches/${id}/reject`,
-    BATCH_RECALL: (farmId, id) => `/farms/${farmId}/product-batches/${id}/recall`,
-    QC_INSPECTIONS: (farmId) => `/farms/${farmId}/qc-inspections`,
-    LABEL_PRINT_LOGS: (farmId) => `/farms/${farmId}/label-print-logs`,
-    SNAPSHOT: (farmId, batchId) => `/farms/${farmId}/product-batches/${batchId}/snapshot`,
+  // 8.1 Livestock Settings (Thiết lập chăn nuôi)
+  LIVESTOCK_SETTINGS: {
+    PROGRAMS: '/livestock-settings/programs',
+    PROGRAM_DETAIL: (id) => `/livestock-settings/programs/${id}`,
+    QUOTAS: (id) => `/livestock-settings/programs/${id}/quotas`,
+    QUOTA_DETAIL: (id, quotaId) => `/livestock-settings/programs/${id}/quotas/${quotaId}`,
+    QUOTA_BATCH_RANGE: (id) => `/livestock-settings/programs/${id}/quotas/batch-range`,
+    VACCINES: (id) => `/livestock-settings/programs/${id}/vaccines`,
+    VACCINE_DETAIL: (id, quotaId) => `/livestock-settings/programs/${id}/vaccines/${quotaId}`,
+    ENV_METRICS: '/livestock-settings/env-metrics',
+    KPIS: '/livestock-settings/kpis',
   },
 
-  // 10. Finance & Commercial
+  // 8.2 Barns & Batches (Khu nuôi & Chuồng nuôi & Lứa nuôi)
+  BARNS_BATCHES: {
+    ZONES: '/zones',
+    ZONE_DETAIL: (id) => `/zones/${id}`,
+    BARNS: '/barns',
+    BARN_DETAIL: (id) => `/barns/${id}`,
+    BATCHES: '/batches',
+    BATCH_DETAIL: (id) => `/batches/${id}`,
+    BATCH_TARGETS: (id) => `/batches/${id}/targets`,
+    BATCH_GROUPS: (id) => `/batches/${id}/groups`,
+    BATCH_PROGRAMS: (id) => `/batches/${id}/programs`,
+    BATCH_PROGRAM_DETAIL: (id, programId) => `/batches/${id}/programs/${programId}`,
+    BATCH_BY_PRODUCTS: (id) => `/batches/${id}/by-products`,
+    BATCH_SPLIT: (id) => `/batches/${id}/split`,
+    BATCH_CLOSE: (id) => `/batches/${id}/close`,
+  },
+
+  // 8.3 Daily Logs (Ghi nhật ký hằng ngày)
+  DAILY_LOGS: {
+    LIST: '/daily-logs',
+    REMINDERS: '/daily-logs/reminders',
+    DETAIL: (id) => `/daily-logs/${id}`,
+  },
+
+  // 9. Finance & Commercial
   FINANCE: {
     PARTNERS: '/finance/partners',
     EXPENSES: (farmId) => `/farms/${farmId}/expenses`,
@@ -186,12 +210,7 @@ export const API_ENDPOINTS = {
     RESET_PASSWORD: (id) => `/users/${id}/reset-password`,
   },
 
-  // 13. Public Traceability (Unauthenticated)
-  PUBLIC: {
-    TRACEABILITY: (code) => `/public/traceability/${encodeURIComponent(code)}`,
-  },
-
-  // 14. File & Media Uploads
+  // File & Media Uploads
   UPLOADS: {
     IMAGE: '/uploads/image',
   },

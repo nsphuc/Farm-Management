@@ -12,7 +12,7 @@ export function NotFoundPage() {
 
       <h1 className="mt-6 text-3xl font-black text-slate-900 tracking-tight">404 - Không Tìm Thấy Trang</h1>
       <p className="mt-2 max-w-md text-sm text-slate-500">
-        Đường dẫn bạn đang truy cập không tồn tại hoặc đã được chuyển sang phân hệ mới trong kiến trúc Agri-ERP.
+        Đường dẫn bạn đang truy cập không tồn tại hoặc đã được chuyển sang phân hệ mới trong hệ thống FarmGo.
       </p>
 
       <div className="mt-8 flex items-center gap-3">

@@ -9,5 +9,7 @@ import org.springframework.stereotype.Repository;
 public interface UserRoleRepository extends JpaRepository<UserRole, Long>, JpaSpecificationExecutor<UserRole> {
     java.util.List<UserRole> findByUserId(Long userId);
     java.util.List<UserRole> findByUserIdIn(java.util.Collection<Long> userIds);
+    boolean existsByUserIdAndRoleIdAndFarmId(Long userId, Long roleId, Long farmId);
     void deleteByUserId(Long userId);
+    void deleteByUserIdAndFarmId(Long userId, Long farmId);
 }

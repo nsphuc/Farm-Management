@@ -303,7 +303,9 @@ public class DebtAndPaymentServiceImpl implements DebtAndPaymentService {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long accountantUserId = payment.getCreatedBy();
         if (accountantUserId == null) {
-            accountantUserId = userRepository.findByUsername("accountant").map(User::getId).orElse(null);
+            accountantUserId = userRepository.findByUsername("accountant")
+                    .or(() -> userRepository.findByUsername("ketoan"))
+                    .map(User::getId).orElse(null);
         }
         sendNotificationQuietly(
                 tenantId,

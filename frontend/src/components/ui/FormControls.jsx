@@ -16,14 +16,17 @@ export function FormField({
   children,
   className,
 }) {
+  const displayLabel =
+    typeof label === 'string' && required ? label.replace(/\s*\*+$/, '') : label;
+
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
-      {label && (
+      {displayLabel && (
         <label
           htmlFor={name}
           className="text-xs font-semibold text-slate-700 flex items-center gap-1"
         >
-          <span>{label}</span>
+          <span>{displayLabel}</span>
           {required && <span className="text-rose-500 font-bold">*</span>}
         </label>
       )}

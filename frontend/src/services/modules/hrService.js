@@ -91,40 +91,7 @@ export const hrService = {
   },
 
   // ==========================================
-  // 4. TIME ATTENDANCES (Bảng time_attendances #54)
-  // ==========================================
-  checkIn: async (data) => {
-    const res = await apiClient.post(API_ENDPOINTS.HR.CHECK_IN, data);
-    return res.data;
-  },
-
-  checkOut: async (data) => {
-    const res = await apiClient.post(API_ENDPOINTS.HR.CHECK_OUT, data);
-    return res.data;
-  },
-
-  batchRollCall: async (data) => {
-    const res = await apiClient.post(API_ENDPOINTS.HR.BATCH_ROLL_CALL, data);
-    return res.data;
-  },
-
-  adjustAttendance: async (id, data) => {
-    const res = await apiClient.put(API_ENDPOINTS.HR.ADJUST_ATTENDANCE(id), data);
-    return res.data;
-  },
-
-  getAttendances: async (params = {}) => {
-    const res = await apiClient.get(API_ENDPOINTS.HR.ATTENDANCE, { params });
-    return res.data;
-  },
-
-  getAttendanceById: async (id) => {
-    const res = await apiClient.get(API_ENDPOINTS.HR.ATTENDANCE_DETAIL(id));
-    return res.data;
-  },
-
-  // ==========================================
-  // 5. LEAVE REQUESTS (Bảng leave_requests #55)
+  // 4. LEAVE REQUESTS (Bảng leave_requests #55)
   // ==========================================
   getLeaveRequests: async (params = {}) => {
     const res = await apiClient.get(API_ENDPOINTS.HR.LEAVE_REQUESTS, { params });

@@ -31,6 +31,45 @@ public class Farm {
     @Column(name = "farm_type", nullable = false, length = 50)
     private String farmType;
 
+    @Column(name = "facility_type", length = 50)
+    private String facilityType;
+
+    @Column(name = "business_name", length = 255)
+    private String businessName;
+
+    @Column(name = "tax_code", length = 50)
+    private String taxCode;
+
+    @Column(name = "management_domain", length = 100)
+    private String managementDomain;
+
+    @Column(name = "livestock_sector", length = 50)
+    private String livestockSector;
+
+    @Column(name = "livestock_type", length = 50)
+    private String livestockType;
+
+    @Column(name = "province", length = 100)
+    private String province;
+
+    @Column(name = "ward", length = 100)
+    private String ward;
+
+    @Column(name = "subscription_tier", length = 50)
+    private String subscriptionTier;
+
+    @Column(name = "manager_accounts_count")
+    private Integer managerAccountsCount;
+
+    @Column(name = "subscription_duration_years")
+    private Integer subscriptionDurationYears;
+
+    @Column(name = "is_demo")
+    private Boolean isDemo;
+
+    @Column(name = "demo_expires_at")
+    private Instant demoExpiresAt;
+
     @Column(name = "total_area_m2", nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAreaM2;
 
@@ -45,6 +84,15 @@ public class Farm {
 
     @Column(name = "address", length = 500)
     private String address;
+
+    @Column(name = "phone", length = 50)
+    private String phone;
+
+    @Column(name = "veterinary_code", length = 100)
+    private String veterinaryCode;
+
+    @Column(name = "manager_name", length = 150)
+    private String managerName;
 
     @Column(name = "manager_user_id")
     private Long managerUserId;

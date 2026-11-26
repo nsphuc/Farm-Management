@@ -29,7 +29,7 @@ public class DebtAndPaymentController {
     private final DebtAndPaymentService debtAndPaymentService;
 
     @GetMapping("/debts")
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER', 'cashbook.view', 'sales.view') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách công nợ", description = "Truy vấn sổ công nợ có lọc theo đối tác, loại nợ (RECEIVABLE/PAYABLE) và trạng thái")
     public ResponseEntity<Page<DebtRecordDetailResponse>> getDebts(
             @PathVariable(required = false) Long farmId,
@@ -43,7 +43,7 @@ public class DebtAndPaymentController {
     }
 
     @GetMapping("/debts/{id}")
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER', 'cashbook.view', 'sales.view') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết khoản nợ", description = "Xem chi tiết một khoản công nợ phải thu hoặc phải trả")
     public ResponseEntity<DebtRecordDetailResponse> getDebtById(
             @PathVariable(required = false) Long farmId,
@@ -52,7 +52,7 @@ public class DebtAndPaymentController {
     }
 
     @GetMapping("/payments")
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER', 'cashbook.view', 'sales.view') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách giao dịch thanh toán thu/chi", description = "Truy vấn lịch sử các phiếu thu/chi, VietQR theo trang trại")
     public ResponseEntity<Page<PaymentTransactionDetailResponse>> getPayments(
             @PathVariable(required = false) Long farmId,
@@ -67,7 +67,7 @@ public class DebtAndPaymentController {
     }
 
     @GetMapping("/payments/{id}")
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_SALES_ORDER', 'cashbook.view', 'sales.view') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết giao dịch thanh toán", description = "Xem chi tiết một phiếu thu/chi hoặc giao dịch VietQR")
     public ResponseEntity<PaymentTransactionDetailResponse> getPaymentById(
             @PathVariable(required = false) Long farmId,
@@ -76,7 +76,7 @@ public class DebtAndPaymentController {
     }
 
     @PostMapping("/payments")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'cashbook.create') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Tạo giao dịch thanh toán",
             description = "Ghi nhận giao dịch thu/chi/hoàn tiền qua các phương thức CASH, BANK_TRANSFER, VIETQR, DEBT_OFFSET")
     public ResponseEntity<PaymentTransactionDetailResponse> createPayment(
@@ -86,7 +86,7 @@ public class DebtAndPaymentController {
     }
 
     @PostMapping({"/payments/{id}/confirm", "/payments/{id}/approve"})
-    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and @farmSecurity.isFarmManager(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'cashbook.approve') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Xác nhận duyệt giao dịch thanh toán",
             description = "Giám đốc trang trại duyệt phiếu chi/thu tiền, cập nhật trạng thái COMPLETED và phân bổ trừ nợ")
     public ResponseEntity<PaymentTransactionDetailResponse> confirmPayment(
@@ -96,7 +96,7 @@ public class DebtAndPaymentController {
     }
 
     @PostMapping({"/payments/{id}/cancel", "/payments/{id}/reject"})
-    @PreAuthorize("hasAuthority('PERM_FINANCE_PAYMENT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_PAYMENT', 'cashbook.update', 'cashbook.delete') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Hủy giao dịch thanh toán", description = "Hủy giao dịch thanh toán đang ở trạng thái PENDING")
     public ResponseEntity<PaymentTransactionDetailResponse> cancelPayment(
             @PathVariable Long farmId,
@@ -107,7 +107,7 @@ public class DebtAndPaymentController {
     }
 
     @PostMapping("/payments/{id}/allocate")
-    @PreAuthorize("hasAuthority('PERM_PAYMENT_ALLOCATE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_PAYMENT_ALLOCATE', 'cashbook.create', 'cashbook.update') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Phân bổ thanh toán vào công nợ (Flow 7)",
             description = "Khóa bi quan khoản nợ, trừ dư nợ còn lại, ghi sổ bất biến payment_allocations và đồng bộ đơn hàng")
     public ResponseEntity<PaymentAllocationResponse> allocatePayment(
@@ -118,7 +118,7 @@ public class DebtAndPaymentController {
     }
 
     @PostMapping("/debts/offset")
-    @PreAuthorize("hasAuthority('PERM_PAYMENT_ALLOCATE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_PAYMENT_ALLOCATE', 'cashbook.create', 'cashbook.update') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Cấn trừ công nợ 2 chiều (DEBT_OFFSET)",
             description = "Cấn trừ đồng thời giữa khoản nợ phải thu và khoản nợ phải trả của cùng một đối tác theo cơ chế an toàn Deadlock")
     public ResponseEntity<PaymentTransactionDetailResponse> offsetDebts(

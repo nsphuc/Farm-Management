@@ -8,6 +8,36 @@ export const financeService = {
   },
 
   // 2. Danh Sách Chứng Từ Chi Phí Vận Hành (farm_expenses)
+  getFarmSales: async (farmId, params = {}) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/sales` : '/sales';
+    const res = await apiClient.get(url, { params });
+    return res.data;
+  },
+
+  createFarmSale: async (farmId, data) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/sales` : '/sales';
+    const res = await apiClient.post(url, data);
+    return res.data;
+  },
+
+  getCashbook: async (farmId, params = {}) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/cashbook` : '/cashbook';
+    const res = await apiClient.get(url, { params });
+    return res.data;
+  },
+
+  createCashbookEntry: async (farmId, data) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/cashbook` : '/cashbook';
+    const res = await apiClient.post(url, data);
+    return res.data;
+  },
+
+  deleteCashbookEntry: async (farmId, id) => {
+    const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/cashbook/${id}` : `/cashbook/${id}`;
+    const res = await apiClient.delete(url);
+    return res.data;
+  },
+
   getExpenses: async (params = {}) => {
     const { farmId, ...rest } = params;
     const url = farmId && farmId !== 'ALL' ? `/farms/${farmId}/expenses` : '/expenses';

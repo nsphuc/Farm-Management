@@ -10,4 +10,5 @@ import org.springframework.stereotype.Repository;
 public interface RolePermissionRepository extends JpaRepository<RolePermission, RolePermissionId>, JpaSpecificationExecutor<RolePermission> {
     java.util.List<RolePermission> findByRoleId(Long roleId);
     java.util.List<RolePermission> findByRoleIdIn(java.util.Collection<Long> roleIds);
+    void deleteByRoleId(Long roleId);
 }

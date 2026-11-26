@@ -19,4 +19,12 @@ public interface UserService {
     UserDetailResponse updateUserStatus(Long id, UpdateUserStatusRequest request);
     java.util.Map<String, Object> resetPassword(Long id, com.farm.saas.modules.auth.dto.request.ResetPasswordRequest request);
     List<RoleMatrixResponse> getSystemRoles();
+    List<RoleMatrixResponse> getRolesForFarm(Long farmId);
+    RoleMatrixResponse createCustomRole(Long farmId, com.farm.saas.modules.auth.dto.request.CreateCustomRoleRequest request);
+    RoleMatrixResponse updateCustomRole(Long farmId, Long roleId, com.farm.saas.modules.auth.dto.request.UpdateCustomRoleRequest request);
+    void deleteCustomRole(Long farmId, Long roleId);
+    List<RoleMatrixResponse.PermissionDto> getAllPermissions();
+    List<com.farm.saas.modules.auth.dto.response.FarmMemberResponse> getFarmMembers(Long farmId);
+    com.farm.saas.modules.auth.dto.response.FarmMemberResponse upsertFarmMember(Long farmId, com.farm.saas.modules.auth.dto.request.FarmMemberRequest request);
+    void removeFarmMember(Long farmId, Long userId);
 }

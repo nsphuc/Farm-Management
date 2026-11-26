@@ -25,6 +25,7 @@ public class CreateWarehouseRequest {
     @NotBlank(message = "Loại kho không được để trống")
     private String warehouseType;
 
+    private Long branchId;
     private Long zoneId;
 
     private BigDecimal capacityM3;

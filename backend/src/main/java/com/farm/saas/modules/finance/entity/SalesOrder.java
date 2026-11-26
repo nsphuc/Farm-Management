@@ -26,6 +26,9 @@ public class SalesOrder {
     @Column(name = "farm_id", nullable = false)
     private Long farmId;
 
+    @Column(name = "branch_id")
+    private Long branchId;
+
     @Column(name = "order_code", nullable = false, length = 50)
     private String orderCode;
 

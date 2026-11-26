@@ -48,6 +48,7 @@ public class SalesDeliveryDetailResponse {
         private Long id;
         private Long salesOrderItemId;
         private Long productBatchId;
+        private Long livestockGroupId;
         private String batchCode;
         private String itemName;
         private BigDecimal quantity;

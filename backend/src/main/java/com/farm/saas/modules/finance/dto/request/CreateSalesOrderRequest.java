@@ -48,6 +48,7 @@ public class CreateSalesOrderRequest {
     public static class SalesOrderItemRequest {
 
         private Long productBatchId;
+        private Long livestockGroupId;
 
         @NotBlank(message = "Tên mặt hàng không được để trống")
         private String itemName;

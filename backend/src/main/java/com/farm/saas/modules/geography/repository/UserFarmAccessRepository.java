@@ -12,4 +12,5 @@ public interface UserFarmAccessRepository extends JpaRepository<UserFarmAccess, 
     java.util.List<UserFarmAccess> findByUserIdIn(java.util.Collection<Long> userIds);
     void deleteByUserId(Long userId);
     boolean existsByUserIdAndFarmId(Long userId, Long farmId);
+    void deleteByUserIdAndFarmId(Long userId, Long farmId);
 }

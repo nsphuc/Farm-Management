@@ -1,21 +1,35 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
-import { Sparkles, X, Shield, ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Sparkles, X, Shield, ChevronLeft, ChevronRight, ChevronDown, PanelLeftClose, PanelLeftOpen, LayoutDashboard, Plus } from 'lucide-react';
 import { Can } from '@/components/common/Can';
 import { cn } from '@/utils/formatters';
 import { renderIcon } from '@/utils/iconHelper';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useActiveFarmStore } from '@/store/useActiveFarmStore';
+import { useActiveBranchStore } from '@/store/useActiveBranchStore';
+import { masterDataService } from '@/services/modules/masterDataService';
 import { enterpriseService } from '@/services/modules/enterpriseService';
-import { getSidebarMenuConfig } from '@/shells/TenantAppShell/menuConfig';
+import { getSidebarMenuConfig } from './menuConfig';
 
 /**
  * Dynamic Sidebar (Mục 1.1.3 File 08 & Nhiệm Vụ 2)
  * Tự động cấu hình Menu riêng biệt cho từng Role vận hành ngoài thực địa, hỗ trợ thu gọn linh hoạt.
  */
 export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
-  const { userInfo, getOperationalRole, getOperationalRoleInfo } = useAuthStore();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { userInfo, isOwner, getOperationalRole, getOperationalRoleInfo } = useAuthStore();
   const operationalRole = getOperationalRole();
   const roleInfo = getOperationalRoleInfo();
+
+  const [openSubmenus, setOpenSubmenus] = useState({ 'general-settings': true });
+
+  const toggleSubmenu = (itemId) => {
+    setOpenSubmenus((prev) => ({
+      ...prev,
+      [itemId]: !prev[itemId],
+    }));
+  };
 
   const [enterpriseLogo, setEnterpriseLogo] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -62,10 +76,98 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
     return () => window.removeEventListener('enterprise_profile_updated', handleLogoUpdated);
   }, []);
 
+  const permissions = userInfo?.permissions || operationalRole;
+  const enabledAddons = useMemo(() => {
+    const subs = userInfo?.farmAddOnSubscriptions || [];
+    return subs
+      .filter((s) => s.isEnabled || s.status === 'ACTIVE')
+      .map((s) => s.addonCode);
+  }, [userInfo?.farmAddOnSubscriptions]);
+
+  const rawActiveFarmId = useActiveFarmStore((s) => s.activeFarmId);
+  const defaultFarmId = Number(userInfo?.accessibleFarms?.[0]?.farmId || userInfo?.accessibleFarms?.[0]?.id || 1);
+  const activeFarmId = rawActiveFarmId && rawActiveFarmId !== 'ALL' && !Number.isNaN(Number(rawActiveFarmId))
+    ? Number(rawActiveFarmId)
+    : defaultFarmId;
+  const currentBranchId = useActiveBranchStore((s) => s.currentBranchId);
+  const dataVersion = useActiveBranchStore((s) => s.dataVersion);
+
+  const [warehouses, setWarehouses] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadWarehouses = async () => {
+      try {
+        const effectiveBranchId = currentBranchId === 'ALL' ? undefined : currentBranchId;
+        const res = await masterDataService.getWarehouses(activeFarmId, { branchId: effectiveBranchId });
+        if (isMounted && Array.isArray(res)) {
+          setWarehouses(res);
+        }
+      } catch (e) {
+        console.warn('Failed to load warehouses for dynamic sidebar:', e);
+      }
+    };
+    loadWarehouses();
+    return () => { isMounted = false; };
+  }, [activeFarmId, currentBranchId, dataVersion]);
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/app/inventory')) {
+      setOpenSubmenus((prev) => ({ ...prev, inventory: true }));
+    }
+  }, [location.pathname]);
+
   const { workspaces, independentModules, sectionTitle } = useMemo(
-    () => getSidebarMenuConfig(operationalRole),
-    [operationalRole]
+    () => getSidebarMenuConfig(permissions, typeof isOwner === 'function' ? isOwner() : false, enabledAddons),
+    [permissions, isOwner, enabledAddons]
   );
+
+  const roleCodes = useMemo(
+    () => (userInfo?.roles || []).map((r) => (typeof r === 'string' ? r : r?.code)).filter(Boolean),
+    [userInfo?.roles]
+  );
+  const isWorkerOnly = useMemo(() => {
+    const hasWorkerRole =
+      roleCodes.includes('ROLE_BARN_WORKER') || roleCodes.includes('ROLE_FIELD_STAFF');
+    const hasElevatedRole =
+      (typeof isOwner === 'function' && isOwner()) ||
+      roleCodes.includes('ROLE_SUPER_ADMIN') ||
+      roleCodes.includes('ROLE_FARM_OWNER') ||
+      roleCodes.includes('ROLE_FARM_MANAGER') ||
+      roleCodes.includes('ROLE_ACCOUNTANT') ||
+      roleCodes.includes('ROLE_TECHNICAL_STAFF');
+    return hasWorkerRole && !hasElevatedRole;
+  }, [roleCodes, isOwner]);
+
+  const enrichedWorkspaces = useMemo(() => {
+    const filteredWorkspaces = isWorkerOnly
+      ? workspaces.filter((item) => item.id !== 'inventory' && item.id !== 'internal-transfers')
+      : workspaces;
+
+    return filteredWorkspaces.map((item) => {
+      if (item.id === 'inventory') {
+        const warehouseSubItems = [
+          {
+            id: 'all-warehouses',
+            label: 'Tất cả kho',
+            path: '/app/inventory',
+            isAll: true,
+          },
+          ...warehouses.map((w) => ({
+            id: `wh-${w.id}`,
+            warehouseId: w.id,
+            label: `${w.name} (${w.itemsCount ?? w.currentInventoryLotsCount ?? 0})`,
+            path: `/app/inventory?warehouseId=${w.id}`,
+          })),
+        ];
+        return {
+          ...item,
+          subItems: warehouseSubItems,
+        };
+      }
+      return item;
+    });
+  }, [workspaces, warehouses, isWorkerOnly]);
 
   return (
     <>
@@ -129,7 +231,7 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
                 )}
                 <div className="flex flex-col min-w-0">
                   <span className="font-black text-slate-900 text-base tracking-tight leading-none truncate max-w-[145px]">
-                    {userInfo?.tenantName || 'GREENFARM'}
+                    {userInfo?.tenantName || 'FarmGo'}
                   </span>
                   <span className="text-[10px] font-semibold text-emerald-700 tracking-wider uppercase mt-0.5 truncate max-w-[145px]">
                     Farm SaaS Platform
@@ -207,6 +309,27 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
             isCollapsed ? 'px-2 py-3' : 'px-3 py-3'
           )}
         >
+          {/* Dashboard Item */}
+          <div className="space-y-1">
+            <NavLink
+              to="/app/dashboard"
+              onClick={onCloseMobile}
+              className={({ isActive }) =>
+                cn(
+                  'group flex items-center rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+                  isActive
+                    ? 'bg-emerald-700 text-white shadow-xs font-bold'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900',
+                  isCollapsed && 'justify-center px-0'
+                )
+              }
+              title={isCollapsed ? 'Tổng quan' : undefined}
+            >
+              <LayoutDashboard className={cn('h-4 w-4 shrink-0', !isCollapsed && 'mr-2.5')} />
+              {!isCollapsed && <span>Tổng quan</span>}
+            </NavLink>
+          </div>
+
           {/* Workspaces Section */}
           <div>
             {!isCollapsed ? (
@@ -217,62 +340,173 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
               <div className="my-1 border-t border-slate-100" />
             )}
             <nav className="space-y-1">
-              {workspaces.map((item) => (
-                <Can
-                  key={item.id}
-                  permission={item.permission}
-                  anyPermissions={item.anyPermissions}
-                >
-                  <NavLink
-                    to={item.path}
-                    onClick={onCloseMobile}
-                    title={item.label}
-                    className={({ isActive }) =>
-                      cn(
-                        'group flex items-center rounded-xl text-xs font-semibold transition-all',
-                        isCollapsed
-                          ? 'justify-center p-2.5'
-                          : 'justify-between px-3 py-2',
-                        isActive
-                          ? 'bg-emerald-50 text-emerald-800 shadow-2xs font-bold ring-1 ring-emerald-600/20'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      )
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <div
+              {enrichedWorkspaces.map((item) => {
+                const hasSubItems = Boolean(item.subItems && item.subItems.length > 0);
+                const isSubmenuOpen = Boolean(openSubmenus[item.id]);
+                const isCurrentParentActive = location.pathname.startsWith(item.path);
+
+                if (hasSubItems && !isCollapsed) {
+                  return (
+                    <Can
+                      key={item.id}
+                      permission={item.permission}
+                      anyPermissions={item.anyPermissions}
+                    >
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            toggleSubmenu(item.id);
+                            if (!isCurrentParentActive) {
+                              navigate(item.path);
+                            }
+                          }}
                           className={cn(
-                            'flex items-center',
-                            isCollapsed ? 'justify-center' : 'gap-2.5 truncate'
+                            'w-full group flex items-center justify-between rounded-xl px-3 py-2 text-xs font-semibold transition-all',
+                            isCurrentParentActive
+                              ? 'bg-emerald-50/70 text-emerald-900 font-bold'
+                              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                           )}
                         >
-                          {renderIcon(
-                            item.icon,
-                            cn(
-                              'h-4 w-4 shrink-0 transition-colors',
-                              isActive ? 'text-emerald-700' : 'text-slate-500 group-hover:text-slate-700'
-                            )
-                          )}
-                          {!isCollapsed && <span className="truncate">{item.label}</span>}
-                        </div>
-                        {!isCollapsed && item.badge && (
-                          <span
+                          <div className="flex items-center gap-2.5 truncate">
+                            {renderIcon(
+                              item.icon,
+                              cn(
+                                'h-4 w-4 shrink-0 transition-colors',
+                                isCurrentParentActive ? 'text-emerald-700' : 'text-slate-500 group-hover:text-slate-700'
+                              )
+                            )}
+                            <span className="truncate">{item.label}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {item.badge && (
+                              <span className="rounded-full px-1.5 py-0.2 text-[9px] font-bold bg-slate-100 text-slate-600">
+                                {item.badge}
+                              </span>
+                            )}
+                            {isSubmenuOpen ? (
+                              <ChevronDown className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-600" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-600" />
+                            )}
+                          </div>
+                        </button>
+
+                        {/* Sub-menu items */}
+                        {isSubmenuOpen && (
+                          <div className="pl-6 pr-1 py-1 space-y-1 border-l-2 border-emerald-100 ml-4">
+                            {item.subItems.map((sub) => {
+                              let isSubActive = false;
+                              if (item.id === 'general-settings') {
+                                isSubActive =
+                                  location.pathname === '/app/general-settings' &&
+                                  (location.search.includes(sub.id) ||
+                                    (sub.id === 'service-info' && (!location.search || location.search.includes('service-info'))));
+                              } else if (item.id === 'inventory') {
+                                if (sub.isAll) {
+                                  isSubActive = location.pathname === '/app/inventory' && (!location.search || !location.search.includes('warehouseId='));
+                                } else {
+                                  isSubActive = location.pathname === '/app/inventory' && location.search.includes(`warehouseId=${sub.warehouseId}`);
+                                }
+                              } else {
+                                isSubActive = location.pathname === sub.path;
+                              }
+
+                              return (
+                                <NavLink
+                                  key={sub.id}
+                                  to={sub.path}
+                                  onClick={onCloseMobile}
+                                  className={cn(
+                                    'flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all',
+                                    isSubActive
+                                      ? 'bg-emerald-100/70 text-emerald-900 font-bold'
+                                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                                  )}
+                                >
+                                  <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', isSubActive ? 'bg-emerald-600' : 'bg-slate-300')} />
+                                  <span className="truncate">{sub.label}</span>
+                                </NavLink>
+                              );
+                            })}
+
+                            {item.id === 'inventory' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onCloseMobile?.();
+                                  navigate('/app/inventory?action=create-warehouse');
+                                }}
+                                className="flex items-center gap-1.5 w-full text-left rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-emerald-700 hover:bg-emerald-50 transition-all border border-dashed border-emerald-300 mt-1"
+                              >
+                                <Plus className="h-3 w-3" />
+                                <span>Thêm kho mới</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </Can>
+                  );
+                }
+
+                return (
+                  <Can
+                    key={item.id}
+                    permission={item.permission}
+                    anyPermissions={item.anyPermissions}
+                  >
+                    <NavLink
+                      to={item.path}
+                      onClick={onCloseMobile}
+                      title={item.label}
+                      className={({ isActive }) =>
+                        cn(
+                          'group flex items-center rounded-xl text-xs font-semibold transition-all',
+                          isCollapsed
+                            ? 'justify-center p-2.5'
+                            : 'justify-between px-3 py-2',
+                          isActive
+                            ? 'bg-emerald-50 text-emerald-800 shadow-2xs font-bold ring-1 ring-emerald-600/20'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        )
+                      }
+                    >
+                      {({ isActive }) => (
+                        <>
+                          <div
                             className={cn(
-                              'rounded-full px-1.5 py-0.2 text-[9px] font-bold shrink-0',
-                              isActive
-                                ? 'bg-emerald-200/80 text-emerald-900'
-                                : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'
+                              'flex items-center',
+                              isCollapsed ? 'justify-center' : 'gap-2.5 truncate'
                             )}
                           >
-                            {item.badge}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </NavLink>
-                </Can>
-              ))}
+                            {renderIcon(
+                              item.icon,
+                              cn(
+                                'h-4 w-4 shrink-0 transition-colors',
+                                isActive ? 'text-emerald-700' : 'text-slate-500 group-hover:text-slate-700'
+                              )
+                            )}
+                            {!isCollapsed && <span className="truncate">{item.label}</span>}
+                          </div>
+                          {!isCollapsed && item.badge && (
+                            <span
+                              className={cn(
+                                'rounded-full px-1.5 py-0.2 text-[9px] font-bold shrink-0',
+                                isActive
+                                  ? 'bg-emerald-200/80 text-emerald-900'
+                                  : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'
+                              )}
+                            >
+                              {item.badge}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </NavLink>
+                  </Can>
+                );
+              })}
             </nav>
           </div>
 
@@ -347,7 +581,7 @@ export function DynamicSidebar({ isMobileOpen, onCloseMobile }) {
             </button>
           ) : (
             <div className="flex items-center justify-between px-1">
-              <span className="truncate">Agri-ERP v2.0 • {roleInfo.shortTitle}</span>
+              <span className="truncate">FarmGo v2.0 • {roleInfo.shortTitle}</span>
               <button
                 type="button"
                 onClick={toggleCollapse}

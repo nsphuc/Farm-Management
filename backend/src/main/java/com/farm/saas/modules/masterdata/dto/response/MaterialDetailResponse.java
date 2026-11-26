@@ -21,6 +21,7 @@ public class MaterialDetailResponse {
     private String barcode;
     private String name;
     private Long categoryId;
+    private String categoryCode;
     private String categoryName;
     private Long cropTypeId;
     private String cropTypeName;
