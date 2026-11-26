@@ -54,6 +54,7 @@ public class SalesOrderDetailResponse {
     public static class SalesOrderItemDto {
         private Long id;
         private Long productBatchId;
+        private Long livestockGroupId;
         private String batchCode;
         private String itemName;
         private BigDecimal quantity;

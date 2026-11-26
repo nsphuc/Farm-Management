@@ -193,15 +193,15 @@ export function FarmContextSwitcher() {
           <Building2 className="h-4 w-4" />
         </div>
 
-        <div className="flex flex-col pr-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
+        <div className="flex flex-col pr-1 min-w-0">
+          <div className="hidden sm:flex items-center gap-1.5">
+            <span className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">
               Trang trại tác nghiệp
             </span>
             {isOwner() && (
               <span
                 className={cn(
-                  'rounded px-1 py-0.2 text-[9px] font-bold',
+                  'rounded px-1 py-0.2 text-[9px] font-bold whitespace-nowrap',
                   isAllSelected
                     ? 'bg-amber-200 text-amber-900 border border-amber-300'
                     : 'bg-amber-100 text-amber-800'
@@ -211,7 +211,7 @@ export function FarmContextSwitcher() {
               </span>
             )}
           </div>
-          <span className="max-w-[110px] xs:max-w-[160px] sm:max-w-[200px] truncate font-bold text-slate-900 text-xs">
+          <span className="max-w-[120px] sm:max-w-[200px] truncate font-bold text-slate-900 text-xs">
             {currentFarm?.farmName || currentFarm?.name || 'Chọn trang trại'}
           </span>
         </div>

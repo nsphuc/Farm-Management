@@ -8,6 +8,7 @@ import java.util.List;
 
 public interface WarehouseService {
     List<WarehouseResponse> getWarehouses(Long farmId, String warehouseType);
+    List<WarehouseResponse> getWarehouses(Long farmId, String warehouseType, Long branchId);
     WarehouseResponse getWarehouseById(Long farmId, Long warehouseId);
     WarehouseResponse createWarehouse(Long farmId, CreateWarehouseRequest request);
     WarehouseResponse updateWarehouse(Long farmId, Long warehouseId, UpdateWarehouseRequest request);

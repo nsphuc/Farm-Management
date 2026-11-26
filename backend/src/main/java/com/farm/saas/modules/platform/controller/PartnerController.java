@@ -23,7 +23,7 @@ public class PartnerController {
     private final PartnerService partnerService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') or hasAuthority('PERM_INVENTORY_RECEIPT') or hasAuthority('PERM_FARM_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('purchase_invoices.view', 'sales.view', 'cashbook.view', 'PERM_FINANCE_SALES_ORDER', 'PERM_INVENTORY_RECEIPT', 'PERM_FARM_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<Page<PartnerResponse>> getPartners(
             @RequestParam(required = false) Long farmId,
             @RequestParam(required = false) String partnerType,

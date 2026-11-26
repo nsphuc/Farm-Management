@@ -129,4 +129,8 @@ public class CustomUserDetails implements UserDetails {
         if (isSuperAdmin) return true;
         return permissions != null && permissions.contains(permission);
     }
+
+    public boolean hasAuthority(String authority) {
+        return hasPermission(authority) || hasRole(authority);
+    }
 }

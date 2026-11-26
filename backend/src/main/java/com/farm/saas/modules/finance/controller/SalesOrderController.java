@@ -25,7 +25,7 @@ public class SalesOrderController {
     private final SalesOrderService salesOrderService;
 
     @GetMapping
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_PAYMENT', 'PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_WAREHOUSE_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('sales.view', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_PAYMENT', 'PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Danh sách đơn bán sỉ", description = "Lấy danh sách các đơn đặt hàng bán sỉ có phân trang")
     public ResponseEntity<Page<SalesOrderDetailResponse>> getOrders(
             @PathVariable(required = false) Long farmId,
@@ -36,7 +36,7 @@ public class SalesOrderController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("(hasAnyAuthority('PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_PAYMENT', 'PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT', 'ROLE_WAREHOUSE_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('sales.view', 'PERM_FINANCE_SALES_ORDER', 'PERM_FINANCE_REPORT', 'PERM_FINANCE_PAYMENT', 'PERM_DELIVERY_MANAGE', 'PERM_INVENTORY_ISSUE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     @Operation(summary = "Chi tiết đơn bán sỉ & VietQR", description = "Lấy thông tin chi tiết đơn hàng, mặt hàng và URL VietQR thanh toán")
     public ResponseEntity<SalesOrderDetailResponse> getOrderById(
             @PathVariable(required = false) Long farmId,
@@ -45,7 +45,7 @@ public class SalesOrderController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('sales.create', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Tạo mới đơn hàng bán sỉ",
             description = "Tạo đơn hàng mới, kiểm tra hạn mức tín dụng khách hàng và tính toán thuế, chiết khấu, công nợ")
     public ResponseEntity<SalesOrderDetailResponse> createOrder(
@@ -55,7 +55,7 @@ public class SalesOrderController {
     }
 
     @PostMapping({"/{id}/confirm", "/{id}/approve"})
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and @farmSecurity.isFarmManager(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('sales.price', 'sales.create', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Duyệt đơn hàng bán sỉ & Giữ chỗ tồn kho",
             description = "Phê duyệt đơn hàng và khóa bi quan để tăng reserved_quantity của các lô thành phẩm chỉ định")
     public ResponseEntity<SalesOrderDetailResponse> confirmOrder(
@@ -65,7 +65,7 @@ public class SalesOrderController {
     }
 
     @PostMapping("/{id}/cancel")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_SALES_ORDER') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('sales.create', 'PERM_FINANCE_SALES_ORDER') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Hủy đơn hàng bán sỉ & Hoàn trả giữ chỗ",
             description = "Hủy đơn hàng khi chưa có đợt giao hoàn tất và giải phóng lượng hàng đã giữ chỗ")
     public ResponseEntity<SalesOrderDetailResponse> cancelOrder(

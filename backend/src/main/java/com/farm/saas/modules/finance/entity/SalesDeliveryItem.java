@@ -25,8 +25,11 @@ public class SalesDeliveryItem {
     @Column(name = "sales_order_item_id", nullable = false)
     private Long salesOrderItemId;
 
-    @Column(name = "product_batch_id", nullable = false)
+    @Column(name = "product_batch_id")
     private Long productBatchId;
+
+    @Column(name = "livestock_group_id")
+    private Long livestockGroupId;
 
     @Column(name = "quantity", nullable = false, precision = 12, scale = 2)
     private BigDecimal quantity;

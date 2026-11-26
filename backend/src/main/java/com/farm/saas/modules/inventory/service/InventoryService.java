@@ -42,6 +42,7 @@ public interface InventoryService {
 
     // --- 4. Warehouse Transfers ---
     Page<WarehouseTransferDetailResponse> getTransfers(Long farmId, Pageable pageable);
+    Page<WarehouseTransferDetailResponse> getTransfers(Long farmId, Long branchId, Pageable pageable);
     WarehouseTransferDetailResponse createTransfer(Long farmId, CreateWarehouseTransferRequest request);
     WarehouseTransferDetailResponse getTransferById(Long farmId, Long id);
     WarehouseTransferDetailResponse dispatchTransfer(Long farmId, Long id);
@@ -49,6 +50,7 @@ public interface InventoryService {
 
     // --- 5. Stocktakes ---
     Page<StocktakeDetailResponse> getStocktakes(Long farmId, Pageable pageable);
+    Page<StocktakeDetailResponse> getStocktakes(Long farmId, Long branchId, Pageable pageable);
     StocktakeDetailResponse createStocktake(Long farmId, CreateStocktakeRequest request);
     StocktakeDetailResponse getStocktakeById(Long farmId, Long id);
     StocktakeDetailResponse recordStocktakeCount(Long farmId, Long id, RecordStocktakeCountRequest request);

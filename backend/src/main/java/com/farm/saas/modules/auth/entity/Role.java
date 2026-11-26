@@ -27,6 +27,12 @@ public class Role {
     @Column(name = "scope_level", nullable = false, length = 50)
     private String scopeLevel;
 
+    @Column(name = "farm_id")
+    private Long farmId;
+
+    @Column(name = "is_system", nullable = false)
+    private Boolean isSystem;
+
     @Column(name = "description", length = 500)
     private String description;
 

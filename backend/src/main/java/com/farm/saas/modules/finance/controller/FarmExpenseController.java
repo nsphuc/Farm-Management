@@ -64,7 +64,7 @@ public class FarmExpenseController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('cashbook.create', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Ghi nhận chi phí vận hành", description = "Tạo mới khoản chi phí, tự động ghi nhận ngân sách và cảnh báo 85% hạn mức nếu xác nhận")
     public ResponseEntity<FarmExpenseDetailResponse> createExpense(
             @PathVariable Long farmId,
@@ -73,7 +73,7 @@ public class FarmExpenseController {
     }
 
     @PostMapping("/{id}/allocate")
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('cashbook.create', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Phân bổ chi phí đa đối tượng", description = "Phân bổ chi phí vào mùa vụ, đàn nuôi hoặc khu vực sản xuất với chốt chặn toán học")
     public ResponseEntity<FarmExpenseDetailResponse> allocateCost(
             @PathVariable Long farmId,
@@ -83,7 +83,7 @@ public class FarmExpenseController {
     }
 
     @PostMapping({"/{id}/confirm", "/{id}/approve"})
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and @farmSecurity.isFarmManager(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('cashbook.create', 'cashbook.view', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Phê duyệt chi phí vận hành", description = "Giám đốc trang trại phê duyệt chi phí từ DRAFT sang CONFIRMED và cập nhật giải ngân ngân sách")
     public ResponseEntity<FarmExpenseDetailResponse> confirmExpense(
             @PathVariable Long farmId,
@@ -92,7 +92,7 @@ public class FarmExpenseController {
     }
 
     @PostMapping({"/{id}/cancel", "/{id}/reject"})
-    @PreAuthorize("hasAuthority('PERM_FINANCE_EXPENSE') and @farmSecurity.isFarmManager(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('cashbook.create', 'cashbook.view', 'PERM_FINANCE_EXPENSE') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and @farmSecurity.canAccessFarm(#farmId)")
     @Operation(summary = "Hủy hoặc từ chối chi phí vận hành", description = "Giám đốc trang trại từ chối hoặc hủy chi phí DRAFT")
     public ResponseEntity<FarmExpenseDetailResponse> cancelExpense(
             @PathVariable Long farmId,

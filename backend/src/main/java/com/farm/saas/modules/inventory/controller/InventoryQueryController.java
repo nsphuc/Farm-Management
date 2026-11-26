@@ -1,5 +1,6 @@
 package com.farm.saas.modules.inventory.controller;
 
+import com.farm.saas.common.security.FarmSecurityEvaluator;
 import com.farm.saas.modules.inventory.dto.response.InventoryItemResponse;
 import com.farm.saas.modules.inventory.dto.response.InventorySummaryResponse;
 import com.farm.saas.modules.inventory.dto.response.InventoryTransactionResponse;
@@ -21,33 +22,39 @@ import java.time.LocalDate;
 public class InventoryQueryController {
 
     private final InventoryService inventoryService;
+    private final FarmSecurityEvaluator farmSecurity;
 
     @GetMapping({"/api/v1/farms/{farmId}/inventory/summary", "/api/v1/inventory/summary"})
-    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'inventory.view', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<InventorySummaryResponse> getInventorySummary(
             @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long branchId,
             @RequestParam(required = false) Long warehouseId) {
+        farmSecurity.resolveEffectiveBranchId(farmId, branchId);
         return ResponseEntity.ok(inventoryService.getInventorySummary(farmId, warehouseId));
     }
 
     @GetMapping({"/api/v1/farms/{farmId}/inventory", "/api/v1/inventory"})
-    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'inventory.view', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<Page<InventoryItemResponse>> getInventory(
             @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long branchId,
             @RequestParam(required = false) Long warehouseId,
             @RequestParam(required = false) Long materialId,
             @RequestParam(required = false) String batchNumber,
             @RequestParam(required = false) Boolean lowStock,
             @RequestParam(required = false) Boolean nearExpiry,
             @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
+        farmSecurity.resolveEffectiveBranchId(farmId, branchId);
         return ResponseEntity.ok(inventoryService.getInventory(
                 farmId, warehouseId, materialId, batchNumber, lowStock, nearExpiry, pageable));
     }
 
     @GetMapping({"/api/v1/farms/{farmId}/inventory/transactions", "/api/v1/inventory/transactions"})
-    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'inventory.view', 'PERM_LIVESTOCK_VET', 'PERM_CROP_LOG') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<Page<InventoryTransactionResponse>> getTransactions(
             @PathVariable(required = false) Long farmId,
+            @RequestParam(required = false) Long branchId,
             @RequestParam(required = false) Long warehouseId,
             @RequestParam(required = false) Long materialId,
             @RequestParam(required = false) String batchNumber,
@@ -55,6 +62,7 @@ public class InventoryQueryController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
             @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
+        farmSecurity.resolveEffectiveBranchId(farmId, branchId);
         return ResponseEntity.ok(inventoryService.getTransactions(
                 farmId, warehouseId, materialId, batchNumber, transactionType, fromDate, toDate, pageable));
     }

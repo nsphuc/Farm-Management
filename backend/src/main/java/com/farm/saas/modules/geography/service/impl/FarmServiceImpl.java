@@ -48,6 +48,9 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
     private final UserRepository userRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
+    private final BranchRepository branchRepository;
+    private final FarmDataRuleRepository farmDataRuleRepository;
+    private final com.farm.saas.modules.finance.repository.FarmFinancialSettingRepository farmFinancialSettingRepository;
     private final com.farm.saas.common.codegenerator.CodeGenerator codeGenerator;
 
     private static final Set<String> VALID_FARM_TYPES = Set.of("CROP", "LIVESTOCK", "MIXED");
@@ -182,6 +185,48 @@ public class FarmServiceImpl implements com.farm.saas.modules.geography.service.
                 .createdBy(SecurityUtils.getCurrentUserId())
                 .build();
         farmOperationalSettingRepository.save(defaultSettings);
+
+        // Khởi tạo Chi nhánh 1 - Trụ sở chính với loại hình người dùng chọn khi tạo farm
+        String defaultLivestockType = "LIVESTOCK_MEAT";
+        if (savedFarm.getLivestockType() != null && !savedFarm.getLivestockType().isBlank()) {
+            defaultLivestockType = savedFarm.getLivestockType();
+        } else if ("POULTRY".equalsIgnoreCase(savedFarm.getFarmType())) {
+            defaultLivestockType = "POULTRY_MEAT";
+        } else if ("AQUACULTURE".equalsIgnoreCase(savedFarm.getFarmType())) {
+            defaultLivestockType = "AQUACULTURE";
+        }
+
+        com.farm.saas.modules.geography.entity.Branch defaultBranch = com.farm.saas.modules.geography.entity.Branch.builder()
+                .farmId(savedFarm.getId())
+                .code("CN01")
+                .name("Chi nhánh 1 - Trụ sở chính")
+                .livestockType(defaultLivestockType)
+                .isDefault(true)
+                .status("ACTIVE")
+                .createdAt(Instant.now())
+                .createdBy(SecurityUtils.getCurrentUserId())
+                .build();
+        branchRepository.save(defaultBranch);
+
+        // Khởi tạo Quy tắc dữ liệu mặc định (Quản lý theo lô, HSD, 3 ngày sửa nhật ký cũ)
+        farmDataRuleRepository.save(com.farm.saas.modules.geography.entity.FarmDataRule.builder()
+                .farmId(savedFarm.getId())
+                .manageByBatch(true)
+                .enforceExpiryDate(true)
+                .maxEditLogDays(3)
+                .autoDeductInventory(true)
+                .build());
+
+        // Khởi tạo Cấu hình tài chính & VietQR mặc định
+        farmFinancialSettingRepository.save(com.farm.saas.modules.finance.entity.FarmFinancialSetting.builder()
+                .farmId(savedFarm.getId())
+                .bankBin("970436")
+                .bankName("Vietcombank")
+                .bankAccountNo("1026790945")
+                .bankAccountName("NGUYEN SI PHUC")
+                .defaultExpenseReasons("[\"Chi mua cám thức ăn\", \"Chi mua thuốc thú y & vắc-xin\", \"Chi trả tiền điện, nước\", \"Chi trả lương nhân công\", \"Chi bảo dưỡng sửa chữa trang trại\", \"Chi phí khác\"]")
+                .defaultIncomeReasons("[\"Thu tiền bán xuất chuồng\", \"Thu tiền bán con giống\", \"Thu tiền bán phụ phẩm\", \"Thu hồi công nợ thương lái\", \"Thu nhập khác\"]")
+                .build());
 
         // Cấp quyền user_farm_access (#12) cho người tạo nếu có userId
         Long currentUserId = SecurityUtils.getCurrentUserId();

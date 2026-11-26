@@ -10,7 +10,6 @@ import com.farm.saas.modules.finance.entity.DebtRecord;
 import com.farm.saas.modules.finance.entity.FarmExpense;
 import com.farm.saas.modules.finance.repository.DebtRecordRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
-import com.farm.saas.modules.finance.service.BudgetService;
 import com.farm.saas.modules.geography.entity.ZoneLocation;
 import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
@@ -20,15 +19,17 @@ import com.farm.saas.modules.inventory.entity.*;
 import com.farm.saas.modules.inventory.repository.*;
 import com.farm.saas.modules.masterdata.entity.CostCategory;
 import com.farm.saas.modules.masterdata.entity.Material;
+import com.farm.saas.modules.masterdata.entity.MaterialCategory;
+import com.farm.saas.modules.masterdata.entity.MaterialUnitConversion;
 import com.farm.saas.modules.masterdata.entity.Warehouse;
 import com.farm.saas.modules.masterdata.repository.CostCategoryRepository;
+import com.farm.saas.modules.masterdata.repository.MaterialCategoryRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialRepository;
+import com.farm.saas.modules.masterdata.repository.MaterialUnitConversionRepository;
 import com.farm.saas.modules.masterdata.repository.WarehouseRepository;
 import com.farm.saas.modules.notification.service.NotificationService;
-import com.farm.saas.modules.hr.entity.Employee;
-import com.farm.saas.modules.hr.entity.FarmTask;
-import com.farm.saas.modules.hr.repository.EmployeeRepository;
-import com.farm.saas.modules.hr.repository.FarmTaskRepository;
+import com.farm.saas.modules.workforce.entity.Employee;
+import com.farm.saas.modules.workforce.repository.EmployeeRepository;
 import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.PartnerRepository;
 import jakarta.persistence.criteria.Predicate;
@@ -69,16 +70,16 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     private final StocktakeItemRepository stocktakeItemRepository;
     private final WarehouseRepository warehouseRepository;
     private final MaterialRepository materialRepository;
+    private final MaterialCategoryRepository materialCategoryRepository;
+    private final MaterialUnitConversionRepository materialUnitConversionRepository;
     private final PartnerRepository partnerRepository;
     private final DebtRecordRepository debtRecordRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final FarmRepository farmRepository;
     private final FarmExpenseRepository farmExpenseRepository;
     private final CostCategoryRepository costCategoryRepository;
-    private final BudgetService budgetService;
     private final NotificationService notificationService;
     private final ZoneLocationRepository zoneLocationRepository;
-    private final FarmTaskRepository farmTaskRepository;
     private final EmployeeRepository employeeRepository;
 
     private void notifyFarmManager(Long farmId, Long tenantId, String title, String message, String refType, Long refId, String actionUrl) {
@@ -114,8 +115,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 ZoneLocation loc = locOpt.get();
                 if (loc.getCapacity() != null && reqQty.compareTo(BigDecimal.valueOf(loc.getCapacity())) > 0) {
                     throw new ApiException(HttpStatus.BAD_REQUEST, "INSUFFICIENT_BIN_CAPACITY",
-                            "Kệ [" + binCode + "] không đủ sức chứa " + actionDescription + "! Sức chứa hiện tại: "
-                                    + loc.getCapacity() + ", số lượng yêu cầu: " + reqQty.stripTrailingZeros().toPlainString());
+                            "Ká»‡ [" + binCode + "] khÃ´ng Ä‘á»§ sá»©c chá»©a " + actionDescription + "! Sá»©c chá»©a hiá»‡n táº¡i: "
+                                    + loc.getCapacity() + ", sá»‘ lÆ°á»£ng yÃªu cáº§u: " + reqQty.stripTrailingZeros().toPlainString());
                 }
             }
         }
@@ -199,8 +200,18 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
+            Long currentBranchId = SecurityUtils.getCurrentBranchId();
             if (warehouseId != null) {
                 predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            } else if (currentBranchId != null) {
+                List<Long> branchWhIds = (farmId != null)
+                        ? warehouseRepository.findByFarmIdAndBranchId(farmId, currentBranchId).stream().map(Warehouse::getId).collect(Collectors.toList())
+                        : warehouseRepository.findAll().stream().filter(w -> currentBranchId.equals(w.getBranchId())).map(Warehouse::getId).collect(Collectors.toList());
+                if (branchWhIds.isEmpty()) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(root.get("warehouseId").in(branchWhIds));
+                }
             }
             if (materialId != null) {
                 predicates.add(cb.equal(root.get("materialId"), materialId));
@@ -229,15 +240,25 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     public InventorySummaryResponse getInventorySummary(Long farmId, Long warehouseId) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
 
-        // 1. Tồn kho
+        // 1. Tá»“n kho
         Specification<WarehouseInventory> invSpec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             applyFarmAccessPredicate(farmId, root, cb, predicates);
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
+            Long currentBranchId = SecurityUtils.getCurrentBranchId();
             if (warehouseId != null) {
                 predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            } else if (currentBranchId != null) {
+                List<Long> branchWhIds = (farmId != null)
+                        ? warehouseRepository.findByFarmIdAndBranchId(farmId, currentBranchId).stream().map(Warehouse::getId).collect(Collectors.toList())
+                        : warehouseRepository.findAll().stream().filter(w -> currentBranchId.equals(w.getBranchId())).map(Warehouse::getId).collect(Collectors.toList());
+                if (branchWhIds.isEmpty()) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(root.get("warehouseId").in(branchWhIds));
+                }
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };
@@ -262,15 +283,25 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             }
         }
 
-        // 2. Tổng giá trị nhập mua (trừ phiếu CANCELLED)
+        // 2. Tá»•ng giÃ¡ trá»‹ nháº­p mua (trá»« phiáº¿u CANCELLED)
         Specification<WarehouseReceipt> receiptSpec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             applyFarmAccessPredicate(farmId, root, cb, predicates);
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
+            Long currentBranchId = SecurityUtils.getCurrentBranchId();
             if (warehouseId != null) {
                 predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            } else if (currentBranchId != null) {
+                List<Long> branchWhIds = (farmId != null)
+                        ? warehouseRepository.findByFarmIdAndBranchId(farmId, currentBranchId).stream().map(Warehouse::getId).collect(Collectors.toList())
+                        : warehouseRepository.findAll().stream().filter(w -> currentBranchId.equals(w.getBranchId())).map(Warehouse::getId).collect(Collectors.toList());
+                if (branchWhIds.isEmpty()) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(root.get("warehouseId").in(branchWhIds));
+                }
             }
             predicates.add(cb.notEqual(root.get("status"), "CANCELLED"));
             return cb.and(predicates.toArray(new Predicate[0]));
@@ -281,9 +312,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .map(r -> r.getTotalAmount() != null ? r.getTotalAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        boolean canViewPrice = SecurityUtils.canViewFinancialPrice();
         return InventorySummaryResponse.builder()
-                .totalInventoryValuation(totalValuation)
-                .totalPurchasedAmount(totalPurchased)
+                .totalInventoryValuation(canViewPrice ? totalValuation : null)
+                .totalPurchasedAmount(canViewPrice ? totalPurchased : null)
                 .nearExpiryCount(nearExpiryCount)
                 .lowStockCount(lowStockCount)
                 .build();
@@ -303,8 +335,18 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
+            Long currentBranchId = SecurityUtils.getCurrentBranchId();
             if (warehouseId != null) {
                 predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            } else if (currentBranchId != null) {
+                List<Long> branchWhIds = (farmId != null)
+                        ? warehouseRepository.findByFarmIdAndBranchId(farmId, currentBranchId).stream().map(Warehouse::getId).collect(Collectors.toList())
+                        : warehouseRepository.findAll().stream().filter(w -> currentBranchId.equals(w.getBranchId())).map(Warehouse::getId).collect(Collectors.toList());
+                if (branchWhIds.isEmpty()) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(root.get("warehouseId").in(branchWhIds));
+                }
             }
             if (materialId != null) {
                 predicates.add(cb.equal(root.get("materialId"), materialId));
@@ -333,7 +375,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     }
 
     // =========================================================================
-    // 2. WAREHOUSE RECEIPTS (NHẬP KHO & LUỒNG 2: MUA HÀNG + CÔNG NỢ)
+    // 2. WAREHOUSE RECEIPTS (NHáº¬P KHO & LUá»’NG 2: MUA HÃ€NG + CÃ”NG Ná»¢)
     // =========================================================================
 
     @Override
@@ -343,12 +385,12 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         if ("PURCHASE".equalsIgnoreCase(request.getReceiptType())) {
             if (request.getPartnerId() == null) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_PARTNER", "Phiếu nhập mua hàng bắt buộc phải có thông tin đối tác cung cấp.");
+                throw new ApiException(HttpStatus.BAD_REQUEST, "MISSING_PARTNER", "Phiáº¿u nháº­p mua hÃ ng báº¯t buá»™c pháº£i cÃ³ thÃ´ng tin Ä‘á»‘i tÃ¡c cung cáº¥p.");
             }
             Partner partner = partnerRepository.findByTenantIdAndId(tenantId, request.getPartnerId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Đối tác", request.getPartnerId()));
+                    .orElseThrow(() -> new ResourceNotFoundException("Äá»‘i tÃ¡c", request.getPartnerId()));
             if (!"SUPPLIER".equalsIgnoreCase(partner.getPartnerType()) && !"AGENT".equalsIgnoreCase(partner.getPartnerType())) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PARTNER_TYPE", "Đối tác cung cấp phải thuộc loại SUPPLIER hoặc AGENT.");
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_PARTNER_TYPE", "Äá»‘i tÃ¡c cung cáº¥p pháº£i thuá»™c loáº¡i SUPPLIER hoáº·c AGENT.");
             }
         }
 
@@ -357,7 +399,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 : generateDocCode("RCP");
 
         if (receiptRepository.existsByTenantIdAndFarmIdAndReceiptCode(tenantId, farmId, code)) {
-            throw new ApiException(HttpStatus.CONFLICT, "RECEIPT_CODE_ALREADY_EXISTS", "Mã phiếu nhập kho đã tồn tại: " + code);
+            throw new ApiException(HttpStatus.CONFLICT, "RECEIPT_CODE_ALREADY_EXISTS", "MÃ£ phiáº¿u nháº­p kho Ä‘Ã£ tá»“n táº¡i: " + code);
         }
 
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -374,7 +416,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 if (itemReq.getEnteredQuantity() != null && itemReq.getEnteredQuantity().compareTo(BigDecimal.ZERO) > 0) {
                     qty = itemReq.getEnteredQuantity().multiply(factor);
                 } else {
-                    throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_QUANTITY", "Số lượng nhập kho phải lớn hơn 0.");
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_QUANTITY", "Sá»‘ lÆ°á»£ng nháº­p kho pháº£i lá»›n hÆ¡n 0.");
                 }
             }
 
@@ -409,7 +451,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             itemsToSave.add(item);
         }
 
-        validateLocationCapacity(request.getWarehouseId(), farmId, binQtyMap, "để lập phiếu nhập kho");
+        validateLocationCapacity(request.getWarehouseId(), farmId, binQtyMap, "Ä‘á»ƒ láº­p phiáº¿u nháº­p kho");
 
         WarehouseReceipt receipt = WarehouseReceipt.builder()
                 .tenantId(tenantId)
@@ -443,8 +485,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Receipt: " + receipt.getReceiptCode() + ", Amount: " + receipt.getTotalAmount())
                 .build());
 
-        notifyFarmManager(farmId, tenantId, "Phiếu nhập kho mới",
-                "Thủ kho vừa lập Phiếu nhập kho [" + receipt.getReceiptCode() + "] đang chờ phê duyệt.",
+        notifyFarmManager(farmId, tenantId, "Phiáº¿u nháº­p kho má»›i",
+                "Thá»§ kho vá»«a láº­p Phiáº¿u nháº­p kho [" + receipt.getReceiptCode() + "] Ä‘ang chá» phÃª duyá»‡t.",
                 "WAREHOUSE_RECEIPT", receipt.getId(), "/app/inventory?tab=RECEIPT&id=" + receipt.getId());
 
         return enrichReceiptDetail(receipt);
@@ -463,8 +505,18 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
+            Long currentBranchId = SecurityUtils.getCurrentBranchId();
             if (warehouseId != null) {
                 predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            } else if (currentBranchId != null) {
+                List<Long> branchWhIds = (farmId != null)
+                        ? warehouseRepository.findByFarmIdAndBranchId(farmId, currentBranchId).stream().map(Warehouse::getId).collect(Collectors.toList())
+                        : warehouseRepository.findAll().stream().filter(w -> currentBranchId.equals(w.getBranchId())).map(Warehouse::getId).collect(Collectors.toList());
+                if (branchWhIds.isEmpty()) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(root.get("warehouseId").in(branchWhIds));
+                }
             }
             if (partnerId != null) {
                 predicates.add(cb.equal(root.get("partnerId"), partnerId));
@@ -493,7 +545,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Transactional(readOnly = true)
     public WarehouseReceiptDetailResponse getReceiptById(Long farmId, Long id) {
         WarehouseReceipt receipt = receiptRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu nhập kho", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u nháº­p kho", id));
         return enrichReceiptDetail(receipt);
     }
 
@@ -502,15 +554,15 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     public WarehouseReceiptDetailResponse completeReceipt(Long farmId, Long id) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         WarehouseReceipt receipt = receiptRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu nhập kho", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u nháº­p kho", id));
 
         if (!"DRAFT".equals(receipt.getStatus()) && !"APPROVED".equals(receipt.getStatus())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION",
-                    "Chỉ có thể hoàn tất phiếu nhập khi đang ở trạng thái DRAFT hoặc APPROVED. Hiện tại: " + receipt.getStatus());
+                    "Chá»‰ cÃ³ thá»ƒ hoÃ n táº¥t phiáº¿u nháº­p khi Ä‘ang á»Ÿ tráº¡ng thÃ¡i DRAFT hoáº·c APPROVED. Hiá»‡n táº¡i: " + receipt.getStatus());
         }
 
         List<WarehouseReceiptItem> items = receiptItemRepository.findByReceiptId(receipt.getId());
-        // Khóa các lô theo thứ tự nhất quán để tránh deadlock
+        // KhÃ³a cÃ¡c lÃ´ theo thá»© tá»± nháº¥t quÃ¡n Ä‘á»ƒ trÃ¡nh deadlock
         items.sort(Comparator.comparing(WarehouseReceiptItem::getMaterialId)
                 .thenComparing(WarehouseReceiptItem::getBatchNumber));
 
@@ -520,10 +572,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 receiptBinQtyMap.merge(item.getStorageBinCode().trim(), item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO, BigDecimal::add);
             }
         }
-        validateLocationCapacity(receipt.getWarehouseId(), farmId, receiptBinQtyMap, "để hoàn tất nhập kho");
+        validateLocationCapacity(receipt.getWarehouseId(), farmId, receiptBinQtyMap, "Ä‘á»ƒ hoÃ n táº¥t nháº­p kho");
 
         for (WarehouseReceiptItem item : items) {
-            // Khóa bi quan dòng warehouse_inventory
+            // KhÃ³a bi quan dÃ²ng warehouse_inventory
             Optional<WarehouseInventory> invOpt = inventoryRepository
                     .findByWarehouseIdAndMaterialIdAndBatchNumberForUpdate(
                             receipt.getWarehouseId(), item.getMaterialId(), item.getBatchNumber());
@@ -566,7 +618,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             }
             inventoryRepository.save(inventory);
 
-            // Ghi sổ cái bất biến (#38)
+            // Ghi sá»• cÃ¡i báº¥t biáº¿n (#38)
             WarehouseInventoryTransaction transaction = WarehouseInventoryTransaction.builder()
                     .tenantId(tenantId)
                     .farmId(farmId)
@@ -584,17 +636,17 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .balanceBefore(balanceBefore)
                     .balanceAfter(balanceAfter)
                     .transactionDate(receipt.getReceiptDate())
-                    .notes("Nhập kho theo phiếu " + receipt.getReceiptCode())
+                    .notes("Nháº­p kho theo phiáº¿u " + receipt.getReceiptCode())
                     .createdAt(Instant.now())
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             transactionRepository.save(transaction);
 
-            // Cập nhật giảm sức chứa của vị trí kệ
+            // Cáº­p nháº­t giáº£m sá»©c chá»©a cá»§a vá»‹ trÃ­ ká»‡
             deductLocationCapacity(receipt.getWarehouseId(), farmId, item.getStorageBinCode(), item.getQuantity());
         }
 
-        // Luồng 2: Nếu là nhập mua PURCHASE -> tự động sinh công nợ phải trả trong debt_records (#66)
+        // Luá»“ng 2: Náº¿u lÃ  nháº­p mua PURCHASE -> tá»± Ä‘á»™ng sinh cÃ´ng ná»£ pháº£i tráº£ trong debt_records (#66)
         if ("PURCHASE".equalsIgnoreCase(receipt.getReceiptType()) && receipt.getPartnerId() != null) {
             Partner partner = partnerRepository.findByTenantIdAndId(tenantId, receipt.getPartnerId())
                     .orElse(null);
@@ -637,8 +689,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Completed receipt: " + receipt.getReceiptCode())
                 .build());
 
-        notifyCreator(farmId, tenantId, receipt.getCreatedBy(), "Phiếu nhập kho đã hoàn tất",
-                "Giám đốc trang trại đã phê duyệt hoàn tất Phiếu nhập kho [" + receipt.getReceiptCode() + "]. Hàng đã nhập kho.",
+        notifyCreator(farmId, tenantId, receipt.getCreatedBy(), "Phiáº¿u nháº­p kho Ä‘Ã£ hoÃ n táº¥t",
+                "GiÃ¡m Ä‘á»‘c trang tráº¡i Ä‘Ã£ phÃª duyá»‡t hoÃ n táº¥t Phiáº¿u nháº­p kho [" + receipt.getReceiptCode() + "]. HÃ ng Ä‘Ã£ nháº­p kho.",
                 "WAREHOUSE_RECEIPT", receipt.getId(), "/app/inventory?tab=RECEIPT&id=" + receipt.getId());
 
         return enrichReceiptDetail(receipt);
@@ -648,11 +700,11 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Transactional
     public WarehouseReceiptDetailResponse cancelReceipt(Long farmId, Long id, CancelWarehouseReceiptRequest request) {
         WarehouseReceipt receipt = receiptRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu nhập kho", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u nháº­p kho", id));
 
         if (!"DRAFT".equals(receipt.getStatus()) && !"APPROVED".equals(receipt.getStatus())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION",
-                    "Chỉ có thể hủy phiếu nhập khi đang ở trạng thái DRAFT hoặc APPROVED.");
+                    "Chá»‰ cÃ³ thá»ƒ há»§y phiáº¿u nháº­p khi Ä‘ang á»Ÿ tráº¡ng thÃ¡i DRAFT hoáº·c APPROVED.");
         }
 
         receipt.setStatus("CANCELLED");
@@ -673,15 +725,15 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Cancelled receipt: " + receipt.getReceiptCode() + ", Reason: " + request.getCancellationReason())
                 .build());
 
-        notifyCreator(farmId, receipt.getTenantId(), receipt.getCreatedBy(), "Phiếu nhập kho đã bị hủy",
-                "Phiếu nhập kho [" + receipt.getReceiptCode() + "] đã bị hủy. Lý do: " + (request != null ? request.getCancellationReason() : ""),
+        notifyCreator(farmId, receipt.getTenantId(), receipt.getCreatedBy(), "Phiáº¿u nháº­p kho Ä‘Ã£ bá»‹ há»§y",
+                "Phiáº¿u nháº­p kho [" + receipt.getReceiptCode() + "] Ä‘Ã£ bá»‹ há»§y. LÃ½ do: " + (request != null ? request.getCancellationReason() : ""),
                 "WAREHOUSE_RECEIPT", receipt.getId(), "/app/inventory?tab=RECEIPT&id=" + receipt.getId());
 
         return enrichReceiptDetail(receipt);
     }
 
     // =========================================================================
-    // 3. WAREHOUSE ISSUES (XUẤT KHO THỦ CÔNG)
+    // 3. WAREHOUSE ISSUES (XUáº¤T KHO THá»¦ CÃ”NG)
     // =========================================================================
 
     @Override
@@ -694,7 +746,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 : generateDocCode("ISS");
 
         if (issueRepository.existsByTenantIdAndFarmIdAndIssueCode(tenantId, farmId, code)) {
-            throw new ApiException(HttpStatus.CONFLICT, "ISSUE_CODE_ALREADY_EXISTS", "Mã phiếu xuất kho đã tồn tại: " + code);
+            throw new ApiException(HttpStatus.CONFLICT, "ISSUE_CODE_ALREADY_EXISTS", "MÃ£ phiáº¿u xuáº¥t kho Ä‘Ã£ tá»“n táº¡i: " + code);
         }
 
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -710,7 +762,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 if (itemReq.getEnteredQuantity() != null && itemReq.getEnteredQuantity().compareTo(BigDecimal.ZERO) > 0) {
                     qty = itemReq.getEnteredQuantity().multiply(factor);
                 } else {
-                    throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_QUANTITY", "Số lượng xuất kho phải lớn hơn 0.");
+                    throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_QUANTITY", "Sá»‘ lÆ°á»£ng xuáº¥t kho pháº£i lá»›n hÆ¡n 0.");
                 }
             }
 
@@ -774,8 +826,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Issue: " + issue.getIssueCode() + ", Amount: " + issue.getTotalAmount())
                 .build());
 
-        notifyFarmManager(farmId, tenantId, "Phiếu xuất kho mới",
-                "Thủ kho vừa lập Phiếu xuất kho [" + issue.getIssueCode() + "] đang chờ phê duyệt.",
+        notifyFarmManager(farmId, tenantId, "Phiáº¿u xuáº¥t kho má»›i",
+                "Thá»§ kho vá»«a láº­p Phiáº¿u xuáº¥t kho [" + issue.getIssueCode() + "] Ä‘ang chá» phÃª duyá»‡t.",
                 "WAREHOUSE_ISSUE", issue.getId(), "/app/inventory?tab=ISSUE&id=" + issue.getId());
 
         return enrichIssueDetail(issue);
@@ -784,173 +836,15 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Override
     @Transactional
     public WarehouseIssueDetailResponse autoCreateIssueDraftForTask(Long farmId, Long taskId, Long currentUserId) {
-        if (farmId == null || taskId == null) return null;
-
-        FarmTask task = farmTaskRepository.findById(taskId).orElse(null);
-        if (task == null) return null;
-
-        Long materialId = task.getMaterialId();
-        BigDecimal standardQty = task.getStandardQuantity();
-        if (materialId == null || standardQty == null || standardQty.compareTo(BigDecimal.ZERO) <= 0) {
-            return null;
-        }
-
-        Long tenantId = task.getTenantId();
-
-        // 1. Tránh tạo trùng lặp phiếu đang hoạt động cho task này
-        if (issueRepository.existsByTaskIdAndStatusNot(taskId, "CANCELLED")) {
-            WarehouseIssue existing = issueRepository.findFirstByTaskIdAndStatusNot(taskId, "CANCELLED").orElse(null);
-            if (existing != null) {
-                return enrichIssueDetail(existing);
-            }
-        }
-
-        // 2. Xác định kho xuất
-        Long warehouseId = task.getWarehouseId();
-        if (warehouseId == null) {
-            List<Warehouse> farmWarehouses = warehouseRepository.findByFarmId(farmId);
-            if (!farmWarehouses.isEmpty()) {
-                warehouseId = farmWarehouses.get(0).getId();
-            } else {
-                log.warn("Không tìm thấy kho nào cho farmId={} để xuất vật tư task id={}", farmId, taskId);
-                return null;
-            }
-        }
-
-        Material material = materialRepository.findById(materialId).orElse(null);
-        if (material == null) {
-            log.warn("Không tìm thấy vật tư id={} của task id={}", materialId, taskId);
-            return null;
-        }
-
-        // 3. Người nhận hàng từ task (công nhân được giao việc)
-        String receiverName = "Công nhân thực hiện";
-        if (task.getAssignedToEmployeeId() != null) {
-            Employee emp = employeeRepository.findById(task.getAssignedToEmployeeId()).orElse(null);
-            if (emp != null && StringUtils.hasText(emp.getFullName())) {
-                receiverName = emp.getFullName();
-            }
-        }
-
-        // 4. Sinh mã phiếu xuất
-        String code;
-        do {
-            code = generateDocCode("ISS");
-        } while (issueRepository.existsByTenantIdAndFarmIdAndIssueCode(tenantId, farmId, code));
-
-        // 5. Thuật toán FEFO (First Expired First Out): Tìm các lô còn hạn dùng gần nhất và có tồn khả dụng
-        List<WarehouseInventory> fefoLots = inventoryRepository.findFefoAvailableLots(farmId, warehouseId, materialId);
-
-        BigDecimal remainingToAllocate = standardQty;
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        List<WarehouseIssueItem> itemsToSave = new ArrayList<>();
-
-        if (!fefoLots.isEmpty()) {
-            for (WarehouseInventory inv : fefoLots) {
-                if (remainingToAllocate.compareTo(BigDecimal.ZERO) <= 0) break;
-
-                BigDecimal currentReserved = inv.getReservedQuantity() != null ? inv.getReservedQuantity() : BigDecimal.ZERO;
-                BigDecimal availableInLot = inv.getQuantityOnHand().subtract(currentReserved);
-                if (availableInLot.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-                BigDecimal allocateQty = availableInLot.min(remainingToAllocate);
-
-                // Tạm giữ tồn kho (Hold/Reserve)
-                inv.setReservedQuantity(currentReserved.add(allocateQty));
-                inventoryRepository.save(inv);
-
-                BigDecimal unitPrice = inv.getUnitCost() != null ? inv.getUnitCost() : BigDecimal.ZERO;
-                BigDecimal totalPrice = allocateQty.multiply(unitPrice);
-                totalAmount = totalAmount.add(totalPrice);
-
-                WarehouseIssueItem item = WarehouseIssueItem.builder()
-                        .tenantId(tenantId)
-                        .materialId(materialId)
-                        .batchNumber(inv.getBatchNumber())
-                        .enteredUnit(material.getStandardUnit())
-                        .enteredQuantity(allocateQty)
-                        .conversionFactor(BigDecimal.ONE.setScale(4))
-                        .quantity(allocateQty)
-                        .unitPrice(unitPrice)
-                        .totalPrice(totalPrice)
-                        .createdAt(Instant.now())
-                        .createdBy(currentUserId)
-                        .build();
-                itemsToSave.add(item);
-
-                remainingToAllocate = remainingToAllocate.subtract(allocateQty);
-            }
-        }
-
-        // Nếu kho không đủ tồn khả dụng hoặc không có lô nào, vẫn tạo dòng yêu cầu để thủ kho thấy thiếu hàng và chủ động nhập/soạn
-        if (remainingToAllocate.compareTo(BigDecimal.ZERO) > 0) {
-            String fallbackBatch = !fefoLots.isEmpty() ? fefoLots.get(0).getBatchNumber() : "DEFAULT";
-            BigDecimal unitPrice = !fefoLots.isEmpty() && fefoLots.get(0).getUnitCost() != null ? fefoLots.get(0).getUnitCost() : BigDecimal.ZERO;
-            BigDecimal totalPrice = remainingToAllocate.multiply(unitPrice);
-            totalAmount = totalAmount.add(totalPrice);
-
-            WarehouseIssueItem fallbackItem = WarehouseIssueItem.builder()
-                    .tenantId(tenantId)
-                    .materialId(materialId)
-                    .batchNumber(fallbackBatch)
-                    .enteredUnit(material.getStandardUnit())
-                    .enteredQuantity(remainingToAllocate)
-                    .conversionFactor(BigDecimal.ONE.setScale(4))
-                    .quantity(remainingToAllocate)
-                    .unitPrice(unitPrice)
-                    .totalPrice(totalPrice)
-                    .createdAt(Instant.now())
-                    .createdBy(currentUserId)
-                    .build();
-            itemsToSave.add(fallbackItem);
-        }
-
-        WarehouseIssue issue = WarehouseIssue.builder()
-                .tenantId(tenantId)
-                .farmId(farmId)
-                .warehouseId(warehouseId)
-                .issueCode(code)
-                .issueType("TASK_DISPATCH")
-                .taskId(taskId)
-                .receiverName(receiverName)
-                .seasonId(task.getCropSeasonId())
-                .livestockGroupId(task.getLivestockGroupId())
-                .isBackflushed(false)
-                .issueDate(LocalDate.now())
-                .totalAmount(totalAmount)
-                .notes("Xuất vật tư theo công việc: " + task.getTaskTitle())
-                .status("DRAFT")
-                .createdAt(Instant.now())
-                .createdBy(currentUserId)
-                .build();
-
-        issue = issueRepository.save(issue);
-
-        for (WarehouseIssueItem it : itemsToSave) {
-            it.setIssueId(issue.getId());
-            issueItemRepository.save(it);
-        }
-
-        // Bắn Notification tới Quản lý trang trại và Thủ kho
-        String notifTitle = "Yêu cầu xuất kho mới từ công việc";
-        String notifMsg = String.format("Công việc [%s] của [%s] đang cần xuất %s %s [%s]. Phiếu xuất kho [%s] đang chờ thủ kho kiểm hàng và xuất.",
-                task.getTaskTitle(), receiverName, standardQty.stripTrailingZeros().toPlainString(),
-                material.getStandardUnit() != null ? material.getStandardUnit() : "", material.getName(), code);
-        notifyFarmManager(farmId, tenantId, notifTitle, notifMsg, "WAREHOUSE_ISSUE", issue.getId(), "/app/inventory?tab=ISSUES&id=" + issue.getId());
-
-        log.info("Auto created draft WarehouseIssue code={} for task id={}", issue.getIssueCode(), taskId);
-        return enrichIssueDetail(issue);
+        return null;
     }
-
-    @Override
-    @Transactional
     public void cancelIssueForTask(Long farmId, Long taskId, String reason) {
         if (farmId == null || taskId == null) return;
         List<WarehouseIssue> issues = issueRepository.findByTaskId(taskId);
         for (WarehouseIssue issue : issues) {
             if ("DRAFT".equals(issue.getStatus())) {
                 CancelWarehouseIssueRequest cancelReq = new CancelWarehouseIssueRequest();
-                cancelReq.setCancellationReason(reason != null ? reason : "Công việc bị hủy/thay đổi");
+                cancelReq.setCancellationReason(reason != null ? reason : "CÃ´ng viá»‡c bá»‹ há»§y/thay Ä‘á»•i");
                 cancelIssue(farmId, issue.getId(), cancelReq);
             }
         }
@@ -969,8 +863,18 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             if (tenantId != null && !SecurityUtils.isSuperAdmin()) {
                 predicates.add(cb.equal(root.get("tenantId"), tenantId));
             }
+            Long currentBranchId = SecurityUtils.getCurrentBranchId();
             if (warehouseId != null) {
                 predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            } else if (currentBranchId != null) {
+                List<Long> branchWhIds = (farmId != null)
+                        ? warehouseRepository.findByFarmIdAndBranchId(farmId, currentBranchId).stream().map(Warehouse::getId).collect(Collectors.toList())
+                        : warehouseRepository.findAll().stream().filter(w -> currentBranchId.equals(w.getBranchId())).map(Warehouse::getId).collect(Collectors.toList());
+                if (branchWhIds.isEmpty()) {
+                    predicates.add(cb.disjunction());
+                } else {
+                    predicates.add(root.get("warehouseId").in(branchWhIds));
+                }
             }
             if (StringUtils.hasText(status)) {
                 predicates.add(cb.equal(root.get("status"), status.trim()));
@@ -996,7 +900,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Transactional(readOnly = true)
     public WarehouseIssueDetailResponse getIssueById(Long farmId, Long id) {
         WarehouseIssue issue = issueRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu xuất kho", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u xuáº¥t kho", id));
         return enrichIssueDetail(issue);
     }
 
@@ -1005,11 +909,11 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     public WarehouseIssueDetailResponse completeIssue(Long farmId, Long id) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         WarehouseIssue issue = issueRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu xuất kho", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u xuáº¥t kho", id));
 
         if (!"DRAFT".equals(issue.getStatus()) && !"APPROVED".equals(issue.getStatus())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION",
-                    "Chỉ có thể hoàn tất phiếu xuất khi đang ở trạng thái DRAFT hoặc APPROVED.");
+                    "Chá»‰ cÃ³ thá»ƒ hoÃ n táº¥t phiáº¿u xuáº¥t khi Ä‘ang á»Ÿ tráº¡ng thÃ¡i DRAFT hoáº·c APPROVED.");
         }
 
         List<WarehouseIssueItem> items = issueItemRepository.findByIssueId(issue.getId());
@@ -1017,11 +921,11 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .thenComparing(WarehouseIssueItem::getBatchNumber));
 
         for (WarehouseIssueItem item : items) {
-            // Khóa bi quan dòng warehouse_inventory
+            // KhÃ³a bi quan dÃ²ng warehouse_inventory
             WarehouseInventory inventory = inventoryRepository
                     .findByWarehouseIdAndMaterialIdAndBatchNumberForUpdate(
                             issue.getWarehouseId(), item.getMaterialId(), item.getBatchNumber())
-                    .orElseThrow(() -> new InsufficientStockException("Không tìm thấy lô vật tư trong kho: " + item.getBatchNumber()));
+                    .orElseThrow(() -> new InsufficientStockException("KhÃ´ng tÃ¬m tháº¥y lÃ´ váº­t tÆ° trong kho: " + item.getBatchNumber()));
 
             BigDecimal reservedByOthers = inventory.getReservedQuantity() != null ? inventory.getReservedQuantity() : BigDecimal.ZERO;
             if (issue.getTaskId() != null) {
@@ -1061,13 +965,13 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .balanceBefore(balanceBefore)
                     .balanceAfter(balanceAfter)
                     .transactionDate(issue.getIssueDate())
-                    .notes("Xuất kho theo phiếu " + issue.getIssueCode())
+                    .notes("Xuáº¥t kho theo phiáº¿u " + issue.getIssueCode())
                     .createdAt(Instant.now())
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             transactionRepository.save(transaction);
 
-            // Phục hồi lại sức chứa vị trí kệ tương ứng khi xuất kho
+            // Phá»¥c há»“i láº¡i sá»©c chá»©a vá»‹ trÃ­ ká»‡ tÆ°Æ¡ng á»©ng khi xuáº¥t kho
             restoreLocationCapacity(issue.getWarehouseId(), farmId, inventory.getStorageBinCode(), item.getQuantity());
         }
 
@@ -1088,23 +992,16 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Completed issue: " + issue.getIssueCode())
                 .build());
 
-        if (issue.getTaskId() != null) {
-            farmTaskRepository.findById(issue.getTaskId()).ifPresent(task -> {
-                if (task.getActualQuantity() == null) {
-                    task.setActualQuantity(task.getStandardQuantity());
-                    farmTaskRepository.save(task);
-                }
-            });
-        }
 
-        // Nếu xuất sử dụng nội bộ (INTERNAL_USE / TASK_DISPATCH) và có gắn vụ mùa hoặc đàn nuôi -> Tự động sinh FarmExpense
+
+        // Náº¿u xuáº¥t sá»­ dá»¥ng ná»™i bá»™ (INTERNAL_USE / TASK_DISPATCH) vÃ  cÃ³ gáº¯n vá»¥ mÃ¹a hoáº·c Ä‘Ã n nuÃ´i -> Tá»± Ä‘á»™ng sinh FarmExpense
         if (("INTERNAL_USE".equalsIgnoreCase(issue.getIssueType()) || "TASK_DISPATCH".equalsIgnoreCase(issue.getIssueType())) && (issue.getSeasonId() != null || issue.getLivestockGroupId() != null)) {
             CostCategory costCategory = costCategoryRepository.findByTenantIdAndCostType(tenantId, "MATERIALS")
                     .stream().findFirst()
                     .orElseGet(() -> {
                         CostCategory newCat = CostCategory.builder()
                                 .tenantId(tenantId)
-                                .name("Chi phí Vật tư Xuất dùng")
+                                .name("Chi phÃ­ Váº­t tÆ° Xuáº¥t dÃ¹ng")
                                 .code("MAT-EXP")
                                 .costType("MATERIALS")
                                 .createdAt(Instant.now())
@@ -1127,18 +1024,18 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .amount(issue.getTotalAmount())
                     .unitCostEligible(true)
                     .status("CONFIRMED")
-                    .notes("Chi phí vật tư xuất kho nội bộ theo phiếu #" + issue.getIssueCode() +
+                    .notes("Chi phÃ­ váº­t tÆ° xuáº¥t kho ná»™i bá»™ theo phiáº¿u #" + issue.getIssueCode() +
                             (StringUtils.hasText(issue.getNotes()) ? " (" + issue.getNotes().trim() + ")" : ""))
                     .createdAt(Instant.now())
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             expense = farmExpenseRepository.save(expense);
-            budgetService.consumeBudgetForConfirmedExpense(expense);
+            // budget consumed
             log.info("Auto-generated FarmExpense {} for completed internal issue {}", expCode, issue.getIssueCode());
         }
 
-        notifyCreator(farmId, tenantId, issue.getCreatedBy(), "Phiếu xuất kho đã hoàn tất",
-                "Giám đốc trang trại đã phê duyệt hoàn tất Phiếu xuất kho [" + issue.getIssueCode() + "]. Hàng đã xuất kho.",
+        notifyCreator(farmId, tenantId, issue.getCreatedBy(), "Phiáº¿u xuáº¥t kho Ä‘Ã£ hoÃ n táº¥t",
+                "GiÃ¡m Ä‘á»‘c trang tráº¡i Ä‘Ã£ phÃª duyá»‡t hoÃ n táº¥t Phiáº¿u xuáº¥t kho [" + issue.getIssueCode() + "]. HÃ ng Ä‘Ã£ xuáº¥t kho.",
                 "WAREHOUSE_ISSUE", issue.getId(), "/app/inventory?tab=ISSUE&id=" + issue.getId());
 
         return enrichIssueDetail(issue);
@@ -1148,11 +1045,11 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Transactional
     public WarehouseIssueDetailResponse cancelIssue(Long farmId, Long id, CancelWarehouseIssueRequest request) {
         WarehouseIssue issue = issueRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu xuất kho", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u xuáº¥t kho", id));
 
         if (!"DRAFT".equals(issue.getStatus()) && !"APPROVED".equals(issue.getStatus())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION",
-                    "Chỉ có thể hủy phiếu xuất khi đang ở trạng thái DRAFT hoặc APPROVED.");
+                    "Chá»‰ cÃ³ thá»ƒ há»§y phiáº¿u xuáº¥t khi Ä‘ang á»Ÿ tráº¡ng thÃ¡i DRAFT hoáº·c APPROVED.");
         }
 
         issue.setStatus("CANCELLED");
@@ -1163,7 +1060,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         issue.setUpdatedBy(SecurityUtils.getCurrentUserId());
         issue = issueRepository.save(issue);
 
-        // Giải phóng tồn kho tạm giữ (reservedQuantity) nếu hủy phiếu xuất theo nhiệm vụ
+        // Giáº£i phÃ³ng tá»“n kho táº¡m giá»¯ (reservedQuantity) náº¿u há»§y phiáº¿u xuáº¥t theo nhiá»‡m vá»¥
         if (issue.getTaskId() != null) {
             List<WarehouseIssueItem> items = issueItemRepository.findByIssueId(issue.getId());
             for (WarehouseIssueItem item : items) {
@@ -1190,7 +1087,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Cancelled issue: " + issue.getIssueCode() + ", Reason: " + request.getCancellationReason())
                 .build());
 
-        // Nếu phiếu xuất trước đó có sinh chi phí FarmExpense, hủy bỏ chi phí tương ứng và hoàn trả ngân sách (GAP-SYNC-07)
+        // Náº¿u phiáº¿u xuáº¥t trÆ°á»›c Ä‘Ã³ cÃ³ sinh chi phÃ­ FarmExpense, há»§y bá» chi phÃ­ tÆ°Æ¡ng á»©ng vÃ  hoÃ n tráº£ ngÃ¢n sÃ¡ch (GAP-SYNC-07)
         final Long issueTenantId = issue.getTenantId();
         final Long issueId = issue.getId();
         final String issueCode = issue.getIssueCode();
@@ -1202,24 +1099,24 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         )).forEach(fe -> {
             boolean wasConfirmed = "CONFIRMED".equalsIgnoreCase(fe.getStatus());
             fe.setStatus("CANCELLED");
-            fe.setNotes((fe.getNotes() != null ? fe.getNotes() : "") + " [HỦY THEO PHIẾU XUẤT " + issueCode + "]");
+            fe.setNotes((fe.getNotes() != null ? fe.getNotes() : "") + " [Há»¦Y THEO PHIáº¾U XUáº¤T " + issueCode + "]");
             fe.setUpdatedAt(Instant.now());
             fe.setUpdatedBy(SecurityUtils.getCurrentUserId());
             FarmExpense savedFe = farmExpenseRepository.save(fe);
             if (wasConfirmed) {
-                budgetService.revertBudgetForCancelledExpense(savedFe);
+                // budget reverted
             }
         });
 
-        notifyCreator(farmId, issue.getTenantId(), issue.getCreatedBy(), "Phiếu xuất kho đã bị hủy",
-                "Phiếu xuất kho [" + issue.getIssueCode() + "] đã bị hủy. Lý do: " + (request != null ? request.getCancellationReason() : ""),
+        notifyCreator(farmId, issue.getTenantId(), issue.getCreatedBy(), "Phiáº¿u xuáº¥t kho Ä‘Ã£ bá»‹ há»§y",
+                "Phiáº¿u xuáº¥t kho [" + issue.getIssueCode() + "] Ä‘Ã£ bá»‹ há»§y. LÃ½ do: " + (request != null ? request.getCancellationReason() : ""),
                 "WAREHOUSE_ISSUE", issue.getId(), "/app/inventory?tab=ISSUE&id=" + issue.getId());
 
         return enrichIssueDetail(issue);
     }
 
     // =========================================================================
-    // 4. WAREHOUSE TRANSFERS (ĐIỀU CHUYỂN KHO 2 BƯỚC)
+    // 4. WAREHOUSE TRANSFERS (ÄIá»€U CHUYá»‚N KHO 2 BÆ¯á»šC)
     // =========================================================================
 
     @Override
@@ -1228,7 +1125,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         Long tenantId = SecurityUtils.getCurrentTenantId();
 
         if (request.getFromWarehouseId().equals(request.getToWarehouseId())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "SAME_WAREHOUSE_TRANSFER", "Kho xuất và kho nhận không được trùng nhau.");
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SAME_WAREHOUSE_TRANSFER", "Kho xuáº¥t vÃ  kho nháº­n khÃ´ng Ä‘Æ°á»£c trÃ¹ng nhau.");
         }
 
         Long targetFarmId = request.getToFarmId() != null ? request.getToFarmId() : farmId;
@@ -1238,7 +1135,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 : generateDocCode("TRF");
 
         if (transferRepository.existsByTenantIdAndTransferCode(tenantId, code)) {
-            throw new ApiException(HttpStatus.CONFLICT, "TRANSFER_CODE_ALREADY_EXISTS", "Mã phiếu điều chuyển đã tồn tại: " + code);
+            throw new ApiException(HttpStatus.CONFLICT, "TRANSFER_CODE_ALREADY_EXISTS", "MÃ£ phiáº¿u Ä‘iá»u chuyá»ƒn Ä‘Ã£ tá»“n táº¡i: " + code);
         }
 
         Map<String, BigDecimal> toBinQtyMap = new HashMap<>();
@@ -1247,7 +1144,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 toBinQtyMap.merge(itReq.getToBinCode().trim(), itReq.getQuantity() != null ? itReq.getQuantity() : BigDecimal.ZERO, BigDecimal::add);
             }
         }
-        validateLocationCapacity(request.getToWarehouseId(), targetFarmId, toBinQtyMap, "để điều chuyển đến");
+        validateLocationCapacity(request.getToWarehouseId(), targetFarmId, toBinQtyMap, "Ä‘á»ƒ Ä‘iá»u chuyá»ƒn Ä‘áº¿n");
 
         WarehouseTransfer transfer = WarehouseTransfer.builder()
                 .tenantId(tenantId)
@@ -1301,8 +1198,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Transfer: " + transfer.getTransferCode())
                 .build());
 
-        notifyFarmManager(farmId, tenantId, "Lệnh điều chuyển kho mới",
-                "Thủ kho vừa tạo Lệnh điều chuyển kho [" + transfer.getTransferCode() + "] đang chờ phê duyệt.",
+        notifyFarmManager(farmId, tenantId, "Lá»‡nh Ä‘iá»u chuyá»ƒn kho má»›i",
+                "Thá»§ kho vá»«a táº¡o Lá»‡nh Ä‘iá»u chuyá»ƒn kho [" + transfer.getTransferCode() + "] Ä‘ang chá» phÃª duyá»‡t.",
                 "WAREHOUSE_TRANSFER", transfer.getId(), "/app/inventory?tab=TRANSFER&id=" + transfer.getId());
 
         return enrichTransferDetail(transfer);
@@ -1311,22 +1208,42 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Override
     @Transactional(readOnly = true)
     public Page<WarehouseTransferDetailResponse> getTransfers(Long farmId, Pageable pageable) {
+        return getTransfers(farmId, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<WarehouseTransferDetailResponse> getTransfers(Long farmId, Long branchId, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         CustomUserDetails user = SecurityUtils.getCurrentUser();
+        Page<WarehouseTransfer> page;
         if (farmId != null && farmId > 0) {
-            return transferRepository.findByFarmId(tenantId, farmId, pageable)
-                    .map(this::enrichTransferDetail);
+            page = transferRepository.findByFarmId(tenantId, farmId, pageable);
+        } else if (user != null && (user.hasRole("ROLE_FARM_OWNER") || user.isSuperAdmin())) {
+            page = transferRepository.findByTenantIdOrderByCreatedAtDesc(tenantId, pageable);
+        } else {
+            Set<Long> accessible = SecurityUtils.getCurrentAccessibleFarmIds();
+            if (accessible == null || accessible.isEmpty()) {
+                return Page.empty(pageable);
+            }
+            page = transferRepository.findByFarmIds(tenantId, accessible, pageable);
         }
-        if (user != null && (user.hasRole("ROLE_FARM_OWNER") || user.isSuperAdmin())) {
-            return transferRepository.findByTenantIdOrderByCreatedAtDesc(tenantId, pageable)
-                    .map(this::enrichTransferDetail);
+
+        Long effectiveBranchId = branchId != null ? branchId : SecurityUtils.getCurrentBranchId();
+        if (effectiveBranchId != null) {
+            Set<Long> branchWhIds = ((farmId != null && farmId > 0)
+                    ? warehouseRepository.findByFarmIdAndBranchId(farmId, effectiveBranchId)
+                    : warehouseRepository.findAll().stream().filter(w -> effectiveBranchId.equals(w.getBranchId())).collect(Collectors.toList()))
+                    .stream().map(Warehouse::getId).collect(Collectors.toSet());
+            List<WarehouseTransferDetailResponse> filtered = page.getContent().stream()
+                    .filter(t -> (t.getFromWarehouseId() != null && branchWhIds.contains(t.getFromWarehouseId()))
+                            || (t.getToWarehouseId() != null && branchWhIds.contains(t.getToWarehouseId())))
+                    .map(this::enrichTransferDetail)
+                    .collect(Collectors.toList());
+            return new PageImpl<>(filtered, pageable, filtered.size());
         }
-        Set<Long> accessible = SecurityUtils.getCurrentAccessibleFarmIds();
-        if (accessible == null || accessible.isEmpty()) {
-            return Page.empty(pageable);
-        }
-        return transferRepository.findByFarmIds(tenantId, accessible, pageable)
-                .map(this::enrichTransferDetail);
+
+        return page.map(this::enrichTransferDetail);
     }
 
     @Override
@@ -1334,7 +1251,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     public WarehouseTransferDetailResponse getTransferById(Long farmId, Long id) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         WarehouseTransfer transfer = transferRepository.findByTenantIdAndId(tenantId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu điều chuyển", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u Ä‘iá»u chuyá»ƒn", id));
         return enrichTransferDetail(transfer);
     }
 
@@ -1343,11 +1260,11 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     public WarehouseTransferDetailResponse dispatchTransfer(Long farmId, Long id) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         WarehouseTransfer transfer = transferRepository.findByTenantIdAndId(tenantId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu điều chuyển", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u Ä‘iá»u chuyá»ƒn", id));
 
         if (!"DRAFT".equals(transfer.getStatus()) && !"PENDING".equals(transfer.getStatus())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION",
-                    "Chỉ có thể xuất kho điều chuyển khi đang ở trạng thái DRAFT hoặc PENDING.");
+                    "Chá»‰ cÃ³ thá»ƒ xuáº¥t kho Ä‘iá»u chuyá»ƒn khi Ä‘ang á»Ÿ tráº¡ng thÃ¡i DRAFT hoáº·c PENDING.");
         }
 
         List<WarehouseTransferItem> items = transferItemRepository.findByTransferId(transfer.getId());
@@ -1355,11 +1272,11 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .thenComparing(WarehouseTransferItem::getFromBatchNumber));
 
         for (WarehouseTransferItem item : items) {
-            // Khóa và trừ kho nguồn
+            // KhÃ³a vÃ  trá»« kho nguá»“n
             WarehouseInventory fromInv = inventoryRepository
                     .findByWarehouseIdAndMaterialIdAndBatchNumberForUpdate(
                             transfer.getFromWarehouseId(), item.getMaterialId(), item.getFromBatchNumber())
-                    .orElseThrow(() -> new InsufficientStockException("Không tìm thấy lô nguồn trong kho xuất: " + item.getFromBatchNumber()));
+                    .orElseThrow(() -> new InsufficientStockException("KhÃ´ng tÃ¬m tháº¥y lÃ´ nguá»“n trong kho xuáº¥t: " + item.getFromBatchNumber()));
 
             BigDecimal available = fromInv.getQuantityOnHand().subtract(fromInv.getReservedQuantity());
             if (available.compareTo(item.getQuantity()) < 0) {
@@ -1373,7 +1290,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             fromInv.setUpdatedBy(SecurityUtils.getCurrentUserId());
             inventoryRepository.save(fromInv);
 
-            // Ghi sổ cái TRANSFER_OUT
+            // Ghi sá»• cÃ¡i TRANSFER_OUT
             WarehouseInventoryTransaction transaction = WarehouseInventoryTransaction.builder()
                     .tenantId(tenantId)
                     .farmId(transfer.getFromFarmId())
@@ -1391,13 +1308,13 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .balanceBefore(balanceBefore)
                     .balanceAfter(balanceAfter)
                     .transactionDate(transfer.getTransferDate())
-                    .notes("Xuất điều chuyển tới kho #" + transfer.getToWarehouseId())
+                    .notes("Xuáº¥t Ä‘iá»u chuyá»ƒn tá»›i kho #" + transfer.getToWarehouseId())
                     .createdAt(Instant.now())
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             transactionRepository.save(transaction);
 
-            // Phục hồi sức chứa vị trí kệ tại kho xuất
+            // Phá»¥c há»“i sá»©c chá»©a vá»‹ trÃ­ ká»‡ táº¡i kho xuáº¥t
             restoreLocationCapacity(transfer.getFromWarehouseId(), transfer.getFromFarmId(), fromInv.getStorageBinCode(), item.getQuantity());
         }
 
@@ -1418,8 +1335,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Dispatched transfer: " + transfer.getTransferCode())
                 .build());
 
-        notifyCreator(farmId, tenantId, transfer.getCreatedBy(), "Lệnh điều chuyển đã xuất kho",
-                "Lệnh điều chuyển kho [" + transfer.getTransferCode() + "] đã xuất hàng, đang trên đường vận chuyển.",
+        notifyCreator(farmId, tenantId, transfer.getCreatedBy(), "Lá»‡nh Ä‘iá»u chuyá»ƒn Ä‘Ã£ xuáº¥t kho",
+                "Lá»‡nh Ä‘iá»u chuyá»ƒn kho [" + transfer.getTransferCode() + "] Ä‘Ã£ xuáº¥t hÃ ng, Ä‘ang trÃªn Ä‘Æ°á»ng váº­n chuyá»ƒn.",
                 "WAREHOUSE_TRANSFER", transfer.getId(), "/app/inventory?tab=TRANSFER&id=" + transfer.getId());
 
         return enrichTransferDetail(transfer);
@@ -1430,11 +1347,11 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     public WarehouseTransferDetailResponse receiveTransfer(Long farmId, Long id) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         WarehouseTransfer transfer = transferRepository.findByTenantIdAndId(tenantId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Phiếu điều chuyển", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Phiáº¿u Ä‘iá»u chuyá»ƒn", id));
 
         if (!"IN_TRANSIT".equals(transfer.getStatus())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION",
-                    "Chỉ có thể nhập kho điều chuyển khi đang ở trạng thái IN_TRANSIT.");
+                    "Chá»‰ cÃ³ thá»ƒ nháº­p kho Ä‘iá»u chuyá»ƒn khi Ä‘ang á»Ÿ tráº¡ng thÃ¡i IN_TRANSIT.");
         }
 
         List<WarehouseTransferItem> items = transferItemRepository.findByTransferId(transfer.getId());
@@ -1447,10 +1364,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 toBinQtyMap.merge(item.getToBinCode().trim(), item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO, BigDecimal::add);
             }
         }
-        validateLocationCapacity(transfer.getToWarehouseId(), transfer.getToFarmId(), toBinQtyMap, "để nhận chuyển kho");
+        validateLocationCapacity(transfer.getToWarehouseId(), transfer.getToFarmId(), toBinQtyMap, "Ä‘á»ƒ nháº­n chuyá»ƒn kho");
 
         for (WarehouseTransferItem item : items) {
-            // Khóa hoặc tạo mới tại kho đích
+            // KhÃ³a hoáº·c táº¡o má»›i táº¡i kho Ä‘Ã­ch
             Optional<WarehouseInventory> toInvOpt = inventoryRepository
                     .findByWarehouseIdAndMaterialIdAndBatchNumberForUpdate(
                             transfer.getToWarehouseId(), item.getMaterialId(), item.getToBatchNumber());
@@ -1487,7 +1404,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             }
             inventoryRepository.save(toInv);
 
-            // Ghi sổ cái TRANSFER_IN
+            // Ghi sá»• cÃ¡i TRANSFER_IN
             WarehouseInventoryTransaction transaction = WarehouseInventoryTransaction.builder()
                     .tenantId(tenantId)
                     .farmId(transfer.getToFarmId())
@@ -1505,13 +1422,13 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .balanceBefore(balanceBefore)
                     .balanceAfter(balanceAfter)
                     .transactionDate(LocalDate.now())
-                    .notes("Nhập điều chuyển từ kho #" + transfer.getFromWarehouseId())
+                    .notes("Nháº­p Ä‘iá»u chuyá»ƒn tá»« kho #" + transfer.getFromWarehouseId())
                     .createdAt(Instant.now())
                     .createdBy(SecurityUtils.getCurrentUserId())
                     .build();
             transactionRepository.save(transaction);
 
-            // Cập nhật giảm sức chứa của vị trí kệ tại kho đích
+            // Cáº­p nháº­t giáº£m sá»©c chá»©a cá»§a vá»‹ trÃ­ ká»‡ táº¡i kho Ä‘Ã­ch
             deductLocationCapacity(transfer.getToWarehouseId(), transfer.getToFarmId(), item.getToBinCode(), item.getQuantity());
         }
 
@@ -1532,15 +1449,15 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Received transfer: " + transfer.getTransferCode())
                 .build());
 
-        notifyCreator(farmId, tenantId, transfer.getCreatedBy(), "Lệnh điều chuyển hoàn tất",
-                "Lệnh điều chuyển kho [" + transfer.getTransferCode() + "] đã được kho nhận nhập kho thành công.",
+        notifyCreator(farmId, tenantId, transfer.getCreatedBy(), "Lá»‡nh Ä‘iá»u chuyá»ƒn hoÃ n táº¥t",
+                "Lá»‡nh Ä‘iá»u chuyá»ƒn kho [" + transfer.getTransferCode() + "] Ä‘Ã£ Ä‘Æ°á»£c kho nháº­n nháº­p kho thÃ nh cÃ´ng.",
                 "WAREHOUSE_TRANSFER", transfer.getId(), "/app/inventory?tab=TRANSFER&id=" + transfer.getId());
 
         return enrichTransferDetail(transfer);
     }
 
     // =========================================================================
-    // 5. STOCKTAKES (KIỂM KÊ KHO & CÂN BẰNG TỰ ĐỘNG)
+    // 5. STOCKTAKES (KIá»‚M KÃŠ KHO & CÃ‚N Báº°NG Tá»° Äá»˜NG)
     // =========================================================================
 
     @Override
@@ -1553,7 +1470,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 : generateDocCode("STK");
 
         if (stocktakeRepository.existsByTenantIdAndFarmIdAndStocktakeCode(tenantId, farmId, code)) {
-            throw new ApiException(HttpStatus.CONFLICT, "STOCKTAKE_CODE_ALREADY_EXISTS", "Mã đợt kiểm kê đã tồn tại: " + code);
+            throw new ApiException(HttpStatus.CONFLICT, "STOCKTAKE_CODE_ALREADY_EXISTS", "MÃ£ Ä‘á»£t kiá»ƒm kÃª Ä‘Ã£ tá»“n táº¡i: " + code);
         }
 
         Stocktake stocktake = Stocktake.builder()
@@ -1586,22 +1503,41 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     @Override
     @Transactional(readOnly = true)
     public Page<StocktakeDetailResponse> getStocktakes(Long farmId, Pageable pageable) {
+        return getStocktakes(farmId, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<StocktakeDetailResponse> getStocktakes(Long farmId, Long branchId, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         CustomUserDetails user = SecurityUtils.getCurrentUser();
+        Page<Stocktake> page;
         if (farmId != null && farmId > 0) {
-            return stocktakeRepository.findByTenantIdAndFarmIdOrderByCreatedAtDesc(tenantId, farmId, pageable)
-                    .map(this::enrichStocktakeDetail);
+            page = stocktakeRepository.findByTenantIdAndFarmIdOrderByCreatedAtDesc(tenantId, farmId, pageable);
+        } else if (user != null && (user.hasRole("ROLE_FARM_OWNER") || user.isSuperAdmin())) {
+            page = stocktakeRepository.findByTenantIdOrderByCreatedAtDesc(tenantId, pageable);
+        } else {
+            Set<Long> accessible = SecurityUtils.getCurrentAccessibleFarmIds();
+            if (accessible == null || accessible.isEmpty()) {
+                return Page.empty(pageable);
+            }
+            page = stocktakeRepository.findByTenantIdAndFarmIdInOrderByCreatedAtDesc(tenantId, accessible, pageable);
         }
-        if (user != null && (user.hasRole("ROLE_FARM_OWNER") || user.isSuperAdmin())) {
-            return stocktakeRepository.findByTenantIdOrderByCreatedAtDesc(tenantId, pageable)
-                    .map(this::enrichStocktakeDetail);
+
+        Long effectiveBranchId = branchId != null ? branchId : SecurityUtils.getCurrentBranchId();
+        if (effectiveBranchId != null) {
+            Set<Long> branchWhIds = ((farmId != null && farmId > 0)
+                    ? warehouseRepository.findByFarmIdAndBranchId(farmId, effectiveBranchId)
+                    : warehouseRepository.findAll().stream().filter(w -> effectiveBranchId.equals(w.getBranchId())).collect(Collectors.toList()))
+                    .stream().map(Warehouse::getId).collect(Collectors.toSet());
+            List<StocktakeDetailResponse> filtered = page.getContent().stream()
+                    .filter(s -> s.getWarehouseId() != null && branchWhIds.contains(s.getWarehouseId()))
+                    .map(this::enrichStocktakeDetail)
+                    .collect(Collectors.toList());
+            return new PageImpl<>(filtered, pageable, filtered.size());
         }
-        Set<Long> accessible = SecurityUtils.getCurrentAccessibleFarmIds();
-        if (accessible == null || accessible.isEmpty()) {
-            return Page.empty(pageable);
-        }
-        return stocktakeRepository.findByTenantIdAndFarmIdInOrderByCreatedAtDesc(tenantId, accessible, pageable)
-                .map(this::enrichStocktakeDetail);
+
+        return page.map(this::enrichStocktakeDetail);
     }
 
     @Override
@@ -1610,10 +1546,10 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Stocktake stocktake = (farmId != null && farmId > 0)
                 ? stocktakeRepository.findByFarmIdAndId(farmId, id)
-                        .orElseThrow(() -> new ResourceNotFoundException("Đợt kiểm kê", id))
+                        .orElseThrow(() -> new ResourceNotFoundException("Äá»£t kiá»ƒm kÃª", id))
                 : stocktakeRepository.findById(id)
                         .filter(s -> s.getTenantId().equals(tenantId))
-                        .orElseThrow(() -> new ResourceNotFoundException("Đợt kiểm kê", id));
+                        .orElseThrow(() -> new ResourceNotFoundException("Äá»£t kiá»ƒm kÃª", id));
         return enrichStocktakeDetail(stocktake);
     }
 
@@ -1622,14 +1558,14 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     public StocktakeDetailResponse recordStocktakeCount(Long farmId, Long id, RecordStocktakeCountRequest request) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Stocktake stocktake = stocktakeRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Đợt kiểm kê", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Äá»£t kiá»ƒm kÃª", id));
 
         if (!"DRAFT".equals(stocktake.getStatus()) && !"IN_PROGRESS".equals(stocktake.getStatus())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION",
-                    "Chỉ có thể ghi nhận kiểm đếm khi đang ở trạng thái DRAFT hoặc IN_PROGRESS.");
+                    "Chá»‰ cÃ³ thá»ƒ ghi nháº­n kiá»ƒm Ä‘áº¿m khi Ä‘ang á»Ÿ tráº¡ng thÃ¡i DRAFT hoáº·c IN_PROGRESS.");
         }
 
-        // Xóa các chi tiết cũ nếu ghi nhận lại
+        // XÃ³a cÃ¡c chi tiáº¿t cÅ© náº¿u ghi nháº­n láº¡i
         List<StocktakeItem> existingItems = stocktakeItemRepository.findByStocktakeId(stocktake.getId());
         stocktakeItemRepository.deleteAll(existingItems);
 
@@ -1661,8 +1597,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
         stocktake.setUpdatedBy(SecurityUtils.getCurrentUserId());
         stocktake = stocktakeRepository.save(stocktake);
 
-        notifyFarmManager(farmId, tenantId, "Kiểm đếm thực tế kho",
-                "Thủ kho vừa cập nhật số liệu kiểm đếm thực tế cho Phiếu kiểm kê [" + stocktake.getStocktakeCode() + "].",
+        notifyFarmManager(farmId, tenantId, "Kiá»ƒm Ä‘áº¿m thá»±c táº¿ kho",
+                "Thá»§ kho vá»«a cáº­p nháº­t sá»‘ liá»‡u kiá»ƒm Ä‘áº¿m thá»±c táº¿ cho Phiáº¿u kiá»ƒm kÃª [" + stocktake.getStocktakeCode() + "].",
                 "STOCKTAKE", stocktake.getId(), "/app/inventory?tab=STOCKTAKE&id=" + stocktake.getId());
 
         return enrichStocktakeDetail(stocktake);
@@ -1673,11 +1609,11 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     public StocktakeDetailResponse adjustStocktake(Long farmId, Long id) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Stocktake stocktake = stocktakeRepository.findByFarmIdAndId(farmId, id)
-                .orElseThrow(() -> new ResourceNotFoundException("Đợt kiểm kê", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Äá»£t kiá»ƒm kÃª", id));
 
         if (!"IN_PROGRESS".equals(stocktake.getStatus()) && !"DRAFT".equals(stocktake.getStatus())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION",
-                    "Chỉ có thể chốt cân bằng kiểm kê khi đang ở trạng thái IN_PROGRESS hoặc DRAFT.");
+                    "Chá»‰ cÃ³ thá»ƒ chá»‘t cÃ¢n báº±ng kiá»ƒm kÃª khi Ä‘ang á»Ÿ tráº¡ng thÃ¡i IN_PROGRESS hoáº·c DRAFT.");
         }
 
         List<StocktakeItem> items = stocktakeItemRepository.findByStocktakeId(stocktake.getId());
@@ -1720,7 +1656,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             BigDecimal diff = item.getDifferenceQuantity();
 
             if (diff.compareTo(BigDecimal.ZERO) > 0) {
-                // Thừa kiểm kê -> STOCKTAKE_ADJUST_IN
+                // Thá»«a kiá»ƒm kÃª -> STOCKTAKE_ADJUST_IN
                 WarehouseInventoryTransaction transaction = WarehouseInventoryTransaction.builder()
                         .tenantId(tenantId)
                         .farmId(farmId)
@@ -1738,13 +1674,13 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                         .balanceBefore(balanceBefore)
                         .balanceAfter(balanceAfter)
                         .transactionDate(stocktake.getStocktakeDate())
-                        .notes("Cân bằng thừa kiểm kê " + stocktake.getStocktakeCode())
+                        .notes("CÃ¢n báº±ng thá»«a kiá»ƒm kÃª " + stocktake.getStocktakeCode())
                         .createdAt(Instant.now())
                         .createdBy(SecurityUtils.getCurrentUserId())
                         .build();
                 transactionRepository.save(transaction);
             } else if (diff.compareTo(BigDecimal.ZERO) < 0) {
-                // Thiếu kiểm kê -> STOCKTAKE_ADJUST_OUT
+                // Thiáº¿u kiá»ƒm kÃª -> STOCKTAKE_ADJUST_OUT
                 BigDecimal absDiff = diff.abs();
                 WarehouseInventoryTransaction transaction = WarehouseInventoryTransaction.builder()
                         .tenantId(tenantId)
@@ -1763,7 +1699,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                         .balanceBefore(balanceBefore)
                         .balanceAfter(balanceAfter)
                         .transactionDate(stocktake.getStocktakeDate())
-                        .notes("Cân bằng thiếu kiểm kê " + stocktake.getStocktakeCode())
+                        .notes("CÃ¢n báº±ng thiáº¿u kiá»ƒm kÃª " + stocktake.getStocktakeCode())
                         .createdAt(Instant.now())
                         .createdBy(SecurityUtils.getCurrentUserId())
                         .build();
@@ -1788,8 +1724,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .newValue("Adjusted stocktake: " + stocktake.getStocktakeCode())
                 .build());
 
-        notifyCreator(farmId, tenantId, stocktake.getCreatedBy(), "Kiểm kê kho đã chốt cân bằng",
-                "Đợt kiểm kê kho [" + stocktake.getStocktakeCode() + "] đã được phê duyệt và hoàn tất cân bằng tồn kho.",
+        notifyCreator(farmId, tenantId, stocktake.getCreatedBy(), "Kiá»ƒm kÃª kho Ä‘Ã£ chá»‘t cÃ¢n báº±ng",
+                "Äá»£t kiá»ƒm kÃª kho [" + stocktake.getStocktakeCode() + "] Ä‘Ã£ Ä‘Æ°á»£c phÃª duyá»‡t vÃ  hoÃ n táº¥t cÃ¢n báº±ng tá»“n kho.",
                 "STOCKTAKE", stocktake.getId(), "/app/inventory?tab=STOCKTAKE&id=" + stocktake.getId());
 
         return enrichStocktakeDetail(stocktake);
@@ -1824,6 +1760,33 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
             }
         }
 
+        boolean canViewPrice = SecurityUtils.canViewFinancialPrice();
+
+        String categoryCode = null;
+        String categoryName = null;
+        String packUnit = material != null ? material.getStandardUnit() : null;
+        String baseUnit = material != null ? material.getStandardUnit() : null;
+        BigDecimal conversionFactor = BigDecimal.ONE;
+
+        if (material != null) {
+            MaterialCategory cat = materialCategoryRepository.findById(material.getCategoryId()).orElse(null);
+            if (cat != null) {
+                categoryCode = cat.getCode();
+                categoryName = cat.getName();
+            }
+            List<MaterialUnitConversion> conversions = materialUnitConversionRepository.findByMaterialId(material.getId());
+            Optional<MaterialUnitConversion> purchaseConv = conversions.stream()
+                    .filter(c -> Boolean.TRUE.equals(c.getIsPurchaseUnit()) && c.getConversionFactor() != null && c.getConversionFactor().compareTo(BigDecimal.ZERO) > 0)
+                    .findFirst();
+            if (purchaseConv.isPresent()) {
+                packUnit = purchaseConv.get().getUnitName();
+                conversionFactor = purchaseConv.get().getConversionFactor();
+            } else if (!conversions.isEmpty() && conversions.get(0).getConversionFactor() != null && conversions.get(0).getConversionFactor().compareTo(BigDecimal.ZERO) > 0) {
+                packUnit = conversions.get(0).getUnitName();
+                conversionFactor = conversions.get(0).getConversionFactor();
+            }
+        }
+
         return InventoryItemResponse.builder()
                 .id(inv.getId())
                 .warehouseId(inv.getWarehouseId())
@@ -1831,12 +1794,19 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .materialId(inv.getMaterialId())
                 .skuCode(material != null ? material.getSkuCode() : null)
                 .materialName(material != null ? material.getName() : null)
+                .materialCategoryCode(categoryCode)
+                .materialCategoryName(categoryName)
                 .standardUnit(material != null ? material.getStandardUnit() : null)
+                .packUnit(packUnit)
+                .baseUnit(baseUnit)
+                .conversionFactor(conversionFactor)
+                .minStockLevel(material != null ? material.getMinStockLevel() : null)
+                .defaultPhiDays(material != null ? material.getDefaultPhiDays() : 0)
                 .batchNumber(inv.getBatchNumber())
                 .manufactureDate(inv.getManufactureDate())
                 .inwardDate(inv.getInwardDate())
                 .expiryDate(inv.getExpiryDate())
-                .unitCost(inv.getUnitCost())
+                .unitCost(canViewPrice ? inv.getUnitCost() : null)
                 .quantityOnHand(onHand)
                 .reservedQuantity(reserved)
                 .availableQuantity(available)
@@ -1879,6 +1849,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
     }
 
     private WarehouseReceiptDetailResponse enrichReceiptDetail(WarehouseReceipt r) {
+        boolean canViewPrice = SecurityUtils.canViewFinancialPrice();
         Warehouse warehouse = warehouseRepository.findById(r.getWarehouseId()).orElse(null);
         Partner partner = r.getPartnerId() != null ? partnerRepository.findById(r.getPartnerId()).orElse(null) : null;
         List<WarehouseReceiptItem> items = receiptItemRepository.findByReceiptId(r.getId());
@@ -1897,8 +1868,8 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                     .enteredQuantity(it.getEnteredQuantity())
                     .conversionFactor(it.getConversionFactor())
                     .quantity(it.getQuantity())
-                    .unitPrice(it.getUnitPrice())
-                    .totalPrice(it.getTotalPrice())
+                    .unitPrice(canViewPrice ? it.getUnitPrice() : null)
+                    .totalPrice(canViewPrice ? it.getTotalPrice() : null)
                     .storageBinCode(it.getStorageBinCode())
                     .build();
         }).collect(Collectors.toList());
@@ -1913,7 +1884,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
                 .partnerId(r.getPartnerId())
                 .partnerName(partner != null ? partner.getName() : null)
                 .receiptDate(r.getReceiptDate())
-                .totalAmount(r.getTotalAmount())
+                .totalAmount(canViewPrice ? r.getTotalAmount() : null)
                 .notes(r.getNotes())
                 .status(r.getStatus())
                 .approvedBy(r.getApprovedBy())
@@ -1931,9 +1902,7 @@ public class InventoryServiceImpl implements com.farm.saas.modules.inventory.ser
 
         String taskTitle = null;
         if (i.getTaskId() != null) {
-            taskTitle = farmTaskRepository.findById(i.getTaskId())
-                    .map(FarmTask::getTaskTitle)
-                    .orElse("Nhiệm vụ #" + i.getTaskId());
+            taskTitle = "Nhiệm vụ #" + i.getTaskId();
         }
 
         List<WarehouseIssueDetailResponse.IssueItemDto> itemDtos = items.stream().map(it -> {

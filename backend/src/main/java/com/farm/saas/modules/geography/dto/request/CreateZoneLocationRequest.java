@@ -13,8 +13,9 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CreateZoneLocationRequest {
 
-    @NotBlank(message = "Mã vị trí / lô không được để trống")
     private String code;
+
+    private Long zoneId;
 
     @NotBlank(message = "Tên vị trí / lô không được để trống")
     private String name;

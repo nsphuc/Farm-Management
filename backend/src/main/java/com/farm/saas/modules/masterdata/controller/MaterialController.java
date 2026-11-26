@@ -24,12 +24,14 @@ public class MaterialController {
     private final MaterialService materialService;
 
     @GetMapping("/api/v1/materials")
-    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')")
+    @PreAuthorize("hasAnyAuthority('inventory.view', 'inventory.manage', 'PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<Page<MaterialDetailResponse>> getMaterials(
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) String species,
             @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ResponseEntity.ok(materialService.getMaterials(categoryId, keyword, pageable));
+        return ResponseEntity.ok(materialService.getMaterials(categoryId, keyword, branchId, species, pageable));
     }
 
     @GetMapping("/api/v1/materials/{id}")
@@ -39,7 +41,7 @@ public class MaterialController {
     }
 
     @PostMapping("/api/v1/materials")
-    @PreAuthorize("hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('inventory.manage', 'PERM_INVENTORY_RECEIPT', 'ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')")
     public ResponseEntity<MaterialDetailResponse> createMaterial(@Valid @RequestBody CreateMaterialRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(materialService.createMaterial(request));
     }

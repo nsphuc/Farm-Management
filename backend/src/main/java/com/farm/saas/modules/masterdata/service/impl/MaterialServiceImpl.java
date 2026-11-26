@@ -21,9 +21,7 @@ import com.farm.saas.modules.masterdata.entity.Material;
 import com.farm.saas.modules.masterdata.entity.MaterialCategory;
 import com.farm.saas.modules.masterdata.entity.MaterialUnitConversion;
 import com.farm.saas.modules.masterdata.entity.Warehouse;
-import com.farm.saas.modules.masterdata.entity.CropType;
 import com.farm.saas.modules.masterdata.repository.ConsumptionQuotaRepository;
-import com.farm.saas.modules.masterdata.repository.CropTypeRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialCategoryRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialRepository;
 import com.farm.saas.modules.masterdata.repository.MaterialUnitConversionRepository;
@@ -60,7 +58,7 @@ public class MaterialServiceImpl implements MaterialService {
     private final WarehouseReceiptItemRepository receiptItemRepository;
     private final WarehouseIssueItemRepository issueItemRepository;
     private final ConsumptionQuotaRepository consumptionQuotaRepository;
-    private final CropTypeRepository cropTypeRepository;
+    private final com.farm.saas.modules.geography.repository.BranchRepository branchRepository;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -170,7 +168,26 @@ public class MaterialServiceImpl implements MaterialService {
     @Override
     @Transactional(readOnly = true)
     public Page<MaterialDetailResponse> getMaterials(Long categoryId, String keyword, Pageable pageable) {
+        return getMaterials(categoryId, keyword, null, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<MaterialDetailResponse> getMaterials(Long categoryId, String keyword, Long branchId, String species, Pageable pageable) {
         Long tenantId = SecurityUtils.getCurrentTenantId();
+        Long effectiveBranchId = branchId != null ? branchId : SecurityUtils.getCurrentBranchId();
+
+        // Xác định loại vật nuôi mục tiêu (POULTRY vs SWINE) nếu có ngữ cảnh chi nhánh
+        String resolvedSpecies = species;
+        if ((resolvedSpecies == null || resolvedSpecies.isBlank()) && effectiveBranchId != null) {
+            resolvedSpecies = branchRepository.findById(effectiveBranchId)
+                    .map(com.farm.saas.modules.geography.entity.Branch::getLivestockType)
+                    .orElse(null);
+        }
+
+        final String targetLivestockType = (resolvedSpecies != null && !resolvedSpecies.isBlank() && !"ALL".equalsIgnoreCase(resolvedSpecies) && !"MIXED".equalsIgnoreCase(resolvedSpecies))
+                ? resolvedSpecies.toUpperCase()
+                : null;
 
         Specification<Material> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -188,6 +205,31 @@ public class MaterialServiceImpl implements MaterialService {
                         cb.like(cb.lower(root.get("name")), pattern)
                 ));
             }
+
+            // Cô lập vật tư theo chủng loại vật nuôi của chi nhánh (Species / Livestock Type Isolation)
+            if (targetLivestockType != null) {
+                if (targetLivestockType.contains("POULTRY") || targetLivestockType.contains("CHICKEN") || targetLivestockType.contains("DUCK")) {
+                    // Chi nhánh Gia Cầm: Loại trừ thức ăn & vắc-xin dành riêng cho heo/lợn
+                    predicates.add(cb.and(
+                            cb.notLike(cb.lower(root.get("name")), "%heo%"),
+                            cb.notLike(cb.lower(root.get("name")), "%lợn%"),
+                            cb.notLike(cb.lower(root.get("name")), "%swine%"),
+                            cb.notLike(cb.lower(root.get("name")), "%prrs%"),
+                            cb.notLike(cb.lower(root.get("skuCode")), "%heo%")
+                    ));
+                } else if (targetLivestockType.contains("SWINE") || targetLivestockType.contains("LIVESTOCK") || targetLivestockType.contains("PIG") || targetLivestockType.contains("MEAT")) {
+                    // Chi nhánh Gia Súc: Loại trừ thức ăn & vắc-xin dành riêng cho gà/vịt/gia cầm
+                    predicates.add(cb.and(
+                            cb.notLike(cb.lower(root.get("name")), "%gà%"),
+                            cb.notLike(cb.lower(root.get("name")), "%vịt%"),
+                            cb.notLike(cb.lower(root.get("name")), "%poultry%"),
+                            cb.notLike(cb.lower(root.get("name")), "%newcastle%"),
+                            cb.notLike(cb.lower(root.get("name")), "%gumboro%"),
+                            cb.notLike(cb.lower(root.get("skuCode")), "%ga%")
+                    ));
+                }
+            }
+
             predicates.add(cb.notEqual(root.get("status"), "DELETED"));
             return cb.and(predicates.toArray(new Predicate[0]));
         };
@@ -605,12 +647,10 @@ public class MaterialServiceImpl implements MaterialService {
     }
 
     private MaterialDetailResponse enrichMaterialDetail(Material m) {
-        String categoryName = categoryRepository.findById(m.getCategoryId())
-                .map(MaterialCategory::getName)
-                .orElse(null);
-        String cropTypeName = m.getCropTypeId() != null
-                ? cropTypeRepository.findById(m.getCropTypeId()).map(CropType::getName).orElse(null)
-                : null;
+        MaterialCategory category = categoryRepository.findById(m.getCategoryId()).orElse(null);
+        String categoryName = category != null ? category.getName() : null;
+        String categoryCode = category != null ? category.getCode() : null;
+        String cropTypeName = null;
 
         List<MaterialUnitConversion> conversions = conversionRepository.findByMaterialId(m.getId());
         List<MaterialDetailResponse.ConversionDto> convDtos = conversions.stream()
@@ -640,6 +680,7 @@ public class MaterialServiceImpl implements MaterialService {
                 .barcode(m.getBarcode())
                 .name(m.getName())
                 .categoryId(m.getCategoryId())
+                .categoryCode(categoryCode)
                 .categoryName(categoryName)
                 .cropTypeId(m.getCropTypeId())
                 .cropTypeName(cropTypeName)

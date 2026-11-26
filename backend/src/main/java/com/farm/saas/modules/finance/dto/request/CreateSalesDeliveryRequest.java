@@ -48,8 +48,8 @@ public class CreateSalesDeliveryRequest {
         @NotNull(message = "Dòng đơn hàng không được để trống")
         private Long salesOrderItemId;
 
-        @NotNull(message = "Lô thành phẩm không được để trống")
         private Long productBatchId;
+        private Long livestockGroupId;
 
         @NotNull(message = "Số lượng xuất giao không được để trống")
         @DecimalMin(value = "0.01", message = "Số lượng xuất giao phải lớn hơn 0")

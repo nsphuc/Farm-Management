@@ -38,7 +38,7 @@ public class FarmExpense {
     @Column(name = "reference_id")
     private Long referenceId;
 
-    @Column(name = "season_id")
+    @Transient
     private Long seasonId;
 
     @Column(name = "livestock_group_id")
@@ -64,6 +64,21 @@ public class FarmExpense {
 
     @Column(name = "notes", length = 500)
     private String notes;
+
+    @Column(name = "branch_id")
+    private Long branchId;
+
+    @Column(name = "entry_type", length = 20)
+    private String entryType;
+
+    @Column(name = "is_system_locked")
+    private Boolean isSystemLocked;
+
+    @Column(name = "allocated_cycle_id")
+    private Long allocatedCycleId;
+
+    @Column(name = "category_name", length = 150)
+    private String categoryName;
 
     @Column(name = "status", nullable = false, length = 30)
     private String status;

@@ -8,4 +8,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface LivestockEventSupplyRepository extends JpaRepository<LivestockEventSupply, Long>, JpaSpecificationExecutor<LivestockEventSupply> {
     java.util.List<LivestockEventSupply> findByLivestockEventId(Long eventId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT s FROM LivestockEventSupply s, LivestockEvent e WHERE s.livestockEventId = e.id AND e.livestockGroupId = :groupId")
+    java.util.List<LivestockEventSupply> findByLivestockEventLivestockGroupId(@org.springframework.data.repository.query.Param("groupId") Long groupId);
 }

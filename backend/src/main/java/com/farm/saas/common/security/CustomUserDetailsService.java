@@ -30,11 +30,12 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new UsernameNotFoundException("Không tìm thấy người dùng với tài khoản/email: " + username));
 
-        // 1. Query roles
+        // 1. Query roles (from user_roles and farm_members)
         List<String> roleCodes = jdbcTemplate.query(
-                "SELECT r.code FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = ?",
+                "SELECT r.code FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = ? " +
+                "UNION SELECT r.code FROM farm_members fm JOIN roles r ON fm.role_id = r.id WHERE fm.user_id = ?",
                 (rs, rowNum) -> rs.getString("code"),
-                user.getId()
+                user.getId(), user.getId()
         );
         Set<String> roles = new HashSet<>(roleCodes);
 
@@ -55,9 +56,14 @@ public class CustomUserDetailsService implements UserDetailsService {
                     "SELECT DISTINCT p.code FROM user_roles ur " +
                             "JOIN role_permissions rp ON ur.role_id = rp.role_id " +
                             "JOIN permissions p ON rp.permission_id = p.id " +
-                            "WHERE ur.user_id = ?",
+                            "WHERE ur.user_id = ? " +
+                            "UNION " +
+                            "SELECT DISTINCT p.code FROM farm_members fm " +
+                            "JOIN role_permissions rp ON fm.role_id = rp.role_id " +
+                            "JOIN permissions p ON rp.permission_id = p.id " +
+                            "WHERE fm.user_id = ?",
                     (rs, rowNum) -> rs.getString("code"),
-                    user.getId()
+                    user.getId(), user.getId()
             );
         }
         Set<String> permissions = new HashSet<>(permissionCodes);
@@ -108,11 +114,12 @@ public class CustomUserDetailsService implements UserDetailsService {
         } else {
             List<Long> farmIds = jdbcTemplate.query(
                     "SELECT farm_id FROM user_farm_access WHERE user_id = ? AND farm_id IS NOT NULL " +
+                            "UNION SELECT farm_id FROM farm_members WHERE user_id = ? AND farm_id IS NOT NULL " +
                             "UNION SELECT farm_id FROM user_roles WHERE user_id = ? AND farm_id IS NOT NULL " +
                             "UNION SELECT id AS farm_id FROM farms WHERE manager_user_id = ? AND status != 'DELETED' " +
                             "UNION SELECT farm_id FROM farm_assignments WHERE user_id = ? AND is_active = TRUE",
                     (rs, rowNum) -> rs.getLong(1),
-                    user.getId(), user.getId(), user.getId(), user.getId()
+                    user.getId(), user.getId(), user.getId(), user.getId(), user.getId()
             );
             accessibleFarmIds.addAll(farmIds);
         }

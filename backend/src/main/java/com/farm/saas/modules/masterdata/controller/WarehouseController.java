@@ -1,5 +1,6 @@
 package com.farm.saas.modules.masterdata.controller;
 
+import com.farm.saas.common.security.FarmSecurityEvaluator;
 import com.farm.saas.modules.masterdata.dto.request.CreateWarehouseRequest;
 import com.farm.saas.modules.masterdata.dto.request.UpdateWarehouseRequest;
 import com.farm.saas.modules.masterdata.dto.response.WarehouseResponse;
@@ -19,13 +20,16 @@ import java.util.List;
 public class WarehouseController {
 
     private final WarehouseService warehouseService;
+    private final FarmSecurityEvaluator farmSecurity;
 
     @GetMapping
-    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF')) and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('inventory.view', 'inventory.manage', 'PERM_INVENTORY_VIEW', 'PERM_FARM_VIEW', 'PERM_CROP_PLAN', 'PERM_LIVESTOCK_MANAGE', 'PERM_LIVESTOCK_VET') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_TECHNICAL_STAFF', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<List<WarehouseResponse>> getWarehouses(
             @PathVariable Long farmId,
-            @RequestParam(required = false) String warehouseType) {
-        return ResponseEntity.ok(warehouseService.getWarehouses(farmId, warehouseType));
+            @RequestParam(required = false) String warehouseType,
+            @RequestParam(required = false) Long branchId) {
+        Long effectiveBranchId = farmSecurity.resolveEffectiveBranchId(farmId, branchId);
+        return ResponseEntity.ok(warehouseService.getWarehouses(farmId, warehouseType, effectiveBranchId));
     }
 
     @GetMapping("/{warehouseId}")

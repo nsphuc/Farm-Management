@@ -38,14 +38,14 @@ public class WarehouseIssue {
     @Column(name = "receiver_name", length = 150)
     private String receiverName;
 
-    @Column(name = "season_id")
+    @Transient
     private Long seasonId;
+
+    @Transient
+    private Long farmingLogId;
 
     @Column(name = "livestock_group_id")
     private Long livestockGroupId;
-
-    @Column(name = "farming_log_id")
-    private Long farmingLogId;
 
     @Column(name = "livestock_event_id")
     private Long livestockEventId;
@@ -83,7 +83,7 @@ public class WarehouseIssue {
     @Column(name = "cancellation_reason", length = 500)
     private String cancellationReason;
 
-    @Column(name = "active_farming_backflush", insertable = false, updatable = false)
+    @Transient
     private Long activeFarmingBackflush;
 
     @Column(name = "active_livestock_backflush", insertable = false, updatable = false)

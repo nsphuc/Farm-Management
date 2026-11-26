@@ -128,46 +128,13 @@ export const useAuthStore = create((set, get) => ({
   },
 
   /**
-   * Helper: Kiểm tra người dùng có quyền cụ thể không
+   * Helper: Kiểm tra người dùng có quyền cụ thể không (Dynamic RBAC - Data-driven)
+   * Super Admin và Farm Owner mặc định full quyền, các vai trò khác kiểm tra trực tiếp theo mã quyền (permission code)
    */
   hasPermission: (permCode) => {
-    const { userInfo, isSuperAdmin, isOwner, isFarmManager } = get();
+    const { userInfo, isSuperAdmin, isOwner } = get();
     if (!userInfo) return false;
     if (isSuperAdmin() || isOwner()) return true;
-
-    // Giám đốc trang trại (Role 2) có toàn quyền điều hành 9 workspaces của cơ sở phụ trách (trừ quyền platform và tạo farm mới)
-    if (isFarmManager()) {
-      if (permCode === 'PERM_TENANT_MANAGE' || permCode === 'PERM_FARM_CREATE') return false;
-      const farmManagerPermissions = [
-        'PERM_FARM_VIEW',
-        'PERM_FARM_UPDATE',
-        'PERM_ZONE_MANAGE',
-        'PERM_CROP_VIEW',
-        'PERM_CROP_PLAN',
-        'PERM_CROP_LOG',
-        'PERM_LIVESTOCK_VIEW',
-        'PERM_LIVESTOCK_MANAGE',
-        'PERM_LIVESTOCK_VET',
-        'PERM_INVENTORY_VIEW',
-        'PERM_HARVEST_MANAGE',
-        'PERM_QC_INSPECT',
-        'PERM_QC_APPROVE',
-        'PERM_LABEL_PRINT',
-        'PERM_HR_EMPLOYEE_MANAGE',
-        'PERM_HR_ATTENDANCE',
-        'PERM_TASK_ASSIGN',
-        'PERM_FINANCE_EXPENSE',
-        'PERM_FINANCE_SALES_ORDER',
-        'PERM_FINANCE_REPORT',
-        'PERM_PAYMENT_ALLOCATE',
-      ];
-      if (farmManagerPermissions.includes(permCode)) return true;
-      if (Array.isArray(userInfo.permissions)) {
-        return userInfo.permissions.includes(permCode);
-      }
-      return false;
-    }
-
     if (!Array.isArray(userInfo.permissions)) return false;
     return userInfo.permissions.includes(permCode);
   },
@@ -179,6 +146,14 @@ export const useAuthStore = create((set, get) => ({
     const { hasPermission } = get();
     if (!Array.isArray(permCodes) || permCodes.length === 0) return false;
     return permCodes.some((perm) => hasPermission(perm));
+  },
+
+  /**
+   * Quy tắc 2: Kiểm tra quyền xem giá vốn / đơn giá / thành tiền tài chính
+   */
+  canViewFinancialPrice: () => {
+    const { isOwner, hasPermission } = get();
+    return isOwner() || hasPermission('financial.price.view');
   },
 
   /**
@@ -210,9 +185,36 @@ export const useAuthStore = create((set, get) => ({
   },
 
   /**
-   * Helper: Kiểm tra Cấp 2: Chủ trang trại / Chủ chuỗi (ROLE_FARM_OWNER)
+   * Helper: Kiểm tra Cấp 2: Chủ trang trại (Quản trị viên cao nhất) (ROLE_FARM_OWNER)
    */
   isFarmOwner: () => get().isOwner(),
+
+  /**
+   * Helper: Hệ thống 5 Vai trò Chuẩn (Nhiệm vụ 8):
+   * 1. Chủ trang trại (isOwner / isFarmOwner)
+   * 2. Quản lý trại / Trại trưởng (isFarmManager)
+   * 3. Kỹ thuật viên / Bác sĩ thú y (isVetTechnician / isTechnicalLead)
+   * 4. Kế toán / Thủ kho (isFarmAccountant / isWarehouseKeeper)
+   * 5. Công nhân chuồng trại (isBarnWorker / isFieldWorker)
+   * (Đã xóa bỏ hoàn toàn role zone_manager)
+   */
+  isZoneManager: () => false,
+
+  isVetTechnician: () => {
+    const { userInfo, hasRole, isOwner, isFarmManager } = get();
+    if (!userInfo) return false;
+    if (isOwner() || isFarmManager()) return false;
+    if (hasRole('ROLE_VET_TECHNICIAN') || hasRole('ROLE_TECHNICAL_STAFF')) return true;
+    return get().hasFarmAssignmentRole(['VET_TECHNICIAN', 'TECHNICAL_LEAD', 'VETERINARIAN']);
+  },
+
+  isBarnWorker: () => {
+    const { userInfo, hasRole, isOwner, isFarmManager, isVetTechnician, isFarmAccountant } = get();
+    if (!userInfo) return false;
+    if (isOwner() || isFarmManager() || isVetTechnician() || isFarmAccountant()) return false;
+    if (hasRole('ROLE_BARN_WORKER') || hasRole('ROLE_FIELD_STAFF')) return true;
+    return get().hasFarmAssignmentRole(['BARN_WORKER', 'FIELD_WORKER']);
+  },
 
   /**
    * Helper: Kiểm tra Cấp 4: Nhân sự chuyên môn cấp trại (Kỹ thuật, Kho, Kế toán trại, Hiện trường)
@@ -269,6 +271,16 @@ export const useAuthStore = create((set, get) => ({
     if (!userInfo) return false;
     if (isSuperAdmin()) return true;
 
+    // Khi tài khoản là ROLE_FARM_OWNER hoặc OWNER
+    const roles = userInfo.roles || [];
+    const hasFarmOwnerRole = roles.some((r) => {
+      const code = typeof r === 'string' ? r : (r?.code || r?.name);
+      return code === 'ROLE_FARM_OWNER' || code === 'OWNER';
+    });
+    if (hasFarmOwnerRole || userInfo.role === 'ROLE_FARM_OWNER' || userInfo.operationalRole === 'OWNER' || userInfo.isOwner === true) {
+      return true;
+    }
+
     // Giám đốc trang trại (FARM_MANAGER) làm thuê tuyệt đối KHÔNG PHẢI là Chủ đầu tư cấp Tenant
     if (
       userInfo.operationalRole === 'FARM_MANAGER' ||
@@ -278,51 +290,13 @@ export const useAuthStore = create((set, get) => ({
       return false;
     }
 
-    const roles = userInfo.roles || [];
     const hasFmRole = roles.some((r) => {
       const code = typeof r === 'string' ? r : (r?.code || r?.name);
       return code === 'ROLE_FARM_MANAGER' || code === 'FARM_MANAGER';
     });
     if (hasFmRole && !userInfo.isTenantOwner && !userInfo.isOwner) return false;
 
-    if (userInfo.operationalRole === 'OWNER' || userInfo.isOwner === true) return true;
-
-    const ownerRole = roles.find((r) =>
-      typeof r === 'string' ? r === 'ROLE_FARM_OWNER' : r?.code === 'ROLE_FARM_OWNER'
-    );
-    if (!ownerRole) return false;
-
-    // Nếu scopeLevel là 'FARM', thì là Quản lý trang trại làm thuê, không phải Owner cấp tenant
-    const roleScope =
-      typeof ownerRole === 'object'
-        ? ownerRole.scopeLevel || ownerRole.scope_level
-        : userInfo.scopeLevel || userInfo.scope_level;
-
-    if (roleScope === 'FARM') {
-      return false;
-    }
-
-    // Nếu có scopeLevel === 'TENANT' hoặc tenantOwner = true
-    const hasTenantScope =
-      roleScope === 'TENANT' ||
-      userInfo.scope_level === 'TENANT' ||
-      userInfo.scopeLevel === 'TENANT' ||
-      Boolean(userInfo.isTenantOwner);
-
-    if (!hasTenantScope) {
-      const accessibleFarms = userInfo.accessibleFarms || [];
-      const assignments = userInfo.farmAssignments || userInfo.farm_assignments || [];
-      // Nếu chỉ có 1 trang trại và bị gán cứng vai trò làm thuê (FARM_MANAGER)
-      const isSingleAssignedEmployee =
-        (accessibleFarms.length === 1 &&
-          (accessibleFarms[0]?.assignedRole === 'FARM_MANAGER' || accessibleFarms[0]?.isManager)) ||
-        (assignments.length === 1 &&
-          (assignments[0]?.roleInFarm === 'FARM_MANAGER' || assignments[0]?.role_in_farm === 'FARM_MANAGER'));
-
-      if (isSingleAssignedEmployee) return false;
-    }
-
-    return true;
+    return false;
   },
 
   /**
@@ -477,42 +451,24 @@ export const useAuthStore = create((set, get) => ({
   },
 
   /**
-   * Role 4 - Thủ kho trang trại (isWarehouseKeeper)
-   * Tài khoản có ROLE_WAREHOUSE_STAFF. Chịu trách nhiệm toàn bộ thao tác Nhập kho / Xuất kho / Kiểm kê trên hệ thống,
-   * phân công nhân viên kho bê hàng và điểm danh hộ nhân viên bốc xếp kho không có tài khoản.
-   */
-  isWarehouseKeeper: () => {
-    const { userInfo, hasRole, isOwner, isFarmManager } = get();
-    if (!userInfo) return false;
-    if (isOwner() || isFarmManager()) return false;
-
-    if (userInfo.operationalRole === 'WAREHOUSE_KEEPER') return true;
-    if (hasRole('ROLE_WAREHOUSE_STAFF')) return true;
-
-    const assignments = userInfo.farmAssignments || [];
-    const hasWhAssignment = assignments.some(
-      (a) =>
-        (a.roleInFarm === 'WAREHOUSE_KEEPER' || a.role_in_farm === 'WAREHOUSE_KEEPER') &&
-        a.isActive !== false
-    );
-    if (hasWhAssignment) return true;
-
-    const accessibleFarms = userInfo.accessibleFarms || [];
-    return accessibleFarms.some((f) => f.assignedRole === 'WAREHOUSE_KEEPER');
-  },
-
-  /**
-   * Role 5 - Kế toán trang trại - Mỗi trại 1 người (isFarmAccountant)
-   * Tài khoản có ROLE_ACCOUNTANT gắn với trang trại. Phối hợp với Thủ kho và Kỹ thuật để chi tiền nhập hàng,
-   * thu tiền bán hàng VietQR vào tài khoản trại, tính giá thành/kg và cuối Chu kỳ vận hành thực hiện Kết toán chuyển lợi nhuận ròng về cho Owner.
+   * Role 4 - Kế toán kho trang trại (isFarmAccountant)
+   * Tài khoản có ROLE_ACCOUNTANT. Quản lý toàn diện kho hàng hóa cám/thuốc,
+   * xuất nhập nội bộ, hóa đơn mua bán, sổ quỹ thu chi, bảng lương và đối chiếu chi phí chăn nuôi.
    */
   isFarmAccountant: () => {
     const { userInfo, hasRole, isOwner } = get();
     if (!userInfo) return false;
     if (isOwner()) return false;
 
-    if (userInfo.operationalRole === 'FARM_ACCOUNTANT') return true;
+    if (userInfo.operationalRole === 'FARM_ACCOUNTANT' || userInfo.operationalRole === 'ACCOUNTANT') return true;
     return hasRole('ROLE_ACCOUNTANT');
+  },
+
+  /**
+   * Role Thủ kho trang trại (Đã gộp vào Kế toán kho trong FarmGo)
+   */
+  isWarehouseKeeper: () => {
+    return get().isFarmAccountant();
   },
 
   /**
@@ -603,8 +559,8 @@ export const useAuthStore = create((set, get) => ({
         return {
           code: 'OWNER',
           roleNumber: 1,
-          title: 'Chủ Đầu Tư / Chủ Doanh Nghiệp',
-          shortTitle: 'Chủ Đầu Tư',
+          title: 'Chủ Trang Trại',
+          shortTitle: 'Chủ trang trại',
           badgeColor: 'bg-amber-100 text-amber-900 border-amber-300 font-bold',
           canSkipAttendance: true, // TUYỆT ĐỐI KHÔNG CẦN CHẤM CÔNG
           isFarmLocked: false,     // Tự do chuyển đổi toàn chuỗi trại
@@ -648,23 +604,13 @@ export const useAuthStore = create((set, get) => ({
           isMobileFirst: false,
         };
       case 'WAREHOUSE_KEEPER':
-        return {
-          code: 'WAREHOUSE_KEEPER',
-          roleNumber: 4,
-          title: 'Thủ Kho Trang Trại',
-          shortTitle: 'Thủ Kho',
-          badgeColor: 'bg-cyan-100 text-cyan-900 border-cyan-300 font-bold',
-          canSkipAttendance: false,
-          isFarmLocked: true,
-          canProxyAttendance: true, // Điểm danh hộ nhân viên bốc xếp kho không có tài khoản
-          isMobileFirst: false,
-        };
       case 'FARM_ACCOUNTANT':
+      case 'ACCOUNTANT':
         return {
           code: 'FARM_ACCOUNTANT',
-          roleNumber: 5,
-          title: 'Kế Toán Trang Trại',
-          shortTitle: 'Kế Toán Trại',
+          roleNumber: 4,
+          title: 'Kế Toán Kho',
+          shortTitle: 'Kế Toán Kho',
           badgeColor: 'bg-rose-100 text-rose-900 border-rose-300 font-bold',
           canSkipAttendance: false,
           isFarmLocked: true,

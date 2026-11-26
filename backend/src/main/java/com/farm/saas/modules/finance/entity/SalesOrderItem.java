@@ -25,6 +25,9 @@ public class SalesOrderItem {
     @Column(name = "product_batch_id")
     private Long productBatchId;
 
+    @Column(name = "livestock_group_id")
+    private Long livestockGroupId;
+
     @Column(name = "item_name", nullable = false, length = 255)
     private String itemName;
 

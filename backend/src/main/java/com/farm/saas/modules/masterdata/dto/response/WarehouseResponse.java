@@ -18,6 +18,7 @@ public class WarehouseResponse {
     private Long tenantId;
     private Long farmId;
     private String farmName;
+    private Long branchId;
     private Long zoneId;
     private String zoneName;
     private String code;
@@ -32,5 +33,6 @@ public class WarehouseResponse {
     private String managerFullName;
     private String status;
     private Long currentInventoryLotsCount;
+    private Long itemsCount;
     private Instant createdAt;
 }

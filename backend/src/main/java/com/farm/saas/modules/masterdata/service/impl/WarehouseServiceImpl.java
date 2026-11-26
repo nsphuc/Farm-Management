@@ -52,18 +52,53 @@ public class WarehouseServiceImpl implements WarehouseService {
 
     private static final Set<String> VALID_WAREHOUSE_TYPES = Set.of(
             "FERTILIZER", "PESTICIDE", "ANIMAL_FEED", "HARVESTED_PRODUCE",
-            "COLD_STORAGE", "TOOLS_EQUIPMENT", "GENERAL"
+            "COLD_STORAGE", "TOOLS_EQUIPMENT", "GENERAL", "FEED", "MEDICINE", "VACCINE", "CHEMICAL", "SUPPLIES"
     );
 
     @Override
     @Transactional(readOnly = true)
     public List<WarehouseResponse> getWarehouses(Long farmId, String warehouseType) {
+        return getWarehouses(farmId, warehouseType, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WarehouseResponse> getWarehouses(Long farmId, String warehouseType, Long branchId) {
         Farm farm = getFarmOrThrow(farmId);
+        Long effectiveBranchId = branchId != null ? branchId : SecurityUtils.getCurrentBranchId();
+
         List<Warehouse> list;
-        if (warehouseType != null && !warehouseType.isBlank()) {
-            list = warehouseRepository.findByFarmIdAndWarehouseType(farmId, warehouseType.toUpperCase());
+        if (effectiveBranchId != null) {
+            if (warehouseType != null && !warehouseType.isBlank()) {
+                list = warehouseRepository.findByFarmIdAndBranchIdAndWarehouseType(farmId, effectiveBranchId, warehouseType.toUpperCase());
+            } else {
+                list = warehouseRepository.findByFarmIdAndBranchId(farmId, effectiveBranchId);
+            }
         } else {
-            list = warehouseRepository.findByFarmId(farmId);
+            if (warehouseType != null && !warehouseType.isBlank()) {
+                list = warehouseRepository.findByFarmIdAndWarehouseType(farmId, warehouseType.toUpperCase());
+            } else {
+                list = warehouseRepository.findByFarmId(farmId);
+            }
+        }
+
+        // Warehouse Role Scope: Nếu người dùng bị giới hạn phạm vi kho, chỉ trả về các kho được phân công
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        boolean hasBroadAccess = SecurityUtils.isSuperAdmin()
+                || SecurityUtils.hasRole("ROLE_SUPER_ADMIN")
+                || SecurityUtils.hasRole("ROLE_FARM_OWNER")
+                || SecurityUtils.hasRole("ROLE_FARM_MANAGER")
+                || SecurityUtils.hasRole("ROLE_ACCOUNTANT")
+                || SecurityUtils.hasAuthority("inventory.manage")
+                || SecurityUtils.hasAuthority("inventory.view_all");
+
+        if (!hasBroadAccess && currentUserId != null) {
+            boolean hasSpecificAssignment = list.stream().anyMatch(w -> currentUserId.equals(w.getManagerUserId()));
+            if (hasSpecificAssignment) {
+                list = list.stream()
+                        .filter(w -> currentUserId.equals(w.getManagerUserId()))
+                        .collect(Collectors.toList());
+            }
         }
 
         return list.stream()
@@ -104,14 +139,22 @@ public class WarehouseServiceImpl implements WarehouseService {
             }
         }
 
+        Long effectiveBranchId = request.getBranchId();
         if (request.getZoneId() != null) {
-            productionZoneRepository.findByFarmIdAndId(farmId, request.getZoneId())
+            ProductionZone zone = productionZoneRepository.findByFarmIdAndId(farmId, request.getZoneId())
                     .orElseThrow(() -> new ResourceNotFoundException("Phân khu", request.getZoneId()));
+            if (effectiveBranchId == null) {
+                effectiveBranchId = zone.getBranchId();
+            }
+        }
+        if (effectiveBranchId == null) {
+            effectiveBranchId = SecurityUtils.getCurrentBranchId();
         }
 
         Warehouse warehouse = Warehouse.builder()
                 .tenantId(farm.getTenantId())
                 .farmId(farmId)
+                .branchId(effectiveBranchId)
                 .zoneId(request.getZoneId())
                 .code(code)
                 .name(request.getName().trim())
@@ -264,11 +307,16 @@ public class WarehouseServiceImpl implements WarehouseService {
         }
 
         Long lotsCount = 0L;
+        Long itemsCount = 0L;
         try {
             Long c = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM warehouse_inventory WHERE warehouse_id = ? AND quantity_on_hand > 0",
                     Long.class, w.getId());
             if (c != null) lotsCount = c;
+            Long itc = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(DISTINCT material_id) FROM warehouse_inventory WHERE warehouse_id = ? AND quantity_on_hand > 0",
+                    Long.class, w.getId());
+            if (itc != null) itemsCount = itc;
         } catch (Exception ignored) {
         }
 
@@ -277,6 +325,7 @@ public class WarehouseServiceImpl implements WarehouseService {
                 .tenantId(w.getTenantId())
                 .farmId(w.getFarmId())
                 .farmName(farmName)
+                .branchId(w.getBranchId())
                 .zoneId(w.getZoneId())
                 .zoneName(zoneName)
                 .code(w.getCode())
@@ -291,6 +340,7 @@ public class WarehouseServiceImpl implements WarehouseService {
                 .managerFullName(managerFullName)
                 .status(w.getStatus())
                 .currentInventoryLotsCount(lotsCount)
+                .itemsCount(itemsCount)
                 .createdAt(w.getCreatedAt())
                 .build();
     }

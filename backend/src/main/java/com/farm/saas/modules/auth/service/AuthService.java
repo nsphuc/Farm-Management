@@ -17,4 +17,7 @@ public interface AuthService {
     void logout(String refreshToken, HttpServletResponse httpResponse);
     UserInfoDto getMe();
     List<String> getMyPermissions();
+    void sendEmailOtp(com.farm.saas.modules.auth.dto.request.SendOtpRequest request);
+    AuthResponse registerWithOtp(com.farm.saas.modules.auth.dto.request.RegisterWithOtpRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse);
+    void forgotPasswordWithOtp(com.farm.saas.modules.auth.dto.request.ForgotPasswordWithOtpRequest request);
 }

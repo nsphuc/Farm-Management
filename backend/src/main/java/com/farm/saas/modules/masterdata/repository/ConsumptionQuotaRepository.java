@@ -9,8 +9,9 @@ import org.springframework.stereotype.Repository;
 public interface ConsumptionQuotaRepository extends JpaRepository<ConsumptionQuota, Long>, JpaSpecificationExecutor<ConsumptionQuota> {
     java.util.List<ConsumptionQuota> findByTenantId(Long tenantId);
     java.util.List<ConsumptionQuota> findByFarmId(Long farmId);
+    java.util.List<ConsumptionQuota> findByLivestockBreedId(Long livestockBreedId);
+    java.util.List<ConsumptionQuota> findByFarmIdAndLivestockBreedId(Long farmId, Long livestockBreedId);
     java.util.Optional<ConsumptionQuota> findByTenantIdAndId(Long tenantId, Long id);
-    boolean existsByCropTypeId(Long cropTypeId);
     boolean existsByLivestockBreedId(Long livestockBreedId);
     boolean existsByMaterialId(Long materialId);
 }

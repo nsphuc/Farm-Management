@@ -4,8 +4,7 @@ import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
-import com.farm.saas.modules.crop.entity.CropSeason;
-import com.farm.saas.modules.crop.repository.CropSeasonRepository;
+
 import com.farm.saas.modules.finance.dto.request.ConfirmSettlementRequest;
 import com.farm.saas.modules.finance.dto.response.CycleSettlementSummaryResponse;
 import com.farm.saas.modules.finance.entity.FarmExpense;
@@ -53,7 +52,6 @@ public class CycleSettlementServiceImpl implements CycleSettlementService {
     private final EnterpriseRepository enterpriseRepository;
     private final PartnerRepository partnerRepository;
     private final CostCategoryRepository costCategoryRepository;
-    private final CropSeasonRepository cropSeasonRepository;
     private final LivestockGroupRepository livestockGroupRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
@@ -235,10 +233,6 @@ public class CycleSettlementServiceImpl implements CycleSettlementService {
 
         // 2. Tính Tổng Chi Phí (Farm Expenses trong chu kỳ)
         List<FarmExpense> allExpenses = farmExpenseRepository.findByTenantIdAndFarmId(tenantId, farmId);
-        Set<Long> cycleSeasonIds = cropSeasonRepository.findByFarmId(farmId).stream()
-                .filter(s -> cycle.getId().equals(s.getOperationalCycleId()))
-                .map(CropSeason::getId)
-                .collect(Collectors.toSet());
         Set<Long> cycleGroupIds = livestockGroupRepository.findByFarmId(farmId).stream()
                 .filter(g -> cycle.getId().equals(g.getOperationalCycleId()))
                 .map(LivestockGroup::getId)
@@ -246,7 +240,6 @@ public class CycleSettlementServiceImpl implements CycleSettlementService {
 
         List<FarmExpense> cycleExpenses = allExpenses.stream().filter(e -> {
             if (!"CONFIRMED".equalsIgnoreCase(e.getStatus()) && !"PAID".equalsIgnoreCase(e.getStatus())) return false;
-            if (e.getSeasonId() != null && cycleSeasonIds.contains(e.getSeasonId())) return true;
             if (e.getLivestockGroupId() != null && cycleGroupIds.contains(e.getLivestockGroupId())) return true;
             if (e.getExpenseDate() != null) {
                 return !e.getExpenseDate().isBefore(cycle.getStartDate()) && !e.getExpenseDate().isAfter(cycle.getEndDate());

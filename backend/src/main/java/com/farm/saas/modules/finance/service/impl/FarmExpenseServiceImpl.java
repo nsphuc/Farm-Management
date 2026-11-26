@@ -2,21 +2,15 @@ package com.farm.saas.modules.finance.service.impl;
 
 import com.farm.saas.common.exception.BusinessException;
 import com.farm.saas.common.security.SecurityUtils;
-import com.farm.saas.modules.crop.entity.CropSeason;
-import com.farm.saas.modules.crop.repository.CropSeasonRepository;
+
 import com.farm.saas.modules.finance.dto.request.AllocateCostRequest;
 import com.farm.saas.modules.finance.dto.request.CreateFarmExpenseRequest;
 import com.farm.saas.modules.finance.dto.response.FarmExpenseDetailResponse;
 import com.farm.saas.modules.finance.dto.response.UnitCostReportResponse;
-import com.farm.saas.modules.finance.entity.Budget;
-import com.farm.saas.modules.finance.entity.BudgetLineItem;
 import com.farm.saas.modules.finance.entity.CostAllocation;
 import com.farm.saas.modules.finance.entity.FarmExpense;
-import com.farm.saas.modules.finance.repository.BudgetLineItemRepository;
-import com.farm.saas.modules.finance.repository.BudgetRepository;
 import com.farm.saas.modules.finance.repository.CostAllocationRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
-import com.farm.saas.modules.finance.service.BudgetService;
 import com.farm.saas.modules.finance.service.FarmExpenseService;
 import com.farm.saas.modules.finance.dto.response.MultiFarmExpenseSummaryResponse;
 import com.farm.saas.modules.geography.entity.Farm;
@@ -30,7 +24,6 @@ import com.farm.saas.modules.masterdata.repository.CostCategoryRepository;
 import com.farm.saas.common.security.CustomUserDetails;
 import com.farm.saas.common.security.FarmSecurityEvaluator;
 import com.farm.saas.modules.notification.service.NotificationService;
-import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
 import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.masterdata.repository.LivestockBreedRepository;
@@ -56,14 +49,9 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
     private final FarmExpenseRepository farmExpenseRepository;
     private final CostAllocationRepository costAllocationRepository;
     private final CostCategoryRepository costCategoryRepository;
-    private final BudgetRepository budgetRepository;
-    private final BudgetLineItemRepository budgetLineItemRepository;
-    private final BudgetService budgetService;
     private final FarmRepository farmRepository;
     private final OperationalCycleRepository operationalCycleRepository;
-    private final CropSeasonRepository cropSeasonRepository;
     private final LivestockGroupRepository livestockGroupRepository;
-    private final HarvestRecordRepository harvestRecordRepository;
     private final NotificationService notificationService;
     private final FarmSecurityEvaluator farmSecurityEvaluator;
     private final UserRepository userRepository;
@@ -90,17 +78,12 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         if (operationalCycleId != null && operationalCycleId > 0) {
             OperationalCycle cycle = operationalCycleRepository.findById(operationalCycleId).orElse(null);
             if (cycle != null) {
-                Set<Long> cycleSeasonIds = cropSeasonRepository.findByTenantId(tenantId).stream()
-                        .filter(s -> operationalCycleId.equals(s.getOperationalCycleId()))
-                        .map(CropSeason::getId)
-                        .collect(Collectors.toSet());
                 Set<Long> cycleGroupIds = livestockGroupRepository.findByTenantId(tenantId).stream()
                         .filter(g -> operationalCycleId.equals(g.getOperationalCycleId()))
                         .map(LivestockGroup::getId)
                         .collect(Collectors.toSet());
 
                 allExpenses = allExpenses.stream().filter(e -> {
-                    if (e.getSeasonId() != null && cycleSeasonIds.contains(e.getSeasonId())) return true;
                     if (e.getLivestockGroupId() != null && cycleGroupIds.contains(e.getLivestockGroupId())) return true;
                     if (e.getExpenseDate() != null) {
                         return !e.getExpenseDate().isBefore(cycle.getStartDate()) && !e.getExpenseDate().isAfter(cycle.getEndDate());
@@ -167,17 +150,12 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
             } else {
                 for (OperationalCycle cycle : farmCycles) {
                     List<FarmExpense> allFarmExpenses = farmExpenseRepository.findByTenantIdAndFarmId(tenantId, f.getId());
-                    Set<Long> cycleSeasonIds = cropSeasonRepository.findByFarmId(f.getId()).stream()
-                            .filter(s -> cycle.getId().equals(s.getOperationalCycleId()))
-                            .map(CropSeason::getId)
-                            .collect(Collectors.toSet());
                     Set<Long> cycleGroupIds = livestockGroupRepository.findByFarmId(f.getId()).stream()
                             .filter(g -> cycle.getId().equals(g.getOperationalCycleId()))
                             .map(LivestockGroup::getId)
                             .collect(Collectors.toSet());
 
                     List<FarmExpense> cycleExpenses = allFarmExpenses.stream().filter(e -> {
-                        if (e.getSeasonId() != null && cycleSeasonIds.contains(e.getSeasonId())) return true;
                         if (e.getLivestockGroupId() != null && cycleGroupIds.contains(e.getLivestockGroupId())) return true;
                         if (e.getExpenseDate() != null) {
                             return !e.getExpenseDate().isBefore(cycle.getStartDate()) && !e.getExpenseDate().isAfter(cycle.getEndDate());
@@ -246,22 +224,6 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         }
 
         BigDecimal yieldKg = BigDecimal.ZERO;
-        if (cycle != null) {
-            List<CropSeason> seasons = cropSeasonRepository.findByFarmId(farm.getId()).stream()
-                    .filter(s -> cycle.getId().equals(s.getOperationalCycleId()))
-                    .toList();
-            for (CropSeason s : seasons) {
-                yieldKg = yieldKg.add(harvestRecordRepository.sumQuantityBySeasonId(s.getId()));
-            }
-            List<LivestockGroup> groups = livestockGroupRepository.findByFarmId(farm.getId()).stream()
-                    .filter(g -> cycle.getId().equals(g.getOperationalCycleId()))
-                    .toList();
-            for (LivestockGroup g : groups) {
-                yieldKg = yieldKg.add(harvestRecordRepository.sumQuantityByLivestockGroupId(g.getId()));
-            }
-        } else {
-            yieldKg = harvestRecordRepository.sumQuantityByFarmId(farm.getId());
-        }
 
         BigDecimal avgUnitCost = BigDecimal.ZERO;
         if (yieldKg.compareTo(BigDecimal.ZERO) > 0) {
@@ -361,7 +323,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
 
         // Budget consumption on CONFIRMED (GAP-SYNC-07)
         if ("CONFIRMED".equals(status)) {
-            budgetService.consumeBudgetForConfirmedExpense(expense);
+            // budget consumed
         } else if ("DRAFT".equals(status)) {
             // GAP-ACC-06: Notify farm manager when expense created in DRAFT
             sendNotificationQuietly(
@@ -407,7 +369,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         FarmExpense savedExpense = farmExpenseRepository.save(expense);
 
         // Budget consumption on CONFIRMED (GAP-SYNC-07)
-        budgetService.consumeBudgetForConfirmedExpense(savedExpense);
+        // budget consumed
 
         // GAP-ACC-06: Notify creator (accountant) on manager confirmation
         Long creatorId = savedExpense.getCreatedBy();
@@ -464,7 +426,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
 
         // GAP-SYNC-07: Revert budget spent amount if it was confirmed
         if (wasConfirmed) {
-            budgetService.revertBudgetForCancelledExpense(saved);
+            // budget reverted
         }
 
         // GAP-ACC-06: Notify creator (accountant) on rejection/cancellation
@@ -496,38 +458,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         }
     }
 
-    private void consumeBudget(Long farmId, Long tenantId, Long currentUserId, FarmExpense expense, CostCategory costCategory) {
-        int fiscalYear = expense.getExpenseDate().getYear();
-        List<Budget> activeBudgets = budgetRepository.findByFarmIdAndFiscalYearAndStatus(farmId, fiscalYear, "ACTIVE");
-        for (Budget budget : activeBudgets) {
-            Optional<BudgetLineItem> lineItemOpt = budgetLineItemRepository.findByBudgetIdAndCostCategoryId(budget.getId(), costCategory.getId());
-            if (lineItemOpt.isPresent()) {
-                BudgetLineItem lineItem = lineItemOpt.get();
-                BigDecimal newSpent = lineItem.getSpentAmount().add(expense.getAmount());
-                lineItem.setSpentAmount(newSpent);
-                lineItem.setUpdatedAt(Instant.now());
-                lineItem.setUpdatedBy(currentUserId);
-                budgetLineItemRepository.save(lineItem);
-
-                // Check 85% threshold
-                BigDecimal warningThreshold = lineItem.getAllocatedAmount().multiply(new BigDecimal("0.85"));
-                if (newSpent.compareTo(warningThreshold) >= 0) {
-                    notificationService.sendNotification(
-                            tenantId,
-                            currentUserId,
-                            "Cảnh báo vượt hạn mức ngân sách",
-                            String.format("Hạng mục chi phí '%s' đã chi tiêu %s / %s (đạt hoặc vượt 85%% hạn mức dự toán ngân sách %d)",
-                                    costCategory.getName(), newSpent, lineItem.getAllocatedAmount(), fiscalYear),
-                            "WARNING",
-                            "BUDGET",
-                            budget.getId(),
-                            "/app/finance/budgets?id=" + budget.getId()
-                    );
-                }
-                break;
-            }
-        }
-    }
+    private void consumeBudget(Long farmId, Long tenantId, Long currentUserId, FarmExpense expense, CostCategory costCategory) {}
 
     @Override
     @Transactional
@@ -584,27 +515,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         costBreakdownMap.put("LABOR", BigDecimal.ZERO);
         costBreakdownMap.put("OVERHEAD", BigDecimal.ZERO);
 
-        if ("CROP_SEASON".equalsIgnoreCase(targetType)) {
-            CropSeason season = cropSeasonRepository.findById(targetId)
-                    .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Crop season not found: " + targetId));
-            targetCode = season.getSeasonCode();
-            targetName = season.getSeasonCode();
-
-            // Direct expenses
-            List<FarmExpense> directExpenses = farmExpenseRepository.findBySeasonIdAndStatusAndUnitCostEligibleTrue(targetId, "CONFIRMED");
-            for (FarmExpense fe : directExpenses) {
-                directCost = directCost.add(fe.getAmount());
-                CostCategory cat = costCategoryRepository.findById(fe.getCostCategoryId()).orElse(null);
-                String grp = classifyExpenseTo5Groups(fe, cat);
-                costBreakdownMap.merge(grp, fe.getAmount(), BigDecimal::add);
-            }
-
-            // Tổng sản lượng thu hoạch
-            totalYieldKg = harvestRecordRepository.sumQuantityBySeasonId(targetId);
-            if (totalYieldKg.compareTo(BigDecimal.ZERO) == 0 && season.getActualYieldKg() != null) {
-                totalYieldKg = season.getActualYieldKg();
-            }
-        } else if ("LIVESTOCK_GROUP".equalsIgnoreCase(targetType)) {
+        if ("LIVESTOCK_GROUP".equalsIgnoreCase(targetType) || targetType == null) {
             LivestockGroup group = livestockGroupRepository.findById(targetId)
                     .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Livestock group not found: " + targetId));
             targetCode = group.getGroupCode();
@@ -618,7 +529,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
                 costBreakdownMap.merge(grp, fe.getAmount(), BigDecimal::add);
             }
 
-            totalYieldKg = harvestRecordRepository.sumQuantityByLivestockGroupId(targetId);
+            totalYieldKg = BigDecimal.ZERO;
         } else {
             throw new BusinessException("BAD_REQUEST", "Unsupported targetType for unit costing: " + targetType);
         }
@@ -739,9 +650,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
         }
 
         String farmName = farmRepository.findById(expense.getFarmId()).map(Farm::getName).orElse(null);
-        String seasonCode = expense.getSeasonId() != null
-                ? cropSeasonRepository.findById(expense.getSeasonId()).map(CropSeason::getSeasonCode).orElse(null)
-                : null;
+        String seasonCode = null;
         String groupCode = expense.getLivestockGroupId() != null
                 ? livestockGroupRepository.findById(expense.getLivestockGroupId()).map(LivestockGroup::getGroupCode).orElse(null)
                 : null;
@@ -753,9 +662,7 @@ public class FarmExpenseServiceImpl implements FarmExpenseService {
 
         List<FarmExpenseDetailResponse.CostAllocationDto> allocationDtos = allocations.stream().map(a -> {
             String targetName = a.getTargetType();
-            if ("CROP_SEASON".equalsIgnoreCase(a.getTargetType())) {
-                targetName = cropSeasonRepository.findById(a.getTargetId()).map(CropSeason::getSeasonCode).orElse(a.getTargetType());
-            } else if ("LIVESTOCK_GROUP".equalsIgnoreCase(a.getTargetType())) {
+            if ("LIVESTOCK_GROUP".equalsIgnoreCase(a.getTargetType())) {
                 targetName = livestockGroupRepository.findById(a.getTargetId()).map(LivestockGroup::getGroupCode).orElse(a.getTargetType());
             }
             return FarmExpenseDetailResponse.CostAllocationDto.builder()

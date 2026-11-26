@@ -7,8 +7,6 @@ import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.auth.entity.User;
 import com.farm.saas.modules.auth.repository.UserRepository;
-import com.farm.saas.modules.crop.repository.CropSeasonRepository;
-import com.farm.saas.modules.finance.repository.BudgetRepository;
 import com.farm.saas.modules.geography.dto.request.CreateFarmAssignmentRequest;
 import com.farm.saas.modules.geography.dto.request.CreateOperationalCycleRequest;
 import com.farm.saas.modules.geography.dto.request.UpdateFarmSettingsRequest;
@@ -19,8 +17,8 @@ import com.farm.saas.modules.geography.dto.response.OperationalCycleResponse;
 import com.farm.saas.modules.geography.entity.*;
 import com.farm.saas.modules.geography.repository.*;
 import com.farm.saas.modules.geography.service.FarmOperationsService;
-import com.farm.saas.modules.hr.entity.Employee;
-import com.farm.saas.modules.hr.repository.EmployeeRepository;
+import com.farm.saas.modules.workforce.entity.Employee;
+import com.farm.saas.modules.workforce.repository.EmployeeRepository;
 import com.farm.saas.modules.livestock.repository.LivestockGroupRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,9 +51,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
     private final UserFarmAccessRepository userFarmAccessRepository;
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
-    private final CropSeasonRepository cropSeasonRepository;
     private final LivestockGroupRepository livestockGroupRepository;
-    private final BudgetRepository budgetRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     private static final Set<String> VALID_ROLES_IN_FARM = Set.of(
@@ -203,7 +199,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                     zoneName = zone.getName();
                 }
             } else {
-                employee.setDepartment(com.farm.saas.modules.hr.service.impl.EmployeeServiceImpl.inferDepartmentFromPosition(employee.getPosition()));
+                employee.setDepartment(com.farm.saas.modules.workforce.service.impl.EmployeeServiceImpl.inferDepartmentFromPosition(employee.getPosition()));
             }
             if (StringUtils.hasText(role)) {
                 employee.setPosition(role);
@@ -352,7 +348,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
         if ((assignmentId != null && assignmentId < 0) || (assignmentId == null && employeeId != null)) {
             Long targetEmpId = employeeId != null ? employeeId : -assignmentId;
             employeeRepository.findById(targetEmpId).ifPresent(emp -> {
-                emp.setDepartment(com.farm.saas.modules.hr.service.impl.EmployeeServiceImpl.inferDepartmentFromPosition(emp.getPosition()));
+                emp.setDepartment(com.farm.saas.modules.workforce.service.impl.EmployeeServiceImpl.inferDepartmentFromPosition(emp.getPosition()));
                 employeeRepository.save(emp);
             });
         } else {
@@ -377,7 +373,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                     empToReset = employeeRepository.findByUserId(assignment.getUserId());
                 }
                 empToReset.ifPresent(emp -> {
-                    emp.setDepartment(com.farm.saas.modules.hr.service.impl.EmployeeServiceImpl.inferDepartmentFromPosition(emp.getPosition()));
+                    emp.setDepartment(com.farm.saas.modules.workforce.service.impl.EmployeeServiceImpl.inferDepartmentFromPosition(emp.getPosition()));
                     employeeRepository.save(emp);
                 });
             } else {
@@ -385,7 +381,7 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
                 Optional<Employee> empOpt = employeeRepository.findById(assignmentId);
                 if (empOpt.isPresent()) {
                     Employee emp = empOpt.get();
-                    emp.setDepartment(com.farm.saas.modules.hr.service.impl.EmployeeServiceImpl.inferDepartmentFromPosition(emp.getPosition()));
+                    emp.setDepartment(com.farm.saas.modules.workforce.service.impl.EmployeeServiceImpl.inferDepartmentFromPosition(emp.getPosition()));
                     employeeRepository.save(emp);
                 } else {
                     throw new ResourceNotFoundException("Phân công", assignmentId);
@@ -511,11 +507,10 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
         OperationalCycle cycle = operationalCycleRepository.findByFarmIdAndId(farmId, cycleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Chu kỳ vận hành", cycleId));
 
-        boolean hasSeasons = cropSeasonRepository.existsByOperationalCycleId(cycleId);
         boolean hasLivestock = livestockGroupRepository.existsByOperationalCycleId(cycleId);
-        boolean hasBudgets = budgetRepository.existsByOperationalCycleId(cycleId);
+        boolean hasBudgets = false;
 
-        if (hasSeasons || hasLivestock || hasBudgets) {
+        if (hasLivestock || hasBudgets) {
             cycle.setStatus("CLOSED");
             cycle.setUpdatedAt(Instant.now());
             cycle.setUpdatedBy(SecurityUtils.getCurrentUserId());
@@ -614,12 +609,12 @@ public class FarmOperationsServiceImpl implements FarmOperationsService {
             userFullName = uOpt.get().getFullName();
         }
 
-        Optional<com.farm.saas.modules.hr.entity.Employee> empOpt = employeeRepository.findByUserId(a.getUserId());
+        Optional<com.farm.saas.modules.workforce.entity.Employee> empOpt = employeeRepository.findByUserId(a.getUserId());
         if (empOpt.isEmpty()) {
             empOpt = employeeRepository.findById(a.getUserId());
         }
         if (empOpt.isPresent()) {
-            com.farm.saas.modules.hr.entity.Employee emp = empOpt.get();
+            com.farm.saas.modules.workforce.entity.Employee emp = empOpt.get();
             employeeId = emp.getId();
             department = emp.getDepartment();
             position = emp.getPosition();

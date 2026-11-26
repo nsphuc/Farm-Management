@@ -16,6 +16,8 @@ public class UpdateZoneLocationRequest {
     @NotBlank(message = "Tên vị trí / lô không được để trống")
     private String name;
 
+    private Long zoneId;
+
     private String description;
     private String status;
     private BigDecimal areaM2;

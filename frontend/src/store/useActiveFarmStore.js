@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { geographyService } from '@/services/modules/geographyService';
+import { branchService } from '@/services/modules/branchService';
 import { useAuthStore } from './useAuthStore';
 
 /**
@@ -31,6 +32,21 @@ export const resolveFarmTypeMeta = (activeFarmId, activeFarm, farms = []) => {
     supportsLivestock: cleanType === 'LIVESTOCK' || cleanType === 'MIXED',
   };
 };
+
+const getInitialFarmBranchId = () => {
+  if (typeof window === 'undefined') return 1;
+  try {
+    const urlParam = new URLSearchParams(window.location.search).get('branchId');
+    if (urlParam) return urlParam === 'ALL' ? 'ALL' : (isNaN(Number(urlParam)) ? urlParam : Number(urlParam));
+    const saved = localStorage.getItem('farmgo_active_branch_id');
+    if (saved) return saved === 'ALL' ? 'ALL' : (isNaN(Number(saved)) ? saved : Number(saved));
+  } catch {
+    // safe ignore
+  }
+  return 1;
+};
+
+const initialFarmBranchId = getInitialFarmBranchId();
 
 /**
  * Module-level In-flight Promise để chống gọi trùng API fetchFarms
@@ -92,6 +108,12 @@ export const useActiveFarmStore = create((set, get) => ({
   supportsLivestock: true,
   activeZoneId: null,
   activeCycleId: null,
+  branches: [],
+  activeBranchId: initialFarmBranchId,
+  currentBranchId: initialFarmBranchId,
+  activeBranch: null,
+  currentBranch: null,
+  activeLivestockType: 'LIVESTOCK_MEAT',
   farms: [],
   dataVersion: 1,
   isLoadingFarms: false,
@@ -196,6 +218,19 @@ export const useActiveFarmStore = create((set, get) => ({
    */
   bumpDataVersion: () => {
     set((state) => ({ dataVersion: state.dataVersion + 1 }));
+  },
+
+  /**
+   * Cơ chế làm mới dữ liệu toàn cục reactive (GAP-SYNC-01)
+   */
+  triggerRefresh: () => {
+    get().bumpDataVersion();
+    get().notifyDataChanged('all');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('farmgo_data_refreshed', {
+        detail: { dataVersion: get().dataVersion, timestamp: Date.now() },
+      }));
+    }
   },
 
   /**
@@ -483,6 +518,7 @@ export const useActiveFarmStore = create((set, get) => ({
       activeZoneId: null,
       activeCycleId: null,
     });
+    get().fetchBranches(farmId);
   },
 
   setActiveZoneId: (zoneId) => {
@@ -495,6 +531,119 @@ export const useActiveFarmStore = create((set, get) => ({
     const newCycleId = cycleId ? Number(cycleId) : null;
     if (get().activeCycleId === newCycleId) return;
     set({ activeCycleId: newCycleId });
+  },
+
+  fetchBranches: async (farmId) => {
+    const targetFarmId = farmId || get().activeFarmId;
+    if (!targetFarmId || targetFarmId === 'ALL') {
+      set({ branches: [], activeBranchId: null, activeBranch: null, currentBranchId: null, currentBranch: null, activeLivestockType: 'LIVESTOCK_MEAT' });
+      if (typeof window !== 'undefined' && window.__useActiveBranchStore) {
+        window.__useActiveBranchStore.setState({ branches: [], currentBranchId: null, activeBranchId: null, currentBranch: null, activeBranch: null });
+      }
+      return [];
+    }
+    try {
+      const list = await branchService.getBranches(targetFarmId);
+      const branches = Array.isArray(list) ? list : (list?.content || []);
+
+      const savedBranchId = typeof window !== 'undefined'
+        ? (new URLSearchParams(window.location.search).get('branchId') || localStorage.getItem('farmgo_active_branch_id'))
+        : null;
+
+      let targetBranch = null;
+      if (savedBranchId === 'ALL') {
+        targetBranch = {
+          id: 'ALL',
+          name: 'Cơ sở chính (Tổng hợp toàn hệ thống)',
+          livestockType: 'MIXED',
+          isDefault: true,
+        };
+      } else if (savedBranchId) {
+        targetBranch = branches.find((b) => Number(b.id) === Number(savedBranchId));
+      }
+
+      if (!targetBranch && get().activeBranchId && get().activeBranchId !== 'ALL') {
+        targetBranch = branches.find((b) => Number(b.id) === Number(get().activeBranchId));
+      }
+
+      if (!targetBranch && branches.length > 0) {
+        targetBranch = branches.find((b) => b.isDefault) || branches[0] || null;
+      }
+
+      const cleanId = targetBranch ? targetBranch.id : 1;
+      if (typeof window !== 'undefined' && cleanId) {
+        try {
+          localStorage.setItem('farmgo_active_branch_id', String(cleanId));
+        } catch {
+          // safe ignore
+        }
+      }
+
+      set({
+        branches,
+        activeBranchId: cleanId,
+        currentBranchId: cleanId,
+        activeBranch: targetBranch,
+        currentBranch: targetBranch,
+        activeLivestockType: targetBranch?.livestockType || 'LIVESTOCK_MEAT',
+      });
+
+      if (typeof window !== 'undefined' && window.__useActiveBranchStore) {
+        window.__useActiveBranchStore.setState({
+          branches,
+          currentBranchId: cleanId,
+          activeBranchId: cleanId,
+          currentBranch: targetBranch,
+          activeBranch: targetBranch,
+        });
+      }
+
+      return branches;
+    } catch (e) {
+      console.warn('[useActiveFarmStore] fetchBranches error', e);
+      return [];
+    }
+  },
+
+  setActiveBranchId: (branchId) => {
+    const cleanId = (branchId === 'ALL' || !branchId) ? 'ALL' : Number(branchId);
+    const branches = get().branches || [];
+    let targetBranch = null;
+    if (cleanId === 'ALL') {
+      targetBranch = {
+        id: 'ALL',
+        name: 'Cơ sở chính (Tổng hợp toàn hệ thống)',
+        livestockType: 'MIXED',
+        isDefault: true,
+      };
+    } else {
+      targetBranch = branches.find((b) => Number(b.id) === Number(cleanId)) || null;
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('farmgo_active_branch_id', String(cleanId));
+      } catch {
+        // safe ignore
+      }
+    }
+
+    set({
+      activeBranchId: cleanId,
+      currentBranchId: cleanId,
+      activeBranch: targetBranch,
+      currentBranch: targetBranch,
+      activeLivestockType: targetBranch?.livestockType || 'LIVESTOCK_MEAT',
+    });
+
+    if (typeof window !== 'undefined' && window.__useActiveBranchStore) {
+      window.__useActiveBranchStore.setState({
+        currentBranchId: cleanId,
+        activeBranchId: cleanId,
+        currentBranch: targetBranch,
+        activeBranch: targetBranch,
+      });
+    }
   },
 
   /**

@@ -22,6 +22,7 @@ public interface MaterialService {
 
     // Materials
     Page<MaterialDetailResponse> getMaterials(Long categoryId, String keyword, Pageable pageable);
+    Page<MaterialDetailResponse> getMaterials(Long categoryId, String keyword, Long branchId, String species, Pageable pageable);
     MaterialDetailResponse getMaterialById(Long id);
     MaterialDetailResponse createMaterial(CreateMaterialRequest request);
     MaterialDetailResponse updateMaterial(Long id, UpdateMaterialRequest request);

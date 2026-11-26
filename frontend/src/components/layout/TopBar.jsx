@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiClient } from '@/services/api/apiClient';
 import { API_ENDPOINTS } from '@/services/api/endpoints';
 import { FarmContextSwitcher } from './FarmContextSwitcher';
+import { BranchContextSwitcher } from './BranchContextSwitcher';
 import { NotificationBell } from './NotificationBell';
 import { Modal } from '@/components/ui/Modal';
 import { BarcodeScannerInput } from '@/components/common/BarcodeScannerInput';
@@ -62,12 +63,14 @@ export function TopBar({ onMobileMenuToggle }) {
         <button
           type="button"
           onClick={onMobileMenuToggle}
+          aria-label="Mở menu điều hướng"
           className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 lg:hidden shrink-0"
         >
           <Menu className="h-5 w-5" />
         </button>
 
         <FarmContextSwitcher />
+        <BranchContextSwitcher />
       </div>
 
       {/* Right: QuickScannerButton + NotificationBell + User Profile */}

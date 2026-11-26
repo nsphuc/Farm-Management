@@ -45,6 +45,12 @@ public interface WarehouseInventoryRepository extends JpaRepository<WarehouseInv
             @Param("materialId") Long materialId
     );
 
+    @Query("SELECT wi FROM WarehouseInventory wi WHERE wi.farmId = :farmId AND wi.materialId = :materialId AND (wi.quantityOnHand - wi.reservedQuantity) > 0 ORDER BY CASE WHEN wi.expiryDate IS NULL THEN 1 ELSE 0 END, wi.expiryDate ASC, wi.inwardDate ASC, wi.id ASC")
+    java.util.List<WarehouseInventory> findFefoAvailableLotsByFarmAndMaterial(
+            @Param("farmId") Long farmId,
+            @Param("materialId") Long materialId
+    );
+
     boolean existsByMaterialId(Long materialId);
     boolean existsByWarehouseId(Long warehouseId);
 

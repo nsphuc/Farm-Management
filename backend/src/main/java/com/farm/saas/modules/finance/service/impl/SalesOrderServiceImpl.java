@@ -25,8 +25,6 @@ import com.farm.saas.modules.platform.entity.Partner;
 import com.farm.saas.modules.platform.repository.EnterpriseRepository;
 import com.farm.saas.modules.platform.repository.PartnerRepository;
 import com.farm.saas.modules.notification.service.NotificationService;
-import com.farm.saas.modules.quality.entity.ProductBatch;
-import com.farm.saas.modules.quality.repository.ProductBatchRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -58,7 +56,6 @@ public class SalesOrderServiceImpl implements SalesOrderService {
     private final WarehouseIssueRepository warehouseIssueRepository;
     private final WarehouseIssueItemRepository warehouseIssueItemRepository;
     private final WarehouseInventoryRepository warehouseInventoryRepository;
-    private final ProductBatchRepository productBatchRepository;
     private final DebtRecordRepository debtRecordRepository;
     private final PartnerRepository partnerRepository;
     private final EnterpriseRepository enterpriseRepository;
@@ -184,6 +181,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             SalesOrderItem item = SalesOrderItem.builder()
                     .salesOrderId(order.getId())
                     .productBatchId(itemReq.getProductBatchId())
+                    .livestockGroupId(itemReq.getLivestockGroupId())
                     .itemName(itemReq.getItemName())
                     .quantity(itemReq.getQuantity())
                     .shippedQuantity(BigDecimal.ZERO)
@@ -233,37 +231,12 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             throw new BusinessException("BAD_REQUEST", "Chỉ có thể duyệt đơn ở trạng thái PENDING");
         }
 
-        List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(order.getId());
-        for (SalesOrderItem item : items) {
-            if (item.getProductBatchId() != null) {
-                // Lock row product_batches using PESSIMISTIC_WRITE
-                ProductBatch batch = productBatchRepository.findByIdForUpdate(item.getProductBatchId())
-                        .orElseThrow(() -> new BusinessException("RESOURCE_NOT_FOUND", "Product batch not found: " + item.getProductBatchId()));
-
-                if (!"SELLING".equalsIgnoreCase(batch.getStatus()) &&
-                        !"PRINTED".equalsIgnoreCase(batch.getStatus()) &&
-                        !"READY_TO_PRINT".equalsIgnoreCase(batch.getStatus())) {
-                    throw new BusinessException("BAD_REQUEST", "Lô hàng không ở trạng thái sẵn sàng bán: " + batch.getStatus());
-                }
-
-                BigDecimal available = batch.getRemainingQuantity().subtract(batch.getReservedQuantity());
-                if (available.compareTo(item.getQuantity()) < 0) {
-                    throw new BusinessException("BAD_REQUEST",
-                            "INSUFFICIENT_BATCH_RESERVED_STOCK: Lô không đủ tồn khả dụng để giữ chỗ");
-                }
-
-                batch.setReservedQuantity(batch.getReservedQuantity().add(item.getQuantity()));
-                batch.setStatus("SELLING");
-                batch.setUpdatedAt(Instant.now());
-                productBatchRepository.save(batch);
-            }
-        }
-
         order.setStatus("CONFIRMED");
         order.setUpdatedAt(Instant.now());
         order.setUpdatedBy(currentUserId);
         order = salesOrderRepository.save(order);
 
+        List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(order.getId());
         // Tự động tạo Phiếu Giao Hàng DRAFT & Phiếu Xuất Kho cho Thủ Kho
         autoCreateDraftDeliveryAndIssueForOrder(farmId, order, items, currentUserId);
 
@@ -271,7 +244,9 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long accountantUserId = order.getCreatedBy();
         if (accountantUserId == null) {
-            accountantUserId = userRepository.findByUsername("accountant").map(User::getId).orElse(null);
+            accountantUserId = userRepository.findByUsername("accountant")
+                    .or(() -> userRepository.findByUsername("ketoan"))
+                    .map(User::getId).orElse(null);
         }
         sendNotificationQuietly(
                 tenantId,
@@ -285,7 +260,8 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         );
 
         // Notify warehouse staff to prepare goods
-        Optional<User> whUserOpt = userRepository.findByUsername("warehouse");
+        Optional<User> whUserOpt = userRepository.findByUsername("warehouse")
+                .or(() -> userRepository.findByUsername("thukho"));
         if (whUserOpt.isPresent()) {
             sendNotificationQuietly(
                     tenantId,
@@ -323,23 +299,6 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             throw new BusinessException("BAD_REQUEST", "Không thể hủy đơn hàng đã có đợt giao hàng hoàn tất");
         }
 
-        if ("CONFIRMED".equalsIgnoreCase(order.getStatus())) {
-            for (SalesOrderItem item : items) {
-                if (item.getProductBatchId() != null) {
-                    ProductBatch batch = productBatchRepository.findByIdForUpdate(item.getProductBatchId()).orElse(null);
-                    if (batch != null) {
-                        BigDecimal newReserved = batch.getReservedQuantity().subtract(item.getQuantity());
-                        if (newReserved.compareTo(BigDecimal.ZERO) < 0) {
-                            newReserved = BigDecimal.ZERO;
-                        }
-                        batch.setReservedQuantity(newReserved);
-                        batch.setUpdatedAt(Instant.now());
-                        productBatchRepository.save(batch);
-                    }
-                }
-            }
-        }
-
         // Hủy bản ghi công nợ dự kiến nếu chưa thanh toán
         debtRecordRepository.findBySalesOrderId(order.getId()).ifPresent(debt -> {
             if (debt.getPaidAmount() == null || debt.getPaidAmount().compareTo(BigDecimal.ZERO) == 0) {
@@ -359,7 +318,9 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         Long accountantUserId = order.getCreatedBy();
         if (accountantUserId == null) {
-            accountantUserId = userRepository.findByUsername("accountant").map(User::getId).orElse(null);
+            accountantUserId = userRepository.findByUsername("accountant")
+                    .or(() -> userRepository.findByUsername("ketoan"))
+                    .map(User::getId).orElse(null);
         }
         sendNotificationQuietly(
                 tenantId,
@@ -438,24 +399,22 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         String vietQrUrl = generateVietQrUrl(order.getTenantId(), order.getOrderCode(), order.getDebtAmount());
 
         List<SalesOrderItem> items = salesOrderItemRepository.findBySalesOrderId(order.getId());
+        boolean canViewPrice = SecurityUtils.canViewFinancialPrice();
         List<SalesOrderDetailResponse.SalesOrderItemDto> itemDtos = items.stream().map(it -> {
-            String batchCode = null;
-            if (it.getProductBatchId() != null) {
-                batchCode = productBatchRepository.findById(it.getProductBatchId()).map(ProductBatch::getBatchCode).orElse(null);
-            }
             return SalesOrderDetailResponse.SalesOrderItemDto.builder()
                     .id(it.getId())
                     .productBatchId(it.getProductBatchId())
-                    .batchCode(batchCode)
+                    .livestockGroupId(it.getLivestockGroupId())
+                    .batchCode(null)
                     .itemName(it.getItemName())
                     .quantity(it.getQuantity())
                     .shippedQuantity(it.getShippedQuantity())
                     .unit(it.getUnit())
-                    .unitPrice(it.getUnitPrice())
-                    .discountAmount(it.getDiscountAmount())
-                    .vatAmount(it.getVatAmount())
-                    .finalAmount(it.getFinalAmount())
-                    .totalPrice(it.getQuantity().multiply(it.getUnitPrice()))
+                    .unitPrice(canViewPrice ? it.getUnitPrice() : null)
+                    .discountAmount(canViewPrice ? it.getDiscountAmount() : null)
+                    .vatAmount(canViewPrice ? it.getVatAmount() : null)
+                    .finalAmount(canViewPrice ? it.getFinalAmount() : null)
+                    .totalPrice(canViewPrice && it.getQuantity() != null && it.getUnitPrice() != null ? it.getQuantity().multiply(it.getUnitPrice()) : null)
                     .build();
         }).collect(Collectors.toList());
 
@@ -472,17 +431,17 @@ public class SalesOrderServiceImpl implements SalesOrderService {
                 .partnerId(order.getPartnerId())
                 .partnerCode(partnerCode)
                 .partnerName(partnerName)
-                .partnerCreditLimit(partnerCreditLimit)
-                .partnerCurrentDebt(currentDebt != null ? currentDebt : BigDecimal.ZERO)
+                .partnerCreditLimit(canViewPrice ? partnerCreditLimit : null)
+                .partnerCurrentDebt(canViewPrice ? (currentDebt != null ? currentDebt : BigDecimal.ZERO) : null)
                 .paymentTermDays(paymentTermDays)
                 .dueDate(dueDate)
-                .subtotalAmount(order.getSubtotalAmount())
-                .discountAmount(order.getDiscountAmount())
-                .vatRate(order.getVatRate())
-                .vatAmount(order.getVatAmount())
-                .finalAmount(order.getFinalAmount())
-                .paidAmount(order.getPaidAmount())
-                .debtAmount(order.getDebtAmount())
+                .subtotalAmount(canViewPrice ? order.getSubtotalAmount() : null)
+                .discountAmount(canViewPrice ? order.getDiscountAmount() : null)
+                .vatRate(canViewPrice ? order.getVatRate() : null)
+                .vatAmount(canViewPrice ? order.getVatAmount() : null)
+                .finalAmount(canViewPrice ? order.getFinalAmount() : null)
+                .paidAmount(canViewPrice ? order.getPaidAmount() : null)
+                .debtAmount(canViewPrice ? order.getDebtAmount() : null)
                 .status(order.getStatus())
                 .deliveryStatus(order.getStatus())
                 .paymentStatus(order.getPaymentStatus())
@@ -535,6 +494,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
                             .deliveryId(del.getId())
                             .salesOrderItemId(it.getId())
                             .productBatchId(it.getProductBatchId())
+                            .livestockGroupId(it.getLivestockGroupId())
                             .quantity(it.getQuantity())
                             .unitPrice(it.getUnitPrice())
                             .totalPrice(it.getFinalAmount() != null ? it.getFinalAmount() : it.getQuantity().multiply(it.getUnitPrice()))
@@ -543,69 +503,6 @@ public class SalesOrderServiceImpl implements SalesOrderService {
                             .updatedAt(Instant.now())
                             .build();
                     salesDeliveryItemRepository.save(dItem);
-                }
-            }
-
-            // 2. Tạo Phiếu Xuất Kho WarehouseIssue (SALE_FULFILLMENT) cho Thủ kho
-            Long primaryWarehouseId = null;
-            for (SalesOrderItem it : items) {
-                if (it.getProductBatchId() != null) {
-                    ProductBatch b = productBatchRepository.findById(it.getProductBatchId()).orElse(null);
-                    if (b != null && b.getWarehouseId() != null) {
-                        primaryWarehouseId = b.getWarehouseId();
-                        break;
-                    }
-                }
-            }
-            if (primaryWarehouseId != null) {
-                String issueCode = "ISS-" + order.getOrderCode();
-                if (!warehouseIssueRepository.existsByTenantIdAndFarmIdAndIssueCode(tenantId, farmId, issueCode)) {
-                    WarehouseIssue issue = WarehouseIssue.builder()
-                            .tenantId(tenantId)
-                            .farmId(farmId)
-                            .warehouseId(primaryWarehouseId)
-                            .issueCode(issueCode)
-                            .issueType("SALE_FULFILLMENT")
-                            .receiverName(receiverName)
-                            .isBackflushed(false)
-                            .issueDate(order.getDeliveryDate() != null ? order.getDeliveryDate() : LocalDate.now())
-                            .totalAmount(order.getFinalAmount())
-                            .notes("Phiếu xuất kho tự động cho đơn bán sỉ " + order.getOrderCode())
-                            .status("DRAFT")
-                            .createdAt(Instant.now())
-                            .createdBy(currentUserId)
-                            .build();
-                    issue = warehouseIssueRepository.save(issue);
-
-                    for (SalesOrderItem it : items) {
-                        if (it.getProductBatchId() != null) {
-                            ProductBatch b = productBatchRepository.findById(it.getProductBatchId()).orElse(null);
-                            Long materialId = 1L;
-                            if (b != null && b.getWarehouseId() != null) {
-                                materialId = warehouseInventoryRepository.findByWarehouseId(b.getWarehouseId())
-                                        .stream()
-                                        .filter(inv -> b.getBatchCode().equalsIgnoreCase(inv.getBatchNumber()))
-                                        .map(WarehouseInventory::getMaterialId)
-                                        .findFirst()
-                                        .orElse(1L);
-                            }
-                            WarehouseIssueItem wItem = WarehouseIssueItem.builder()
-                                    .issueId(issue.getId())
-                                    .tenantId(tenantId)
-                                    .materialId(materialId)
-                                    .batchNumber(b != null ? b.getBatchCode() : "LOT-SALE")
-                                    .enteredUnit(it.getUnit())
-                                    .enteredQuantity(it.getQuantity())
-                                    .conversionFactor(BigDecimal.ONE.setScale(4))
-                                    .quantity(it.getQuantity())
-                                    .unitPrice(it.getUnitPrice())
-                                    .totalPrice(it.getFinalAmount() != null ? it.getFinalAmount() : it.getQuantity().multiply(it.getUnitPrice()))
-                                    .createdAt(Instant.now())
-                                    .createdBy(currentUserId)
-                                    .build();
-                            warehouseIssueItemRepository.save(wItem);
-                        }
-                    }
                 }
             }
         } catch (Exception ex) {

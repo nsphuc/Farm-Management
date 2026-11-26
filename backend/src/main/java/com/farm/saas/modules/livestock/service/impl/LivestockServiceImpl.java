@@ -7,20 +7,17 @@ import com.farm.saas.common.exception.InsufficientStockException;
 import com.farm.saas.common.exception.ResourceNotFoundException;
 import com.farm.saas.common.security.SecurityUtils;
 import com.farm.saas.modules.livestock.service.LivestockService;
-import com.farm.saas.modules.finance.service.BudgetService;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.finance.entity.CostAllocation;
 import com.farm.saas.modules.finance.entity.FarmExpense;
 import com.farm.saas.modules.finance.repository.CostAllocationRepository;
 import com.farm.saas.modules.finance.repository.FarmExpenseRepository;
 import com.farm.saas.modules.notification.service.NotificationService;
-import com.farm.saas.modules.quality.repository.HarvestRecordRepository;
 import com.farm.saas.modules.geography.entity.ProductionZone;
 import com.farm.saas.modules.geography.entity.ZoneLocation;
 import com.farm.saas.modules.geography.repository.OperationalCycleRepository;
 import com.farm.saas.modules.geography.repository.ProductionZoneRepository;
 import com.farm.saas.modules.geography.repository.ZoneLocationRepository;
-import com.farm.saas.modules.crop.repository.CropSeasonRepository;
 import com.farm.saas.modules.finance.entity.DebtRecord;
 import com.farm.saas.modules.finance.repository.DebtRecordRepository;
 import com.farm.saas.modules.platform.entity.Partner;
@@ -76,7 +73,6 @@ public class LivestockServiceImpl implements LivestockService {
     private final ProductionZoneRepository productionZoneRepository;
     private final OperationalCycleRepository operationalCycleRepository;
     private final ZoneLocationRepository zoneLocationRepository;
-    private final CropSeasonRepository cropSeasonRepository;
     private final MaterialRepository materialRepository;
     private final WarehouseRepository warehouseRepository;
     private final WarehouseInventoryRepository warehouseInventoryRepository;
@@ -87,16 +83,11 @@ public class LivestockServiceImpl implements LivestockService {
     private final FarmExpenseRepository farmExpenseRepository;
     private final DebtRecordRepository debtRecordRepository;
     private final PartnerRepository partnerRepository;
-    private final BudgetService budgetService;
-    private final com.farm.saas.modules.hr.service.FarmTaskService farmTaskService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private CostAllocationRepository costAllocationRepository;
-
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private HarvestRecordRepository harvestRecordRepository;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private NotificationService notificationService;
@@ -149,7 +140,7 @@ public class LivestockServiceImpl implements LivestockService {
         }
 
         if (livestockGroupRepository.existsByTenantIdAndFarmIdAndGroupCode(tenantId, farmId, groupCode)) {
-            throw new BusinessException("DUPLICATE_GROUP_CODE", "Mã đàn đã tồn tại: " + groupCode);
+            throw new BusinessException("DUPLICATE_GROUP_CODE", "MÃ£ Ä‘Ã n Ä‘Ã£ tá»“n táº¡i: " + groupCode);
         }
 
         BigDecimal totalCost = request.getTotalCost();
@@ -193,7 +184,7 @@ public class LivestockServiceImpl implements LivestockService {
 
         group = livestockGroupRepository.save(group);
 
-        // 1. Tự động sinh công nợ phải trả Nhà cung cấp con giống nếu có partnerId và totalCost
+        // 1. Tá»± Ä‘á»™ng sinh cÃ´ng ná»£ pháº£i tráº£ NhÃ  cung cáº¥p con giá»‘ng náº¿u cÃ³ partnerId vÃ  totalCost
         if (request.getPartnerId() != null && totalCost != null && totalCost.compareTo(BigDecimal.ZERO) > 0) {
             Partner partner = partnerRepository.findByTenantIdAndId(tenantId, request.getPartnerId()).orElse(null);
             int paymentTerm = (partner != null && partner.getPaymentTermDays() != null) ? partner.getPaymentTermDays() : 30;
@@ -201,7 +192,7 @@ public class LivestockServiceImpl implements LivestockService {
 
             String breedName = livestockBreedRepository.findById(request.getBreedId())
                     .map(com.farm.saas.modules.masterdata.entity.LivestockBreed::getBreedName)
-                    .orElse("Con giống");
+                    .orElse("Con giá»‘ng");
             String itemDesc = breedName + " (" + group.getInitialQuantity() + " con)";
 
             DebtRecord debt = DebtRecord.builder()
@@ -223,17 +214,17 @@ public class LivestockServiceImpl implements LivestockService {
             log.info("Auto-created payable debt record for livestock group {} to supplier {}", group.getGroupCode(), request.getPartnerId());
         }
 
-        // 2. Tự động ghi nhận chi phí đầu vào con giống (FarmExpense) gắn với đàn nuôi
+        // 2. Tá»± Ä‘á»™ng ghi nháº­n chi phÃ­ Ä‘áº§u vÃ o con giá»‘ng (FarmExpense) gáº¯n vá»›i Ä‘Ã n nuÃ´i
         if (totalCost != null && totalCost.compareTo(BigDecimal.ZERO) > 0) {
             CostCategory breedCostCategory = costCategoryRepository.findByTenantIdAndCode(tenantId, "CST-002")
                     .or(() -> costCategoryRepository.findByTenantIdAndCode(tenantId, "BREED_COST"))
                     .or(() -> costCategoryRepository.findByTenantId(tenantId).stream()
-                            .filter(c -> c.getName() != null && c.getName().toLowerCase().contains("giống"))
+                            .filter(c -> c.getName() != null && c.getName().toLowerCase().contains("giá»‘ng"))
                             .findFirst())
                     .orElseGet(() -> {
                         CostCategory newCat = CostCategory.builder()
                                 .tenantId(tenantId)
-                                .name("Chi phí Cây giống & Con giống vật nuôi")
+                                .name("Chi phÃ­ CÃ¢y giá»‘ng & Con giá»‘ng váº­t nuÃ´i")
                                 .code("BREED_COST")
                                 .costType("MATERIALS")
                                 .createdAt(Instant.now())
@@ -254,7 +245,7 @@ public class LivestockServiceImpl implements LivestockService {
                     .amount(totalCost)
                     .unitCostEligible(true)
                     .status("CONFIRMED")
-                    .notes("Chi phí mua con giống ban đầu đàn " + group.getGroupCode() + " (" + group.getInitialQuantity() + " con)")
+                    .notes("Chi phÃ­ mua con giá»‘ng ban Ä‘áº§u Ä‘Ã n " + group.getGroupCode() + " (" + group.getInitialQuantity() + " con)")
                     .createdAt(Instant.now())
                     .createdBy(currentUserId)
                     .build();
@@ -262,7 +253,7 @@ public class LivestockServiceImpl implements LivestockService {
             log.info("Auto-created farm expense for livestock group {}", group.getGroupCode());
         }
 
-        // 3. Tự động ghi nhận trọng lượng ban đầu vào LivestockWeightLog nếu có avgInitialWeightKg
+        // 3. Tá»± Ä‘á»™ng ghi nháº­n trá»ng lÆ°á»£ng ban Ä‘áº§u vÃ o LivestockWeightLog náº¿u cÃ³ avgInitialWeightKg
         if (request.getAvgInitialWeightKg() != null && request.getAvgInitialWeightKg().compareTo(BigDecimal.ZERO) > 0) {
             LivestockWeightLog initialWeight = LivestockWeightLog.builder()
                     .tenantId(tenantId)
@@ -272,14 +263,14 @@ public class LivestockServiceImpl implements LivestockService {
                     .recordDate(request.getEntryDate())
                     .weightKg(request.getAvgInitialWeightKg())
                     .recordedByUserId(currentUserId)
-                    .notes("Trọng lượng bình quân nhập đàn ban đầu (" + group.getInitialQuantity() + " con)")
+                    .notes("Trá»ng lÆ°á»£ng bÃ¬nh quÃ¢n nháº­p Ä‘Ã n ban Ä‘áº§u (" + group.getInitialQuantity() + " con)")
                     .createdAt(Instant.now())
                     .build();
             livestockWeightLogRepository.save(initialWeight);
             log.info("Auto-logged initial average weight for livestock group {}", group.getGroupCode());
         }
 
-        // Đồng bộ zone_locations sang OCCUPIED
+        // Äá»“ng bá»™ zone_locations sang OCCUPIED
         if (request.getLocationId() != null) {
             zoneLocationRepository.findById(request.getLocationId()).ifPresent(loc -> {
                 if (Objects.equals(loc.getZoneId(), request.getZoneId()) && (tenantId == null || tenantId.equals(loc.getTenantId()))) {
@@ -341,7 +332,7 @@ public class LivestockServiceImpl implements LivestockService {
 
         if (("SOLD".equalsIgnoreCase(group.getStatus()) || "CULLED".equalsIgnoreCase(group.getStatus()) || "CLOSED".equalsIgnoreCase(group.getStatus()))
                 && !group.getStatus().equalsIgnoreCase(oldStatus)) {
-            farmTaskService.cancelPendingRoutineTasksForZone(farmId, group.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+            // farmTaskService.cancelPendingRoutineTasksForZone - FarmTask deprecated
             releaseZoneLocationsIfEmpty(tenantId, farmId, group.getZoneId());
         }
 
@@ -354,10 +345,10 @@ public class LivestockServiceImpl implements LivestockService {
         Long tenantId = SecurityUtils.getCurrentTenantId();
         LivestockGroup group = findGroupOrThrow(farmId, id);
         if ("SOLD".equalsIgnoreCase(group.getStatus()) || "CULLED".equalsIgnoreCase(group.getStatus())) {
-            throw new BusinessException("GROUP_ALREADY_CLOSED", "Đàn nuôi đã ở trạng thái kết thúc: " + group.getStatus());
+            throw new BusinessException("GROUP_ALREADY_CLOSED", "ÄÃ n nuÃ´i Ä‘Ã£ á»Ÿ tráº¡ng thÃ¡i káº¿t thÃºc: " + group.getStatus());
         }
 
-        // Quy trình 5: Tự động tổng hợp chi phí (giống, thức ăn, thuốc, thẻ tai, nhân công) kết chuyển Giá thành đơn vị (Unit Cost Allocation)
+        // Quy trÃ¬nh 5: Tá»± Ä‘á»™ng tá»•ng há»£p chi phÃ­ (giá»‘ng, thá»©c Äƒn, thuá»‘c, tháº» tai, nhÃ¢n cÃ´ng) káº¿t chuyá»ƒn GiÃ¡ thÃ nh Ä‘Æ¡n vá»‹ (Unit Cost Allocation)
         BigDecimal directExpenses = farmExpenseRepository.sumConfirmedExpensesByLivestockGroupId(group.getId());
         if (directExpenses == null) directExpenses = BigDecimal.ZERO;
 
@@ -371,9 +362,7 @@ public class LivestockServiceImpl implements LivestockService {
         BigDecimal totalCost = directExpenses.add(allocatedCost);
 
         BigDecimal totalYieldKg = BigDecimal.ZERO;
-        if (harvestRecordRepository != null) {
-            totalYieldKg = harvestRecordRepository.sumQuantityByLivestockGroupId(group.getId());
-        }
+        totalYieldKg = BigDecimal.ZERO;
         if (totalYieldKg == null) totalYieldKg = BigDecimal.ZERO;
 
         BigDecimal unitCostPerKg = (totalYieldKg.compareTo(BigDecimal.ZERO) > 0)
@@ -383,7 +372,7 @@ public class LivestockServiceImpl implements LivestockService {
         int headCount = (group.getInitialQuantity() != null && group.getInitialQuantity() > 0) ? group.getInitialQuantity() : 1;
         BigDecimal unitCostPerHead = totalCost.divide(BigDecimal.valueOf(headCount), 2, RoundingMode.HALF_UP);
 
-        String costSummary = String.format("[KẾT TOÁN GIÁ THÀNH: Tổng chi phí = %,.0f đ | Sản lượng xuất = %,.2f kg => Giá thành = %,.0f đ/kg (%,.0f đ/con)]",
+        String costSummary = String.format("[Káº¾T TOÃN GIÃ THÃ€NH: Tá»•ng chi phÃ­ = %,.0f Ä‘ | Sáº£n lÆ°á»£ng xuáº¥t = %,.2f kg => GiÃ¡ thÃ nh = %,.0f Ä‘/kg (%,.0f Ä‘/con)]",
                 totalCost, totalYieldKg, unitCostPerKg, unitCostPerHead);
 
         String existingNotes = group.getNotes() != null ? group.getNotes() : "";
@@ -399,7 +388,7 @@ public class LivestockServiceImpl implements LivestockService {
         group.setUpdatedBy(SecurityUtils.getCurrentUserId());
         group = livestockGroupRepository.save(group);
 
-        farmTaskService.cancelPendingRoutineTasksForZone(farmId, group.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+            // farmTaskService.cancelPendingRoutineTasksForZone - FarmTask deprecated
         releaseZoneLocationsIfEmpty(tenantId, farmId, group.getZoneId());
 
         if (notificationService != null) {
@@ -409,8 +398,8 @@ public class LivestockServiceImpl implements LivestockService {
                         notificationService.sendNotification(
                                 tenantId,
                                 f.getManagerUserId(),
-                                "Hoàn tất xuất chuồng & kết toán giá thành đàn " + gCode,
-                                "Đàn " + gCode + " đã xuất chuồng thành công. " + finalCostSummary,
+                                "HoÃ n táº¥t xuáº¥t chuá»“ng & káº¿t toÃ¡n giÃ¡ thÃ nh Ä‘Ã n " + gCode,
+                                "ÄÃ n " + gCode + " Ä‘Ã£ xuáº¥t chuá»“ng thÃ nh cÃ´ng. " + finalCostSummary,
                                 "INFO",
                                 "LIVESTOCK_GROUP",
                                 gId,
@@ -466,7 +455,7 @@ public class LivestockServiceImpl implements LivestockService {
         Long currentUserId = SecurityUtils.getCurrentUserId();
 
         if (livestockIndividualRepository.existsByTenantIdAndRfidTagCode(tenantId, request.getRfidTagCode())) {
-            throw new BusinessException("DUPLICATE_RFID_TAG", "Mã thẻ RFID đã tồn tại trong hệ thống: " + request.getRfidTagCode());
+            throw new BusinessException("DUPLICATE_RFID_TAG", "MÃ£ tháº» RFID Ä‘Ã£ tá»“n táº¡i trong há»‡ thá»‘ng: " + request.getRfidTagCode());
         }
 
         String healthStatus = StringUtils.hasText(request.getHealthStatus()) ? request.getHealthStatus() : "HEALTHY";
@@ -490,7 +479,7 @@ public class LivestockServiceImpl implements LivestockService {
         individual = livestockIndividualRepository.save(individual);
         log.info("Created livestock individual id={}, tag={} on farmId={}", individual.getId(), individual.getRfidTagCode(), farmId);
 
-        // Tự động xuất kho 1 thẻ tai RFID & tính chi phí nếu có yêu cầu
+        // Tá»± Ä‘á»™ng xuáº¥t kho 1 tháº» tai RFID & tÃ­nh chi phÃ­ náº¿u cÃ³ yÃªu cáº§u
         if (Boolean.TRUE.equals(request.getAutoDeductTagInventory()) && individual.getGroupId() != null) {
             LivestockGroup group = livestockGroupRepository.findById(individual.getGroupId()).orElse(null);
             if (group != null) {
@@ -610,7 +599,7 @@ public class LivestockServiceImpl implements LivestockService {
         log.info("Batch created {} livestock individuals (skipped {}) for group {} on farmId {}",
                 saved.size(), skippedCodes.size(), group.getGroupCode(), farmId);
 
-        // Tự động xuất kho Thẻ tai RFID & Hạch toán chi phí đàn nuôi
+        // Tá»± Ä‘á»™ng xuáº¥t kho Tháº» tai RFID & Háº¡ch toÃ¡n chi phÃ­ Ä‘Ã n nuÃ´i
         TagDeductionResult tagDeduction = null;
         if (Boolean.TRUE.equals(request.getAutoDeductTagInventory()) && !saved.isEmpty()) {
             tagDeduction = autoDeductTagSuppliesAndRecordExpense(
@@ -622,9 +611,9 @@ public class LivestockServiceImpl implements LivestockService {
                 .map(this::mapToIndividualDetailResponse)
                 .collect(Collectors.toList());
 
-        String msg = String.format("Gán thẻ tai thành công %d cá thể (Bỏ qua %d mã bị trùng)", saved.size(), skippedCodes.size());
+        String msg = String.format("GÃ¡n tháº» tai thÃ nh cÃ´ng %d cÃ¡ thá»ƒ (Bá» qua %d mÃ£ bá»‹ trÃ¹ng)", saved.size(), skippedCodes.size());
         if (tagDeduction != null && tagDeduction.deducted()) {
-            msg += String.format(" | Đã tự động xuất kho %d thẻ tai (Phiếu: %s) và hạch toán chi phí: %s đ",
+            msg += String.format(" | ÄÃ£ tá»± Ä‘á»™ng xuáº¥t kho %d tháº» tai (Phiáº¿u: %s) vÃ  háº¡ch toÃ¡n chi phÃ­: %s Ä‘",
                     saved.size(), tagDeduction.issueCode(), tagDeduction.totalCost());
         }
 
@@ -641,7 +630,7 @@ public class LivestockServiceImpl implements LivestockService {
     }
 
     /**
-     * Tự động xuất kho Thẻ tai RFID (Auto-Backflushing) và ghi nhận Chi phí đàn nuôi (FarmExpense)
+     * Tá»± Ä‘á»™ng xuáº¥t kho Tháº» tai RFID (Auto-Backflushing) vÃ  ghi nháº­n Chi phÃ­ Ä‘Ã n nuÃ´i (FarmExpense)
      */
     private TagDeductionResult autoDeductTagSuppliesAndRecordExpense(
             Long tenantId,
@@ -658,7 +647,7 @@ public class LivestockServiceImpl implements LivestockService {
             return new TagDeductionResult(false, BigDecimal.ZERO, null, null);
         }
 
-        // 1. Tìm vật tư Thẻ tai RFID
+        // 1. TÃ¬m váº­t tÆ° Tháº» tai RFID
         Material tagMaterial = null;
         if (preferredMaterialId != null) {
             tagMaterial = materialRepository.findById(preferredMaterialId).orElse(null);
@@ -666,25 +655,25 @@ public class LivestockServiceImpl implements LivestockService {
         if (tagMaterial == null) {
             tagMaterial = materialRepository.findByTenantIdAndSkuCode(tenantId, "MAT_RFID_TAG")
                     .orElseGet(() -> materialRepository.findByTenantId(tenantId).stream()
-                            .filter(m -> m.getName() != null && (m.getName().toLowerCase().contains("rfid") || m.getName().toLowerCase().contains("thẻ tai")))
+                            .filter(m -> m.getName() != null && (m.getName().toLowerCase().contains("rfid") || m.getName().toLowerCase().contains("tháº» tai")))
                             .findFirst()
                             .orElse(null));
         }
 
         if (tagMaterial == null) {
-            throw new BusinessException("TAG_MATERIAL_NOT_FOUND", "Hệ thống chưa tìm thấy danh mục vật tư Thẻ tai RFID (SKU: MAT_RFID_TAG). Vui lòng kiểm tra danh mục vật tư!");
+            throw new BusinessException("TAG_MATERIAL_NOT_FOUND", "Há»‡ thá»‘ng chÆ°a tÃ¬m tháº¥y danh má»¥c váº­t tÆ° Tháº» tai RFID (SKU: MAT_RFID_TAG). Vui lÃ²ng kiá»ƒm tra danh má»¥c váº­t tÆ°!");
         }
 
-        // 2. Tìm kho xuất
+        // 2. TÃ¬m kho xuáº¥t
         if (preferredWarehouseId == null) {
-            throw new BusinessException("WAREHOUSE_REQUIRED", "Vui lòng chọn kho chứa Thẻ tai RFID để thực hiện xuất kho!");
+            throw new BusinessException("WAREHOUSE_REQUIRED", "Vui lÃ²ng chá»n kho chá»©a Tháº» tai RFID Ä‘á»ƒ thá»±c hiá»‡n xuáº¥t kho!");
         }
         Warehouse warehouse = warehouseRepository.findById(preferredWarehouseId)
-                .orElseThrow(() -> new BusinessException("WAREHOUSE_NOT_FOUND", "Không tìm thấy thông tin kho đã chọn"));
+                .orElseThrow(() -> new BusinessException("WAREHOUSE_NOT_FOUND", "KhÃ´ng tÃ¬m tháº¥y thÃ´ng tin kho Ä‘Ã£ chá»n"));
 
         BigDecimal qtyToDeduct = BigDecimal.valueOf(tagCount);
 
-        // 3. Tìm lô tồn kho để xuất FEFO
+        // 3. TÃ¬m lÃ´ tá»“n kho Ä‘á»ƒ xuáº¥t FEFO
         List<WarehouseInventory> stockList = warehouseInventoryRepository.findByWarehouseIdAndMaterialId(warehouse.getId(), tagMaterial.getId())
                 .stream()
                 .filter(s -> s.getQuantityOnHand() != null && s.getQuantityOnHand().compareTo(BigDecimal.ZERO) > 0)
@@ -699,10 +688,10 @@ public class LivestockServiceImpl implements LivestockService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         if (totalAvailable.compareTo(qtyToDeduct) < 0) {
-            String binText = StringUtils.hasText(preferredStorageBinCode) ? " tại vị trí kệ '" + preferredStorageBinCode + "'" : "";
+            String binText = StringUtils.hasText(preferredStorageBinCode) ? " táº¡i vá»‹ trÃ­ ká»‡ '" + preferredStorageBinCode + "'" : "";
             throw new BusinessException(
                     "INSUFFICIENT_TAG_INVENTORY",
-                    String.format("Kho '%s'%s không đủ số lượng Thẻ tai RFID tồn kho (Hiện có: %s cái, Cần xuất: %s cái). Vui lòng nhập kho thẻ tai trước khi gắn thẻ hoặc bỏ chọn Tự Động Xuất Kho!",
+                    String.format("Kho '%s'%s khÃ´ng Ä‘á»§ sá»‘ lÆ°á»£ng Tháº» tai RFID tá»“n kho (Hiá»‡n cÃ³: %s cÃ¡i, Cáº§n xuáº¥t: %s cÃ¡i). Vui lÃ²ng nháº­p kho tháº» tai trÆ°á»›c khi gáº¯n tháº» hoáº·c bá» chá»n Tá»± Äá»™ng Xuáº¥t Kho!",
                             warehouse.getName(), binText, totalAvailable.stripTrailingZeros().toPlainString(), qtyToDeduct.toPlainString())
             );
         }
@@ -715,7 +704,7 @@ public class LivestockServiceImpl implements LivestockService {
         BigDecimal totalCost = qtyToDeduct.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP);
         String binCodeUsed = StringUtils.hasText(preferredStorageBinCode) ? preferredStorageBinCode : stockList.get(0).getStorageBinCode();
 
-        // 4. Tạo Phiếu xuất kho WarehouseIssue trước để có ID ghi sổ giao dịch
+        // 4. Táº¡o Phiáº¿u xuáº¥t kho WarehouseIssue trÆ°á»›c Ä‘á»ƒ cÃ³ ID ghi sá»• giao dá»‹ch
         String issueCode = "ISS-TAG-" + LocalDate.now().toString().replace("-", "") + "-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
         WarehouseIssue issue = WarehouseIssue.builder()
                 .tenantId(tenantId)
@@ -723,7 +712,7 @@ public class LivestockServiceImpl implements LivestockService {
                 .warehouseId(warehouse.getId())
                 .issueCode(issueCode)
                 .issueType("PRODUCTION_BACKFLUSH")
-                .receiverName("Kỹ thuật chăn nuôi / Gán thẻ tai")
+                .receiverName("Ká»¹ thuáº­t chÄƒn nuÃ´i / GÃ¡n tháº» tai")
                 .livestockGroupId(group.getId())
                 .isBackflushed(true)
                 .issueDate(LocalDate.now())
@@ -731,13 +720,13 @@ public class LivestockServiceImpl implements LivestockService {
                 .status("COMPLETED")
                 .approvedBy(currentUserId)
                 .approvedAt(Instant.now())
-                .notes("Tự động xuất kho " + tagCount + " thẻ tai RFID (" + tagMaterial.getName() + ") cho đàn " + group.getGroupCode() + (StringUtils.hasText(binCodeUsed) ? " tại kệ " + binCodeUsed : ""))
+                .notes("Tá»± Ä‘á»™ng xuáº¥t kho " + tagCount + " tháº» tai RFID (" + tagMaterial.getName() + ") cho Ä‘Ã n " + group.getGroupCode() + (StringUtils.hasText(binCodeUsed) ? " táº¡i ká»‡ " + binCodeUsed : ""))
                 .createdAt(Instant.now())
                 .createdBy(currentUserId)
                 .build();
         issue = warehouseIssueRepository.save(issue);
 
-        // 5. Trừ kho theo lô FEFO và tạo Item + Transaction tương ứng
+        // 5. Trá»« kho theo lÃ´ FEFO vÃ  táº¡o Item + Transaction tÆ°Æ¡ng á»©ng
         BigDecimal remainingToDeduct = qtyToDeduct;
         for (WarehouseInventory inv : stockList) {
             if (remainingToDeduct.compareTo(BigDecimal.ZERO) <= 0) break;
@@ -751,7 +740,7 @@ public class LivestockServiceImpl implements LivestockService {
 
             BigDecimal lineTotal = deductFromThis.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP);
 
-            // Tạo WarehouseIssueItem
+            // Táº¡o WarehouseIssueItem
             WarehouseIssueItem issueItem = WarehouseIssueItem.builder()
                     .issueId(issue.getId())
                     .tenantId(tenantId)
@@ -768,7 +757,7 @@ public class LivestockServiceImpl implements LivestockService {
                     .build();
             issueItem = warehouseIssueItemRepository.save(issueItem);
 
-            // Ghi sổ transaction bất biến có referenceItemId hợp lệ
+            // Ghi sá»• transaction báº¥t biáº¿n cÃ³ referenceItemId há»£p lá»‡
             WarehouseInventoryTransaction trans = WarehouseInventoryTransaction.builder()
                     .tenantId(tenantId)
                     .farmId(farmId)
@@ -786,7 +775,7 @@ public class LivestockServiceImpl implements LivestockService {
                     .balanceBefore(balanceBefore)
                     .balanceAfter(balanceAfter)
                     .transactionDate(LocalDate.now())
-                    .notes("Xuất kho tự động gán thẻ tai đàn " + group.getGroupCode() + " theo phiếu " + issueCode)
+                    .notes("Xuáº¥t kho tá»± Ä‘á»™ng gÃ¡n tháº» tai Ä‘Ã n " + group.getGroupCode() + " theo phiáº¿u " + issueCode)
                     .createdAt(Instant.now())
                     .createdBy(currentUserId)
                     .build();
@@ -795,15 +784,15 @@ public class LivestockServiceImpl implements LivestockService {
             remainingToDeduct = remainingToDeduct.subtract(deductFromThis);
         }
 
-        // 6. Ghi nhận Chi phí đàn nuôi (FarmExpense) cho Kế toán
+        // 6. Ghi nháº­n Chi phÃ­ Ä‘Ã n nuÃ´i (FarmExpense) cho Káº¿ toÃ¡n
         CostCategory tagCostCategory = costCategoryRepository.findByTenantIdAndCode(tenantId, "TAG_COST")
                 .or(() -> costCategoryRepository.findByTenantId(tenantId).stream()
-                        .filter(c -> c.getName() != null && (c.getName().toLowerCase().contains("thẻ tai") || c.getName().toLowerCase().contains("định danh")))
+                        .filter(c -> c.getName() != null && (c.getName().toLowerCase().contains("tháº» tai") || c.getName().toLowerCase().contains("Ä‘á»‹nh danh")))
                         .findFirst())
                 .orElseGet(() -> {
                     CostCategory newCat = CostCategory.builder()
                             .tenantId(tenantId)
-                            .name("Chi phí Thẻ tai RFID & Vật tư định danh")
+                            .name("Chi phÃ­ Tháº» tai RFID & Váº­t tÆ° Ä‘á»‹nh danh")
                             .code("TAG_COST")
                             .costType("MATERIALS")
                             .createdAt(Instant.now())
@@ -825,7 +814,7 @@ public class LivestockServiceImpl implements LivestockService {
                 .amount(totalCost)
                 .unitCostEligible(true)
                 .status("CONFIRMED")
-                .notes("Chi phí xuất kho " + tagCount + " thẻ tai RFID (" + tagMaterial.getName() + ") cho đàn " + group.getGroupCode())
+                .notes("Chi phÃ­ xuáº¥t kho " + tagCount + " tháº» tai RFID (" + tagMaterial.getName() + ") cho Ä‘Ã n " + group.getGroupCode())
                 .createdAt(Instant.now())
                 .createdBy(currentUserId)
                 .build();
@@ -904,14 +893,14 @@ public class LivestockServiceImpl implements LivestockService {
         // 1. Strict XOR validation
         if ("INDIVIDUAL".equals(request.getTargetType())) {
             if (request.getIndividualId() == null || request.getGroupId() != null) {
-                throw new BusinessException("INVALID_WEIGHT_TARGET", "Đối tượng INDIVIDUAL chỉ cho phép truyền individualId (không truyền groupId)");
+                throw new BusinessException("INVALID_WEIGHT_TARGET", "Äá»‘i tÆ°á»£ng INDIVIDUAL chá»‰ cho phÃ©p truyá»n individualId (khÃ´ng truyá»n groupId)");
             }
         } else if ("GROUP".equals(request.getTargetType())) {
             if (request.getGroupId() == null || request.getIndividualId() != null) {
-                throw new BusinessException("INVALID_WEIGHT_TARGET", "Đối tượng GROUP chỉ cho phép truyền groupId (không truyền individualId)");
+                throw new BusinessException("INVALID_WEIGHT_TARGET", "Äá»‘i tÆ°á»£ng GROUP chá»‰ cho phÃ©p truyá»n groupId (khÃ´ng truyá»n individualId)");
             }
         } else {
-            throw new BusinessException("INVALID_TARGET_TYPE", "targetType phải là GROUP hoặc INDIVIDUAL");
+            throw new BusinessException("INVALID_TARGET_TYPE", "targetType pháº£i lÃ  GROUP hoáº·c INDIVIDUAL");
         }
 
         // 2. Lookup previous weight log to calculate ADG
@@ -1057,14 +1046,14 @@ public class LivestockServiceImpl implements LivestockService {
         // 1. Strict XOR validation
         if ("INDIVIDUAL".equals(request.getTargetType())) {
             if (request.getLivestockIndividualId() == null || request.getLivestockGroupId() != null) {
-                throw new BusinessException("INVALID_EVENT_TARGET", "Đối tượng INDIVIDUAL chỉ cho phép truyền livestockIndividualId (không truyền livestockGroupId)");
+                throw new BusinessException("INVALID_EVENT_TARGET", "Äá»‘i tÆ°á»£ng INDIVIDUAL chá»‰ cho phÃ©p truyá»n livestockIndividualId (khÃ´ng truyá»n livestockGroupId)");
             }
         } else if ("GROUP".equals(request.getTargetType())) {
             if (request.getLivestockGroupId() == null || request.getLivestockIndividualId() != null) {
-                throw new BusinessException("INVALID_EVENT_TARGET", "Đối tượng GROUP chỉ cho phép truyền livestockGroupId (không truyền livestockIndividualId)");
+                throw new BusinessException("INVALID_EVENT_TARGET", "Äá»‘i tÆ°á»£ng GROUP chá»‰ cho phÃ©p truyá»n livestockGroupId (khÃ´ng truyá»n livestockIndividualId)");
             }
         } else {
-            throw new BusinessException("INVALID_TARGET_TYPE", "targetType phải là GROUP hoặc INDIVIDUAL");
+            throw new BusinessException("INVALID_TARGET_TYPE", "targetType pháº£i lÃ  GROUP hoáº·c INDIVIDUAL");
         }
 
         int withdrawalDays = request.getWithdrawalDays() != null ? request.getWithdrawalDays() : 0;
@@ -1224,12 +1213,12 @@ public class LivestockServiceImpl implements LivestockService {
                     WarehouseInventory inv = warehouseInventoryRepository.findByWarehouseIdAndMaterialIdAndBatchNumberForUpdate(
                             warehouseId, sReq.getMaterialId(), sReq.getBatchNumber())
                             .orElseThrow(() -> new InsufficientStockException(
-                                    "Vật tư #" + sReq.getMaterialId() + " lô " + sReq.getBatchNumber() + " không có tồn kho trong kho #" + warehouseId));
+                                    "Váº­t tÆ° #" + sReq.getMaterialId() + " lÃ´ " + sReq.getBatchNumber() + " khÃ´ng cÃ³ tá»“n kho trong kho #" + warehouseId));
 
                     BigDecimal available = inv.getQuantityOnHand().subtract(inv.getReservedQuantity());
                     if (available.compareTo(sReq.getActualQuantity()) < 0) {
                         throw new InsufficientStockException(
-                                "Không đủ tồn kho khả dụng cho vật tư #" + sReq.getMaterialId() + " lô " + sReq.getBatchNumber() + ". Cần: " + sReq.getActualQuantity() + ", Khả dụng: " + available);
+                                "KhÃ´ng Ä‘á»§ tá»“n kho kháº£ dá»¥ng cho váº­t tÆ° #" + sReq.getMaterialId() + " lÃ´ " + sReq.getBatchNumber() + ". Cáº§n: " + sReq.getActualQuantity() + ", Kháº£ dá»¥ng: " + available);
                     }
 
                     BigDecimal unitPrice = inv.getUnitCost() != null ? inv.getUnitCost() : BigDecimal.ZERO;
@@ -1314,7 +1303,7 @@ public class LivestockServiceImpl implements LivestockService {
                         .orElseGet(() -> {
                             CostCategory newCat = CostCategory.builder()
                                     .tenantId(tenantId)
-                                    .name("Chi phí Thuốc/Vắc xin Thú y")
+                                    .name("Chi phÃ­ Thuá»‘c/Váº¯c xin ThÃº y")
                                     .code("VET-DEFAULT")
                                     .costType("MATERIALS")
                                     .createdAt(Instant.now())
@@ -1336,13 +1325,13 @@ public class LivestockServiceImpl implements LivestockService {
                         .amount(totalIssueAmount)
                         .unitCostEligible(true)
                         .status("CONFIRMED")
-                        .notes("Chi phí thuốc/vắc xin tự động xuất từ sự kiện chăn nuôi #" + event.getId())
+                        .notes("Chi phÃ­ thuá»‘c/váº¯c xin tá»± Ä‘á»™ng xuáº¥t tá»« sá»± kiá»‡n chÄƒn nuÃ´i #" + event.getId())
                         .createdAt(Instant.now())
                         .createdBy(currentUserId)
                         .build();
 
                 expense = farmExpenseRepository.save(expense);
-                budgetService.consumeBudgetForConfirmedExpense(expense);
+                // budget consumed
             }
 
             event.setIsInventoryBackflushed(true);
@@ -1356,7 +1345,7 @@ public class LivestockServiceImpl implements LivestockService {
                     .orElseGet(() -> {
                         CostCategory newCat = CostCategory.builder()
                                 .tenantId(tenantId)
-                                .name("Chi phí Dịch vụ Thú y")
+                                .name("Chi phÃ­ Dá»‹ch vá»¥ ThÃº y")
                                 .code("VET-SERVICE")
                                 .costType("SERVICES")
                                 .createdAt(Instant.now())
@@ -1378,13 +1367,13 @@ public class LivestockServiceImpl implements LivestockService {
                     .amount(request.getTotalCost())
                     .unitCostEligible(true)
                     .status("CONFIRMED")
-                    .notes("Chi phí dịch vụ thú y khám/tiêm sự kiện #" + event.getId())
+                    .notes("Chi phÃ­ dá»‹ch vá»¥ thÃº y khÃ¡m/tiÃªm sá»± kiá»‡n #" + event.getId())
                     .createdAt(Instant.now())
                     .createdBy(currentUserId)
                     .build();
 
             svcExpense = farmExpenseRepository.save(svcExpense);
-            budgetService.consumeBudgetForConfirmedExpense(svcExpense);
+            // budget consumed
         }
 
         log.info("Created livestock event id={} type={} on farmId={}", event.getId(), event.getEventType(), farmId);
@@ -1620,25 +1609,19 @@ public class LivestockServiceImpl implements LivestockService {
         group.setUpdatedBy(SecurityUtils.getCurrentUserId());
         livestockGroupRepository.save(group);
 
-        farmTaskService.cancelPendingRoutineTasksForZone(farmId, group.getZoneId(), "Tự động kết thúc do đã thu hoạch / xuất chuồng");
+            // farmTaskService.cancelPendingRoutineTasksForZone - FarmTask deprecated
         releaseZoneLocationsIfEmpty(tenantId, farmId, group.getZoneId());
     }
 
     private void releaseZoneLocationsIfEmpty(Long tenantId, Long farmId, Long zoneId) {
         if (zoneId == null) return;
-        boolean hasActiveSeasons = cropSeasonRepository.findAll((root, query, cb) -> cb.and(
-                cb.equal(root.get("farmId"), farmId),
-                cb.equal(root.get("zoneId"), zoneId),
-                cb.not(root.get("status").in("CLOSED", "CANCELLED"))
-        )).stream().findAny().isPresent();
-
         boolean hasActiveGroups = livestockGroupRepository.findAll((root, query, cb) -> cb.and(
                 cb.equal(root.get("farmId"), farmId),
                 cb.equal(root.get("zoneId"), zoneId),
                 cb.not(root.get("status").in("SOLD", "CLOSED", "CULLED"))
         )).stream().findAny().isPresent();
 
-        if (!hasActiveSeasons && !hasActiveGroups) {
+        if (!hasActiveGroups) {
             var locs = zoneLocationRepository.findByZoneId(zoneId);
             for (var loc : locs) {
                 if ("OCCUPIED".equalsIgnoreCase(loc.getStatus())) {
@@ -1660,24 +1643,24 @@ public class LivestockServiceImpl implements LivestockService {
                 .filter(i -> tenantId == null || Objects.equals(i.getTenantId(), tenantId))
                 .orElseThrow(() -> new ResourceNotFoundException("LivestockIndividual", id));
 
-        // Kiểm tra xem đã phát sinh sự kiện thú y hoặc y tế nào chưa
+        // Kiá»ƒm tra xem Ä‘Ã£ phÃ¡t sinh sá»± kiá»‡n thÃº y hoáº·c y táº¿ nÃ o chÆ°a
         boolean hasEvents = livestockEventRepository != null && !livestockEventRepository.findByLivestockIndividualId(id).isEmpty();
         if (hasEvents) {
-            // Đã có hồ sơ thú y -> Đổi trạng thái sang CULLED để bảo toàn lịch sử y tế
+            // ÄÃ£ cÃ³ há»“ sÆ¡ thÃº y -> Äá»•i tráº¡ng thÃ¡i sang CULLED Ä‘á»ƒ báº£o toÃ n lá»‹ch sá»­ y táº¿
             ind.setHealthStatus("CULLED");
             ind.setUpdatedAt(Instant.now());
             ind.setUpdatedBy(SecurityUtils.getCurrentUserId());
             livestockIndividualRepository.save(ind);
             log.info("Marked individual id={} tag={} as CULLED due to existing veterinary events", id, ind.getRfidTagCode());
         } else {
-            // Xóa nhật ký cân nếu có liên kết
+            // XÃ³a nháº­t kÃ½ cÃ¢n náº¿u cÃ³ liÃªn káº¿t
             if (livestockWeightLogRepository != null) {
                 var logs = livestockWeightLogRepository.findByIndividualIdOrderByRecordDateDescCreatedAtDesc(id);
                 if (!logs.isEmpty()) {
                     livestockWeightLogRepository.deleteAll(logs);
                 }
             }
-            // Chưa phát sinh sự kiện y tế -> Cho phép xóa hoàn toàn khỏi hệ thống (nhập nhầm mã thẻ)
+            // ChÆ°a phÃ¡t sinh sá»± kiá»‡n y táº¿ -> Cho phÃ©p xÃ³a hoÃ n toÃ n khá»i há»‡ thá»‘ng (nháº­p nháº§m mÃ£ tháº»)
             livestockIndividualRepository.delete(ind);
             log.info("Physically deleted mistakenly tagged individual id={} tag={}", id, ind.getRfidTagCode());
         }

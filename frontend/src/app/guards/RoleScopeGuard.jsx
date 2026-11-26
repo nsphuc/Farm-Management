@@ -19,7 +19,7 @@ export function RoleScopeGuard({ scope, children }) {
   } else if (scope === 'TENANT') {
     if (isSuper) {
       // Super Admin không vào /app/* để tránh xung đột ngữ cảnh trang trại
-      return <Navigate to="/platform" replace />;
+      return <Navigate to="/platform/tenants" replace />;
     }
   }
 

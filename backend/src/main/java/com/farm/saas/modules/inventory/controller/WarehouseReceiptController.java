@@ -26,7 +26,7 @@ public class WarehouseReceiptController {
     private final InventoryService inventoryService;
 
     @GetMapping
-    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'inventory.view', 'purchases.view') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<Page<WarehouseReceiptDetailResponse>> getReceipts(
             @PathVariable(required = false) Long farmId,
             @RequestParam(required = false) Long warehouseId,
@@ -39,7 +39,7 @@ public class WarehouseReceiptController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT') and @farmSecurity.canAccessFarm(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'purchases.create', 'inventory.manage') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseReceiptDetailResponse> createReceipt(
             @PathVariable Long farmId,
             @Valid @RequestBody CreateWarehouseReceiptRequest request) {
@@ -47,7 +47,7 @@ public class WarehouseReceiptController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("(hasAuthority('PERM_INVENTORY_VIEW') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_VIEW', 'inventory.view', 'purchases.view') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and (#farmId == null or @farmSecurity.canAccessFarm(#farmId))")
     public ResponseEntity<WarehouseReceiptDetailResponse> getReceiptById(
             @PathVariable(required = false) Long farmId,
             @PathVariable Long id) {
@@ -55,7 +55,7 @@ public class WarehouseReceiptController {
     }
 
     @PostMapping({"/{id}/complete", "/{id}/approve"})
-    @PreAuthorize("hasAuthority('PERM_INVENTORY_RECEIPT') and @farmSecurity.isFarmManager(#farmId)")
+    @PreAuthorize("(hasAnyAuthority('PERM_INVENTORY_RECEIPT', 'purchases.approve', 'inventory.manage') or hasAnyRole('ROLE_SUPER_ADMIN', 'ROLE_FARM_OWNER', 'ROLE_FARM_MANAGER', 'ROLE_ACCOUNTANT')) and @farmSecurity.canAccessFarm(#farmId)")
     public ResponseEntity<WarehouseReceiptDetailResponse> completeReceipt(
             @PathVariable Long farmId,
             @PathVariable Long id) {

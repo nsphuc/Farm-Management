@@ -26,6 +26,9 @@ public class LivestockGroup {
     @Column(name = "farm_id", nullable = false)
     private Long farmId;
 
+    @Column(name = "branch_id")
+    private Long branchId;
+
     @Column(name = "zone_id", nullable = false)
     private Long zoneId;
 

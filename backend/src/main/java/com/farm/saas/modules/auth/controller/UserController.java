@@ -77,4 +77,66 @@ public class UserController {
     public ResponseEntity<List<RoleMatrixResponse>> getSystemRoles() {
         return ResponseEntity.ok(userService.getSystemRoles());
     }
+
+    @GetMapping("/api/v1/system/permissions")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<RoleMatrixResponse.PermissionDto>> getAllPermissions() {
+        return ResponseEntity.ok(userService.getAllPermissions());
+    }
+
+    @GetMapping("/api/v1/farms/{farmId}/roles")
+    @PreAuthorize("hasAuthority('general_settings.view') or hasAuthority('general_settings.manage') or hasRole('ROLE_SUPER_ADMIN') or hasRole('ROLE_FARM_OWNER')")
+    public ResponseEntity<List<RoleMatrixResponse>> getRolesForFarm(@PathVariable Long farmId) {
+        return ResponseEntity.ok(userService.getRolesForFarm(farmId));
+    }
+
+    @PostMapping("/api/v1/farms/{farmId}/roles")
+    @PreAuthorize("hasAuthority('general_settings.manage') or hasRole('ROLE_SUPER_ADMIN') or hasRole('ROLE_FARM_OWNER')")
+    public ResponseEntity<RoleMatrixResponse> createCustomRole(
+            @PathVariable Long farmId,
+            @Valid @RequestBody com.farm.saas.modules.auth.dto.request.CreateCustomRoleRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(userService.createCustomRole(farmId, request));
+    }
+
+    @PutMapping("/api/v1/farms/{farmId}/roles/{roleId}")
+    @PreAuthorize("hasAuthority('general_settings.manage') or hasRole('ROLE_SUPER_ADMIN') or hasRole('ROLE_FARM_OWNER')")
+    public ResponseEntity<RoleMatrixResponse> updateCustomRole(
+            @PathVariable Long farmId,
+            @PathVariable Long roleId,
+            @Valid @RequestBody com.farm.saas.modules.auth.dto.request.UpdateCustomRoleRequest request) {
+        return ResponseEntity.ok(userService.updateCustomRole(farmId, roleId, request));
+    }
+
+    @DeleteMapping("/api/v1/farms/{farmId}/roles/{roleId}")
+    @PreAuthorize("hasAuthority('general_settings.manage') or hasRole('ROLE_SUPER_ADMIN') or hasRole('ROLE_FARM_OWNER')")
+    public ResponseEntity<Void> deleteCustomRole(
+            @PathVariable Long farmId,
+            @PathVariable Long roleId) {
+        userService.deleteCustomRole(farmId, roleId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/api/v1/farms/{farmId}/members")
+    @PreAuthorize("hasAuthority('general_settings.view') or hasAuthority('general_settings.manage') or hasRole('ROLE_SUPER_ADMIN') or hasRole('ROLE_FARM_OWNER')")
+    public ResponseEntity<List<com.farm.saas.modules.auth.dto.response.FarmMemberResponse>> getFarmMembers(
+            @PathVariable Long farmId) {
+        return ResponseEntity.ok(userService.getFarmMembers(farmId));
+    }
+
+    @PostMapping("/api/v1/farms/{farmId}/members")
+    @PreAuthorize("hasAuthority('general_settings.manage') or hasRole('ROLE_SUPER_ADMIN') or hasRole('ROLE_FARM_OWNER')")
+    public ResponseEntity<com.farm.saas.modules.auth.dto.response.FarmMemberResponse> upsertFarmMember(
+            @PathVariable Long farmId,
+            @Valid @RequestBody com.farm.saas.modules.auth.dto.request.FarmMemberRequest request) {
+        return ResponseEntity.ok(userService.upsertFarmMember(farmId, request));
+    }
+
+    @DeleteMapping("/api/v1/farms/{farmId}/members/{userId}")
+    @PreAuthorize("hasAuthority('general_settings.manage') or hasRole('ROLE_SUPER_ADMIN') or hasRole('ROLE_FARM_OWNER')")
+    public ResponseEntity<Void> removeFarmMember(
+            @PathVariable Long farmId,
+            @PathVariable Long userId) {
+        userService.removeFarmMember(farmId, userId);
+        return ResponseEntity.noContent().build();
+    }
 }

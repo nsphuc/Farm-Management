@@ -20,14 +20,25 @@ import com.farm.saas.modules.auth.repository.RolePermissionRepository;
 import com.farm.saas.modules.auth.repository.RoleRepository;
 import com.farm.saas.modules.auth.repository.UserRepository;
 import com.farm.saas.modules.auth.repository.UserRoleRepository;
+import com.farm.saas.modules.geography.entity.Branch;
 import com.farm.saas.modules.geography.entity.Farm;
 import com.farm.saas.modules.geography.entity.FarmAssignment;
 import com.farm.saas.modules.geography.entity.UserFarmAccess;
+import com.farm.saas.modules.geography.repository.BranchRepository;
 import com.farm.saas.modules.geography.repository.FarmAssignmentRepository;
 import com.farm.saas.modules.geography.repository.FarmRepository;
 import com.farm.saas.modules.geography.repository.UserFarmAccessRepository;
-import com.farm.saas.modules.hr.entity.Employee;
-import com.farm.saas.modules.hr.repository.EmployeeRepository;
+import com.farm.saas.modules.masterdata.entity.Warehouse;
+import com.farm.saas.modules.masterdata.repository.WarehouseRepository;
+import com.farm.saas.modules.auth.entity.FarmAddOnSubscription;
+import com.farm.saas.modules.auth.repository.FarmAddOnSubscriptionRepository;
+import com.farm.saas.modules.auth.entity.FarmMember;
+import com.farm.saas.modules.auth.repository.FarmMemberRepository;
+import com.farm.saas.modules.auth.entity.EmailVerificationOtp;
+import com.farm.saas.modules.auth.repository.EmailVerificationOtpRepository;
+import java.math.BigDecimal;
+import com.farm.saas.modules.workforce.entity.Employee;
+import com.farm.saas.modules.workforce.repository.EmployeeRepository;
 import com.farm.saas.modules.platform.entity.Tenant;
 import com.farm.saas.modules.platform.entity.TenantSubscription;
 import com.farm.saas.modules.platform.repository.TenantRepository;
@@ -69,6 +80,11 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
+    private final EmailVerificationOtpRepository emailVerificationOtpRepository;
+    private final FarmMemberRepository farmMemberRepository;
+    private final BranchRepository branchRepository;
+    private final WarehouseRepository warehouseRepository;
+    private final FarmAddOnSubscriptionRepository farmAddOnSubscriptionRepository;
 
     private static final String PASSWORD_REGEX = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$";
     private static final Pattern PASSWORD_PATTERN = Pattern.compile(PASSWORD_REGEX);
@@ -78,6 +94,7 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         User user = userRepository.findByUsername(request.getUsername())
                 .or(() -> userRepository.findByEmail(request.getUsername()))
+                .or(() -> userRepository.findByPhone(request.getUsername()))
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Tài khoản hoặc mật khẩu không chính xác."));
 
         if (user.getLockUntil() != null && user.getLockUntil().isAfter(Instant.now())) {
@@ -143,6 +160,7 @@ public class AuthServiceImpl implements AuthService {
 
         return AuthResponse.builder()
                 .accessToken(accessToken)
+                .refreshToken(refreshTokenStr)
                 .tokenType("Bearer")
                 .expiresIn(1800L)
                 .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
@@ -235,6 +253,7 @@ public class AuthServiceImpl implements AuthService {
 
         return AuthResponse.builder()
                 .accessToken(accessToken)
+                .refreshToken(newRefreshTokenStr)
                 .tokenType("Bearer")
                 .expiresIn(1800L)
                 .mustChangePassword(Boolean.TRUE.equals(user.getMustChangePassword()))
@@ -316,6 +335,7 @@ public class AuthServiceImpl implements AuthService {
 
         return AuthResponse.builder()
                 .accessToken(accessToken)
+                .refreshToken(newRefreshTokenStr)
                 .tokenType("Bearer")
                 .expiresIn(1800L)
                 .mustChangePassword(false)
@@ -417,7 +437,6 @@ public class AuthServiceImpl implements AuthService {
         boolean hasOwnerRole = roles.stream().anyMatch(r -> "ROLE_FARM_OWNER".equals(r.getCode()));
         boolean hasAccountantRole = roles.stream().anyMatch(r -> "ROLE_ACCOUNTANT".equals(r.getCode()));
         boolean hasTechRole = roles.stream().anyMatch(r -> "ROLE_TECHNICAL_STAFF".equals(r.getCode()));
-        boolean hasWarehouseRole = roles.stream().anyMatch(r -> "ROLE_WAREHOUSE_STAFF".equals(r.getCode()));
         boolean hasFieldStaffRole = roles.stream().anyMatch(r -> "ROLE_FIELD_STAFF".equals(r.getCode()));
 
         // Fetch Farm Assignments
@@ -506,11 +525,61 @@ public class AuthServiceImpl implements AuthService {
                     assignedRole = "ACCOUNTANT";
                 } else if (hasTechRole) {
                     assignedRole = "TECHNICAL_LEAD";
-                } else if (hasWarehouseRole) {
-                    assignedRole = "WAREHOUSE_KEEPER";
                 } else if (hasFieldStaffRole) {
                     assignedRole = "FIELD_WORKER";
                 }
+
+                Boolean allBarns = true;
+                Long memberBranchId = null;
+                List<Long> barnIds = Collections.emptyList();
+                var farmMemberOpt = farmMemberRepository.findByFarmIdAndUserId(farm.getId(), user.getId());
+                if (farmMemberOpt.isPresent()) {
+                    var fm = farmMemberOpt.get();
+                    allBarns = fm.getAllBarns() != null ? fm.getAllBarns() : true;
+                    memberBranchId = (!hasOwnerRole && !isSuperAdmin) ? fm.getBranchId() : null;
+                    if (fm.getBarnIds() != null && !fm.getBarnIds().isBlank()) {
+                        try {
+                            String raw = fm.getBarnIds().trim();
+                            if (raw.startsWith("[") && raw.endsWith("]")) {
+                                raw = raw.substring(1, raw.length() - 1).trim();
+                                if (!raw.isEmpty()) {
+                                    barnIds = Arrays.stream(raw.split(","))
+                                            .map(String::trim)
+                                            .filter(s -> !s.isEmpty())
+                                            .map(Long::parseLong)
+                                            .toList();
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+
+                final Long scopedBranchId = memberBranchId;
+                List<Branch> branches = branchRepository.findByFarmIdOrderByIsDefaultDescIdAsc(farm.getId());
+                List<UserInfoDto.BranchDto> branchDtos = branches.stream()
+                        .filter(b -> scopedBranchId == null || b.getId().equals(scopedBranchId))
+                        .map(b -> UserInfoDto.BranchDto.builder()
+                        .id(b.getId())
+                        .farmId(b.getFarmId())
+                        .code(b.getCode())
+                        .name(b.getName())
+                        .livestockType(b.getLivestockType())
+                        .address(b.getAddress())
+                        .phone(b.getPhone())
+                        .isDefault(Boolean.TRUE.equals(b.getIsDefault()))
+                        .status(b.getStatus())
+                        .build()).toList();
+
+                List<FarmAddOnSubscription> addOns = farmAddOnSubscriptionRepository.findByFarmId(farm.getId());
+                List<UserInfoDto.FarmAddOnDto> addOnDtos = addOns.stream()
+                        .map(a -> UserInfoDto.FarmAddOnDto.builder()
+                                .id(a.getId())
+                                .farmId(a.getFarmId())
+                                .addonCode(a.getAddonCode())
+                                .status(a.getStatus())
+                                .isEnabled("ACTIVE".equalsIgnoreCase(a.getStatus()))
+                                .expiresAt(a.getExpiresAt())
+                                .build()).toList();
 
                 farmDtos.add(UserInfoDto.AccessibleFarmDto.builder()
                         .farmId(farm.getId())
@@ -520,6 +589,11 @@ public class AuthServiceImpl implements AuthService {
                         .assignedRole(assignedRole)
                         .isManager(isManagerOfThisFarm || isOwnerTenantScope)
                         .managerUserId(farm.getManagerUserId())
+                        .allBarns(allBarns)
+                        .barnIds(barnIds)
+                        .allowedBarnIds(barnIds)
+                        .branches(branchDtos)
+                        .farmAddOnSubscriptions(addOnDtos)
                         .build());
             }
         }
@@ -532,14 +606,12 @@ public class AuthServiceImpl implements AuthService {
             operationalRole = "OWNER";
         } else if (isDirectFarmManager || (hasOwnerRole && !isOwnerTenantScope)) {
             operationalRole = "FARM_MANAGER";
-        } else if (hasAccountantRole) {
+        } else if (hasAccountantRole || activeAssignments.stream().anyMatch(a -> Arrays.asList("FARM_ACCOUNTANT", "ACCOUNTANT", "WAREHOUSE_KEEPER").contains(a.getRoleInFarm()))) {
             operationalRole = "FARM_ACCOUNTANT";
         } else if (activeAssignments.stream().anyMatch(a -> "ZONE_MANAGER".equalsIgnoreCase(a.getRoleInFarm()))) {
             operationalRole = "ZONE_MANAGER";
         } else if (hasTechRole || activeAssignments.stream().anyMatch(a -> Arrays.asList("TECHNICAL_LEAD", "AGRONOMIST", "VETERINARIAN").contains(a.getRoleInFarm()))) {
             operationalRole = "TECHNICAL_LEAD";
-        } else if (hasWarehouseRole || activeAssignments.stream().anyMatch(a -> "WAREHOUSE_KEEPER".equalsIgnoreCase(a.getRoleInFarm()))) {
-            operationalRole = "WAREHOUSE_KEEPER";
         } else if (hasFieldStaffRole || activeAssignments.stream().anyMatch(a -> "FIELD_WORKER".equalsIgnoreCase(a.getRoleInFarm()))) {
             operationalRole = "FIELD_WORKER";
         }
@@ -561,6 +633,46 @@ public class AuthServiceImpl implements AuthService {
                     .orElse(null);
         }
 
+        Boolean rootAllBarns = true;
+        List<Long> rootAllowedBarnIds = Collections.emptyList();
+        List<UserInfoDto.BranchDto> rootBranches = Collections.emptyList();
+        List<UserInfoDto.FarmAddOnDto> rootAddOns = Collections.emptyList();
+
+        if (isSuperAdmin) {
+            rootAllBarns = true;
+            rootAllowedBarnIds = Collections.emptyList();
+            rootBranches = branchRepository.findAll().stream().map(b -> UserInfoDto.BranchDto.builder()
+                    .id(b.getId())
+                    .farmId(b.getFarmId())
+                    .code(b.getCode())
+                    .name(b.getName())
+                    .livestockType(b.getLivestockType())
+                    .address(b.getAddress())
+                    .phone(b.getPhone())
+                    .isDefault(Boolean.TRUE.equals(b.getIsDefault()))
+                    .status(b.getStatus())
+                    .build()).toList();
+            rootAddOns = List.of(
+                    UserInfoDto.FarmAddOnDto.builder().addonCode("BRANCHES").status("ACTIVE").isEnabled(true).build(),
+                    UserInfoDto.FarmAddOnDto.builder().addonCode("PAYROLL").status("ACTIVE").isEnabled(true).build(),
+                    UserInfoDto.FarmAddOnDto.builder().addonCode("CUSTOM_ROLES").status("ACTIVE").isEnabled(true).build(),
+                    UserInfoDto.FarmAddOnDto.builder().addonCode("BREEDING").status("ACTIVE").isEnabled(true).build(),
+                    UserInfoDto.FarmAddOnDto.builder().addonCode("POULTRY_HATCHERY").status("ACTIVE").isEnabled(true).build(),
+                    UserInfoDto.FarmAddOnDto.builder().addonCode("FEED_MILL").status("ACTIVE").isEnabled(true).build()
+            );
+        } else if (!farmDtos.isEmpty()) {
+            UserInfoDto.AccessibleFarmDto primary = farmDtos.get(0);
+            rootAllBarns = primary.getAllBarns();
+            rootAllowedBarnIds = primary.getAllowedBarnIds() != null ? primary.getAllowedBarnIds() : Collections.emptyList();
+            rootBranches = primary.getBranches() != null ? primary.getBranches() : Collections.emptyList();
+            rootAddOns = primary.getFarmAddOnSubscriptions() != null ? primary.getFarmAddOnSubscriptions() : Collections.emptyList();
+        }
+
+        Long rootAssignedBranchId = null;
+        if (!isSuperAdmin && !hasOwnerRole && !rootBranches.isEmpty()) {
+            rootAssignedBranchId = rootBranches.get(0).getId();
+        }
+
         return UserInfoDto.builder()
                 .id(user.getId())
                 .tenantId(user.getTenantId())
@@ -580,6 +692,11 @@ public class AuthServiceImpl implements AuthService {
                 .maxFarms(maxFarms)
                 .planType(planType)
                 .employeeId(employeeId)
+                .assignedBranchId(rootAssignedBranchId)
+                .allBarns(rootAllBarns)
+                .allowedBarnIds(rootAllowedBarnIds)
+                .branches(rootBranches)
+                .farmAddOnSubscriptions(rootAddOns)
                 .build();
     }
 
@@ -681,5 +798,263 @@ public class AuthServiceImpl implements AuthService {
                 throw new ApiException(HttpStatus.FORBIDDEN, "FARM_INACTIVE", "Trang trại đã ngừng hoạt động");
             }
         }
+    }
+
+    @Override
+    @Transactional
+    public void sendEmailOtp(com.farm.saas.modules.auth.dto.request.SendOtpRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+        if (!email.endsWith("@gmail.com")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EMAIL_DOMAIN", "Email bắt buộc phải có định dạng @gmail.com (ví dụ: user@gmail.com)");
+        }
+        if ("REGISTER".equalsIgnoreCase(request.getType())) {
+            if (userRepository.existsByEmail(email)) {
+                throw new ApiException(HttpStatus.CONFLICT, "EMAIL_EXISTS", "Email này đã được sử dụng bởi một tài khoản khác.");
+            }
+        } else if ("FORGOT_PASSWORD".equalsIgnoreCase(request.getType())) {
+            if (!userRepository.existsByEmail(email)) {
+                throw new ApiException(HttpStatus.NOT_FOUND, "EMAIL_NOT_FOUND", "Không tìm thấy tài khoản liên kết với email này.");
+            }
+        }
+
+        // Tạo mã OTP 6 số
+        String otpCode = String.format("%06d", new java.util.Random().nextInt(1000000));
+        Instant expiresAt = Instant.now().plusSeconds(5 * 60); // 5 phút
+
+        com.farm.saas.modules.auth.entity.EmailVerificationOtp otp = com.farm.saas.modules.auth.entity.EmailVerificationOtp.builder()
+                .email(email)
+                .otpCode(otpCode)
+                .otpType(request.getType().toUpperCase())
+                .expiresAt(expiresAt)
+                .isUsed(false)
+                .createdAt(Instant.now())
+                .build();
+        emailVerificationOtpRepository.save(otp);
+
+        log.info("[EMAIL OTP SERVICE] Gửi mã xác thực OTP {} tới email: {} (hết hạn lúc {})", otpCode, email, expiresAt);
+    }
+
+    @Override
+    @Transactional
+    public AuthResponse registerWithOtp(com.farm.saas.modules.auth.dto.request.RegisterWithOtpRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        String email = request.getEmail().trim().toLowerCase();
+        if (!email.endsWith("@gmail.com")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EMAIL_DOMAIN", "Email bắt buộc phải có định dạng @gmail.com");
+        }
+        String phone = request.getPhone().trim();
+        String otpCode = request.getOtpCode().trim();
+
+        // 1. Kiểm tra OTP
+        com.farm.saas.modules.auth.entity.EmailVerificationOtp otp = emailVerificationOtpRepository
+                .findTopByEmailAndOtpCodeAndOtpTypeAndIsUsedFalseAndExpiresAtAfter(email, otpCode, "REGISTER", Instant.now())
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "INVALID_OTP", "Mã xác thực OTP không chính xác hoặc đã hết hạn."));
+
+        otp.setIsUsed(true);
+        emailVerificationOtpRepository.save(otp);
+
+        // 2. Kiểm tra trùng lặp SĐT & Email
+        if (userRepository.existsByEmail(email)) {
+            throw new ApiException(HttpStatus.CONFLICT, "EMAIL_EXISTS", "Email này đã được đăng ký trong hệ thống.");
+        }
+        if (userRepository.existsByPhone(phone)) {
+            throw new ApiException(HttpStatus.CONFLICT, "PHONE_EXISTS", "Số điện thoại này đã được đăng ký trong hệ thống.");
+        }
+
+        // 3. Khởi tạo Khách thuê (Tenant) cho chủ trang trại mới
+        String tenantCode = "TNT-" + String.format("%06d", new java.util.Random().nextInt(1000000));
+        while (tenantRepository.existsByCode(tenantCode)) {
+            tenantCode = "TNT-" + String.format("%06d", new java.util.Random().nextInt(1000000));
+        }
+        String subdomain = "trangtrai" + String.format("%06d", new java.util.Random().nextInt(1000000));
+        while (tenantRepository.existsBySubdomain(subdomain)) {
+            subdomain = "trangtrai" + String.format("%06d", new java.util.Random().nextInt(1000000));
+        }
+        Tenant tenant = Tenant.builder()
+                .code(tenantCode)
+                .name("Hộ kinh doanh " + request.getFullName().trim())
+                .subdomain(subdomain)
+                .subscriptionPlan("STANDARD")
+                .status("ACTIVE")
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+        tenant = tenantRepository.save(tenant);
+
+        // 4. Khởi tạo tài khoản người dùng mới
+        String username = phone;
+        if (userRepository.existsByUsername(username)) {
+            username = email.split("@")[0] + "_" + phone.substring(phone.length() - 4);
+        }
+
+        User newUser = User.builder()
+                .tenantId(tenant.getId())
+                .username(username)
+                .email(email)
+                .phone(phone)
+                .fullName(request.getFullName().trim())
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .status("ACTIVE")
+                .isSuperAdmin(false)
+                .mustChangePassword(false)
+                .failedLogins(0)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+        newUser = userRepository.save(newUser);
+
+        // 5. Tự động tạo trang trại (Farm) mặc định
+        String farmCode = "FARM-" + String.format("%04d", new java.util.Random().nextInt(10000));
+        while (farmRepository.existsByTenantIdAndCode(tenant.getId(), farmCode)) {
+            farmCode = "FARM-" + String.format("%04d", new java.util.Random().nextInt(10000));
+        }
+        Farm newFarm = Farm.builder()
+                .tenantId(tenant.getId())
+                .code(farmCode)
+                .name("Trang trại " + request.getFullName().trim())
+                .farmType("LIVESTOCK")
+                .facilityType("HOG")
+                .businessName("Hộ kinh doanh " + request.getFullName().trim())
+                .totalAreaM2(BigDecimal.valueOf(1000.00))
+                .geofenceRadiusM(300)
+                .managerUserId(newUser.getId())
+                .status("ACTIVE")
+                .isDemo(false)
+                .subscriptionTier("STANDARD")
+                .subscriptionDurationYears(1)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build();
+        newFarm = farmRepository.save(newFarm);
+
+        // 6. Tạo 1 Chi nhánh mặc định (farm_branches)
+        Branch defaultBranch = Branch.builder()
+                .farmId(newFarm.getId())
+                .code("CN-CHINH")
+                .name("Chi nhánh chính")
+                .livestockType("LIVESTOCK_MEAT")
+                .isDefault(true)
+                .status("ACTIVE")
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .createdBy(newUser.getId())
+                .build();
+        defaultBranch = branchRepository.save(defaultBranch);
+
+        // 7. Tạo Kho mặc định (warehouses)
+        Warehouse defaultWarehouse = Warehouse.builder()
+                .tenantId(tenant.getId())
+                .farmId(newFarm.getId())
+                .branchId(defaultBranch.getId())
+                .code("KHO-TONG")
+                .name("Kho tổng hợp")
+                .warehouseType("GENERAL")
+                .managerUserId(newUser.getId())
+                .status("ACTIVE")
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .createdBy(newUser.getId())
+                .build();
+        warehouseRepository.save(defaultWarehouse);
+
+        // 8. Gán vai trò ROLE_FARM_OWNER cho chủ trang trại
+        Role ownerRole = roleRepository.findByCode("ROLE_FARM_OWNER")
+                .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ROLE_NOT_FOUND", "Không tìm thấy vai trò ROLE_FARM_OWNER"));
+
+        userRoleRepository.save(UserRole.builder()
+                .tenantId(tenant.getId())
+                .userId(newUser.getId())
+                .roleId(ownerRole.getId())
+                .farmId(newFarm.getId())
+                .assignedAt(Instant.now())
+                .build());
+
+        userFarmAccessRepository.save(UserFarmAccess.builder()
+                .tenantId(tenant.getId())
+                .userId(newUser.getId())
+                .farmId(newFarm.getId())
+                .grantedAt(Instant.now())
+                .build());
+
+        farmMemberRepository.save(FarmMember.builder()
+                .tenantId(tenant.getId())
+                .farmId(newFarm.getId())
+                .userId(newUser.getId())
+                .roleId(ownerRole.getId())
+                .allBarns(true)
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build());
+
+        // Mặc định các dịch vụ mở rộng (như BRANCHES) ở trạng thái chưa kích hoạt (INACTIVE, isEnabled = false)
+        // để chủ trang trại có thể trải nghiệm luồng mua và kích hoạt qua VNPAY Sandbox
+        farmAddOnSubscriptionRepository.save(FarmAddOnSubscription.builder()
+                .tenantId(tenant.getId())
+                .farmId(newFarm.getId())
+                .addonCode("BRANCHES")
+                .status("INACTIVE")
+                .createdAt(Instant.now())
+                .updatedAt(Instant.now())
+                .build());
+
+        log.info("Đăng ký thành công chủ trang trại mới: UserID={}, FarmID={}, TenantID={}, BranchID={}",
+                newUser.getId(), newFarm.getId(), tenant.getId(), defaultBranch.getId());
+
+        // 9. Sinh JWT và trả về phiên đăng nhập tự động
+        UserInfoDto userInfo = buildUserInfoDto(newUser);
+        CustomUserDetails userDetails = buildUserDetails(newUser, userInfo);
+        String accessToken = jwtTokenProvider.generateAccessToken(userDetails);
+
+        String refreshTokenStr = UUID.randomUUID().toString();
+        RefreshToken refreshToken = RefreshToken.builder()
+                .userId(newUser.getId())
+                .token(refreshTokenStr)
+                .expiresAt(Instant.now().plusSeconds(7 * 24 * 3600))
+                .revoked(false)
+                .createdAt(Instant.now())
+                .createdByIp(getClientIp(httpRequest))
+                .userAgent(httpRequest.getHeader("User-Agent"))
+                .build();
+        refreshTokenRepository.save(refreshToken);
+
+        setRefreshTokenCookie(httpResponse, refreshTokenStr, 7 * 24 * 3600);
+
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(refreshTokenStr)
+                .tokenType("Bearer")
+                .expiresIn(1800L)
+                .mustChangePassword(false)
+                .userInfo(userInfo)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void forgotPasswordWithOtp(com.farm.saas.modules.auth.dto.request.ForgotPasswordWithOtpRequest request) {
+        String identifier = request.getIdentifier().trim();
+        if (identifier.contains("@") && !identifier.toLowerCase().endsWith("@gmail.com")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_EMAIL_DOMAIN", "Email bắt buộc phải có định dạng @gmail.com (ví dụ: user@gmail.com)");
+        }
+        String otpCode = request.getOtpCode().trim();
+
+        User user = userRepository.findByEmail(identifier)
+                .or(() -> userRepository.findByPhone(identifier))
+                .or(() -> userRepository.findByUsername(identifier))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "Không tìm thấy người dùng với thông tin đã cung cấp."));
+
+        com.farm.saas.modules.auth.entity.EmailVerificationOtp otp = emailVerificationOtpRepository
+                .findTopByEmailAndOtpCodeAndOtpTypeAndIsUsedFalseAndExpiresAtAfter(user.getEmail(), otpCode, "FORGOT_PASSWORD", Instant.now())
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "INVALID_OTP", "Mã xác thực OTP không chính xác hoặc đã hết hạn."));
+
+        otp.setIsUsed(true);
+        emailVerificationOtpRepository.save(otp);
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setFailedLogins(0);
+        user.setLockUntil(null);
+        user.setUpdatedAt(Instant.now());
+        userRepository.save(user);
+
+        log.info("Đặt lại mật khẩu thành công cho người dùng: ID={}, Email={}", user.getId(), user.getEmail());
     }
 }

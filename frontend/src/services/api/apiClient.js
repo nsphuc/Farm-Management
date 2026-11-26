@@ -52,9 +52,35 @@ const processQueue = (error, token = null) => {
  */
 apiClient.interceptors.request.use(
   (config) => {
+    if (config.url && config.url.startsWith('/api/v1/')) {
+      config.url = config.url.substring('/api/v1'.length);
+    }
+
     const token = useAuthStore.getState().accessToken;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // Branch Data Isolation: Tự động đính kèm Header X-Branch-Id và Query Param branchId
+    let activeBranchId = null;
+    if (typeof window !== 'undefined') {
+      try {
+        if (window.__useActiveBranchStore) {
+          activeBranchId = window.__useActiveBranchStore.getState().currentBranchId;
+        }
+        if (!activeBranchId) {
+          const urlParam = new URLSearchParams(window.location.search).get('branchId');
+          activeBranchId = urlParam || localStorage.getItem('farmgo_active_branch_id');
+        }
+      } catch (err) {
+        // safe ignore
+      }
+    }
+    if (activeBranchId !== null && activeBranchId !== undefined && activeBranchId !== '') {
+      config.headers['X-Branch-Id'] = String(activeBranchId);
+      if (config.method?.toLowerCase() === 'get' && activeBranchId !== 'ALL' && config.params?.branchId === undefined) {
+        config.params = { ...config.params, branchId: activeBranchId };
+      }
     }
 
     // Idempotency key for mutating requests
